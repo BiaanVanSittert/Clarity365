@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Tenant, TenantSecuritySnapshot } from "@/lib/types";
-import { ChevronDown, Plus, Trash2, Search, Settings, RefreshCw, Shield, Check, Globe, Server } from "lucide-react";
+import { ChevronDown, Plus, Trash2, Search, Settings, RefreshCw, ShieldCheck, Check, Globe, Server } from "lucide-react";
 import { StatusPill } from "../common/StatusPill";
 
 interface HeaderProps {
@@ -12,6 +12,7 @@ interface HeaderProps {
   onOpenDeleteTenant: () => void;
   onOpenSettings: () => void;
   onOpenSearch: () => void;
+  onOpenPermissions: () => void;
   onRefresh: () => void;
   isRefreshing: boolean;
 }
@@ -25,6 +26,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenDeleteTenant,
   onOpenSettings,
   onOpenSearch,
+  onOpenPermissions,
   onRefresh,
   isRefreshing,
 }) => {
@@ -163,7 +165,7 @@ export const Header: React.FC<HeaderProps> = ({
         )}
       </div>
 
-      {/* Right: Quick Search, Refresh, Settings */}
+      {/* Right: Quick Search, Permissions Check, Refresh, Settings */}
       <div className="flex items-center gap-2">
         {/* Quick Search trigger */}
         <button
@@ -177,14 +179,27 @@ export const Header: React.FC<HeaderProps> = ({
           </kbd>
         </button>
 
-        {/* Refresh button */}
+        {/* Permissions check button */}
+        {activeTenant && (
+          <button
+            onClick={onOpenPermissions}
+            title="Confirm Azure App Registration Permissions"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-[#CBD5E1] bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-sm transition-colors"
+          >
+            <ShieldCheck size={14} className="text-indigo-600" />
+            <span className="hidden md:inline">Permissions</span>
+          </button>
+        )}
+
+        {/* Refresh / Resync button */}
         <button
           onClick={onRefresh}
           disabled={isRefreshing}
-          title="Force telemetry sync"
-          className="p-1.5 text-slate-500 hover:text-slate-900 border border-[#CBD5E1] bg-white hover:bg-slate-50 rounded-sm transition-colors disabled:opacity-50"
+          title="Force telemetry sync from Microsoft Graph"
+          className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-[#CBD5E1] bg-white hover:bg-slate-50 text-slate-700 font-medium rounded-sm transition-colors disabled:opacity-50"
         >
-          <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
+          <RefreshCw size={13} className={isRefreshing ? "animate-spin text-emerald-600" : "text-slate-500"} />
+          <span className="hidden lg:inline">{isRefreshing ? "Syncing..." : "Sync Tenant"}</span>
         </button>
 
         {/* Top-Right Settings (Gear Icon) */}
