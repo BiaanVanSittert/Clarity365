@@ -64,7 +64,7 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       scope: "Application",
       description: "Create and update Conditional Access policies in Report-Only or Enforced mode.",
       endpoint: "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
-      requiredFor: "Automated CA Baseline Deployment Scripts & Remediation",
+      requiredFor: "Direct In-App CA Auto-Deployment & Baseline Remediation",
     },
     {
       permission: "User.Read.All",
@@ -158,6 +158,195 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
   };
 }
 
+export function buildGraphCaPolicyPayload(code: string, domain: string) {
+  switch (code) {
+    case "CA01":
+      return {
+        displayName: "CA01: Block legacy authentication",
+        state: "enabledForReportingButNotEnforced",
+        conditions: {
+          users: { includeUsers: ["All"], excludeUsers: [] },
+          applications: { includeApplications: ["All"] },
+          clientAppTypes: ["exchangeActiveSync", "otherClients"],
+        },
+        grantControls: { operator: "OR", builtInControls: ["block"] },
+      };
+    case "CA02":
+      return {
+        displayName: "CA02: Require multifactor authentication for all users",
+        state: "enabledForReportingButNotEnforced",
+        conditions: {
+          users: { includeUsers: ["All"], excludeUsers: ["GuestsOrExternalUsers"] },
+          applications: { includeApplications: ["All"] },
+          clientAppTypes: ["all"],
+        },
+        grantControls: { operator: "OR", builtInControls: ["mfa"] },
+      };
+    case "CA03":
+      return {
+        displayName: "CA03: Require multifactor authentication for admins",
+        state: "enabledForReportingButNotEnforced",
+        conditions: {
+          users: {
+            includeRoles: [
+              "62e90394-69f5-4237-9190-012177145e10", // Global Administrator
+              "f28a1f50-f6e7-4571-817b-6a15e2e66ad5", // Security Administrator
+              "2923200f-7827-46a4-baa5-010e67f0a12f", // Exchange Administrator
+              "b1b438e4-250e-4507-a901-57041e44d673", // SharePoint Administrator
+              "e8611ab8-c189-46e8-94e1-60213ab1f814", // Privileged Role Administrator
+              "7be44c8a-a50e-44d4-aa94-712854cd42c2", // Conditional Access Administrator
+            ],
+            excludeUsers: [],
+          },
+          applications: { includeApplications: ["All"] },
+          clientAppTypes: ["all"],
+        },
+        grantControls: { operator: "OR", builtInControls: ["mfa"] },
+      };
+    case "CA04":
+      return {
+        displayName: "CA04: Require multifactor authentication for guest access",
+        state: "enabledForReportingButNotEnforced",
+        conditions: {
+          users: { includeUsers: ["GuestsOrExternalUsers"], excludeUsers: [] },
+          applications: { includeApplications: ["All"] },
+          clientAppTypes: ["all"],
+        },
+        grantControls: { operator: "OR", builtInControls: ["mfa"] },
+      };
+    case "CA05":
+      return {
+        displayName: "CA05: Require multifactor authentication for Azure management",
+        state: "enabledForReportingButNotEnforced",
+        conditions: {
+          users: { includeUsers: ["All"], excludeUsers: [] },
+          applications: { includeApplications: ["797f3427-79cd-4827-8132-47d473d450e4"] },
+          clientAppTypes: ["all"],
+        },
+        grantControls: { operator: "OR", builtInControls: ["mfa"] },
+      };
+    case "CA06":
+      return {
+        displayName: "CA06: Require multifactor authentication for risky sign-ins",
+        state: "enabledForReportingButNotEnforced",
+        conditions: {
+          users: { includeUsers: ["All"], excludeUsers: [] },
+          applications: { includeApplications: ["All"] },
+          clientAppTypes: ["all"],
+          signInRiskLevels: ["medium", "high"],
+        },
+        grantControls: { operator: "OR", builtInControls: ["mfa"] },
+      };
+    case "CA07":
+      return {
+        displayName: "CA07: Require risk remediation for high-risk users",
+        state: "enabledForReportingButNotEnforced",
+        conditions: {
+          users: { includeUsers: ["All"], excludeUsers: [] },
+          applications: { includeApplications: ["All"] },
+          clientAppTypes: ["all"],
+          userRiskLevels: ["high"],
+        },
+        grantControls: { operator: "AND", builtInControls: ["mfa", "passwordChange"] },
+      };
+    case "CA08":
+      return {
+        displayName: "CA08: Block Access from Untrusted Countries",
+        state: "enabledForReportingButNotEnforced",
+        conditions: {
+          users: { includeUsers: ["All"], excludeUsers: [] },
+          applications: { includeApplications: ["All"] },
+          clientAppTypes: ["all"],
+          locations: { includeLocations: ["All"], excludeLocations: ["AllTrusted"] },
+        },
+        grantControls: { operator: "OR", builtInControls: ["block"] },
+      };
+    case "CA09":
+      return {
+        displayName: "CA09: Require MDM-enrolled and compliant device to access cloud apps for all users",
+        state: "enabledForReportingButNotEnforced",
+        conditions: {
+          users: { includeUsers: ["All"], excludeUsers: [] },
+          applications: { includeApplications: ["All"] },
+          clientAppTypes: ["all"],
+          platforms: { includePlatforms: ["windows", "macOS", "iOS", "android"] },
+        },
+        grantControls: { operator: "OR", builtInControls: ["compliantDevice", "domainJoinedDevice"] },
+      };
+    case "CA10":
+      return {
+        displayName: "CA10: Require phishing-resistant multifactor authentication for admins",
+        state: "enabledForReportingButNotEnforced",
+        conditions: {
+          users: {
+            includeRoles: [
+              "62e90394-69f5-4237-9190-012177145e10",
+              "f28a1f50-f6e7-4571-817b-6a15e2e66ad5",
+              "2923200f-7827-46a4-baa5-010e67f0a12f",
+              "e8611ab8-c189-46e8-94e1-60213ab1f814",
+            ],
+            excludeUsers: [],
+          },
+          applications: { includeApplications: ["All"] },
+          clientAppTypes: ["all"],
+        },
+        grantControls: {
+          operator: "OR",
+          authenticationStrength: { id: "00000000-0000-0000-0000-000000000004" },
+        },
+      };
+    default:
+      throw new Error(`Unsupported baseline standard code: ${code}`);
+  }
+}
+
+export async function deployConditionalAccessPolicy(
+  tenant: Tenant,
+  baselineCode: string
+): Promise<{ success: boolean; policy?: any; error?: string }> {
+  if (tenant.credentials.authMode === "mock") {
+    const baselineDef = CA_BASELINE_STANDARDS.find((b) => b.code === baselineCode);
+    const mockPolicy = {
+      id: `ca-pol-${tenant.id}-${baselineCode.toLowerCase()}`,
+      displayName: `${baselineCode}: ${baselineDef?.name || "Baseline Policy"}`,
+      state: "enabledForReportingButNotEnforced",
+      createdDateTime: new Date().toISOString(),
+      modifiedDateTime: new Date().toISOString(),
+    };
+    return { success: true, policy: mockPolicy };
+  }
+
+  const { token, error } = await getGraphAccessToken(tenant.credentials);
+  if (error || !token) {
+    return { success: false, error: `Authentication Error: ${error}` };
+  }
+
+  const payload = buildGraphCaPolicyPayload(baselineCode, tenant.defaultDomainName);
+
+  try {
+    const res = await fetch("https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      return {
+        success: false,
+        error: data?.error?.message || `Failed to create policy in Microsoft Graph (HTTP ${res.status}: ${res.statusText})`,
+      };
+    }
+
+    return { success: true, policy: data };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error while connecting to Microsoft Graph." };
+  }
+}
+
 export async function fetchLiveTenantSnapshot(
   tenant: Tenant,
   existingSnapshot?: TenantSecuritySnapshot
@@ -181,13 +370,11 @@ export async function fetchLiveTenantSnapshot(
       const caData = await caRes.json();
       if (caData.value && Array.isArray(caData.value)) {
         livePolicies = caData.value.map((p: any) => {
-          // Detect baseline code via regex e.g. "CA01", "CA02", etc.
           const match = p.displayName.match(/CA(0[1-9]|10)/i);
           let detectedCode: string | null = null;
           if (match) {
             detectedCode = `CA${match[1]}`;
           } else {
-            // Keyword matching fallback
             const lower = p.displayName.toLowerCase();
             if (lower.includes("legacy")) detectedCode = "CA01";
             else if (lower.includes("mfa") && lower.includes("all users")) detectedCode = "CA02";
