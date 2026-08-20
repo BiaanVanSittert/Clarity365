@@ -240,6 +240,7 @@ export const AppShell: React.FC = () => {
             <ConditionalAccessModule
               snapshot={snapshot}
               onOpenRemediation={handleOpenRemediation}
+              onRefresh={handleForceSync}
             />
           )}
 
