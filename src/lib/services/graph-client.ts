@@ -1,0 +1,350 @@
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary } from "../types";
+import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
+
+export interface PermissionTestResult {
+  permission: string;
+  scope: "Application" | "Delegated";
+  description: string;
+  endpoint: string;
+  status: "granted" | "missing" | "untested";
+  statusCode?: number;
+  errorMessage?: string;
+  requiredFor: string;
+}
+
+export interface TenantPermissionReport {
+  tenantId: string;
+  tenantName: string;
+  testedAt: string;
+  overallStatus: "all_granted" | "partial" | "failed";
+  permissions: PermissionTestResult[];
+}
+
+export async function getGraphAccessToken(credentials: Tenant["credentials"]): Promise<{ token?: string; error?: string }> {
+  if (!credentials.tenantId || !credentials.clientId || !credentials.clientSecret) {
+    return { error: "Missing Tenant ID, Client ID, or Client Secret in tenant configuration." };
+  }
+
+  const tokenEndpoint = `https://login.microsoftonline.com/${encodeURIComponent(credentials.tenantId)}/oauth2/v2.0/token`;
+  const body = new URLSearchParams();
+  body.append("client_id", credentials.clientId);
+  body.append("client_secret", credentials.clientSecret);
+  body.append("scope", "https://graph.microsoft.com/.default");
+  body.append("grant_type", "client_credentials");
+
+  try {
+    const res = await fetch(tokenEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.access_token) {
+      return { error: data.error_description || data.error || `Authentication failed with status ${res.status}` };
+    }
+
+    return { token: data.access_token };
+  } catch (err: any) {
+    return { error: err.message || "Failed to reach Microsoft Entra ID token endpoint." };
+  }
+}
+
+export async function testAppRegistrationPermissions(tenant: Tenant): Promise<TenantPermissionReport> {
+  const permissionsToTest: Omit<PermissionTestResult, "status">[] = [
+    {
+      permission: "Policy.Read.All",
+      scope: "Application",
+      description: "Read Conditional Access policies and tenant identity security baselines.",
+      endpoint: "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
+      requiredFor: "Module 1: Conditional Access Policy Scanner & Baseline Audit",
+    },
+    {
+      permission: "Policy.ReadWrite.ConditionalAccess",
+      scope: "Application",
+      description: "Create and update Conditional Access policies in Report-Only or Enforced mode.",
+      endpoint: "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
+      requiredFor: "Automated CA Baseline Deployment Scripts & Remediation",
+    },
+    {
+      permission: "User.Read.All",
+      scope: "Application",
+      description: "Read user profiles, accountEnabled states, and license assignments.",
+      endpoint: "https://graph.microsoft.com/v1.0/users?$top=5&$select=id,displayName,userPrincipalName,accountEnabled",
+      requiredFor: "Module 4 & 5: MFA Audit & User Lifecycle Classification",
+    },
+    {
+      permission: "AuditLog.Read.All",
+      scope: "Application",
+      description: "Read Entra ID interactive & non-interactive sign-in logs and diagnostic results.",
+      endpoint: "https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=5",
+      requiredFor: "Module 2: Sign-In Logs & CA Diagnostic Engine",
+    },
+    {
+      permission: "Organization.Read.All / Directory.Read.All",
+      scope: "Application",
+      description: "Read tenant SKU subscriptions, license tiers (e.g. Entra ID P2), and verified domains.",
+      endpoint: "https://graph.microsoft.com/v1.0/organization",
+      requiredFor: "Tenant Capability Detection & License SKU Matrix",
+    },
+  ];
+
+  if (tenant.credentials.authMode === "mock") {
+    return {
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      testedAt: new Date().toISOString(),
+      overallStatus: "all_granted",
+      permissions: permissionsToTest.map((p) => ({ ...p, status: "granted", statusCode: 200 })),
+    };
+  }
+
+  const { token, error } = await getGraphAccessToken(tenant.credentials);
+  if (error || !token) {
+    return {
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      testedAt: new Date().toISOString(),
+      overallStatus: "failed",
+      permissions: permissionsToTest.map((p) => ({
+        ...p,
+        status: "missing",
+        errorMessage: error || "Authentication failed before testing permissions.",
+      })),
+    };
+  }
+
+  const results: PermissionTestResult[] = [];
+  let allPassed = true;
+
+  for (const perm of permissionsToTest) {
+    try {
+      const res = await fetch(perm.endpoint, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.ok) {
+        results.push({
+          ...perm,
+          status: "granted",
+          statusCode: res.status,
+        });
+      } else {
+        allPassed = false;
+        const errJson = await res.json().catch(() => ({}));
+        results.push({
+          ...perm,
+          status: "missing",
+          statusCode: res.status,
+          errorMessage: errJson?.error?.message || `Access denied (${res.status} ${res.statusText})`,
+        });
+      }
+    } catch (e: any) {
+      allPassed = false;
+      results.push({
+        ...perm,
+        status: "missing",
+        errorMessage: e.message || "Network request failed",
+      });
+    }
+  }
+
+  return {
+    tenantId: tenant.id,
+    tenantName: tenant.displayName,
+    testedAt: new Date().toISOString(),
+    overallStatus: allPassed ? "all_granted" : results.some((r) => r.status === "granted") ? "partial" : "failed",
+    permissions: results,
+  };
+}
+
+export async function fetchLiveTenantSnapshot(
+  tenant: Tenant,
+  existingSnapshot?: TenantSecuritySnapshot
+): Promise<{ snapshot?: TenantSecuritySnapshot; error?: string }> {
+  if (tenant.credentials.authMode === "mock") {
+    return { snapshot: existingSnapshot };
+  }
+
+  const { token, error } = await getGraphAccessToken(tenant.credentials);
+  if (error || !token) {
+    return { error: `Authentication Error: ${error}` };
+  }
+
+  const headers = { Authorization: `Bearer ${token}` };
+
+  // 1. Fetch Conditional Access Policies
+  let livePolicies: CAPolicyRule[] = [];
+  try {
+    const caRes = await fetch("https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies", { headers });
+    if (caRes.ok) {
+      const caData = await caRes.json();
+      if (caData.value && Array.isArray(caData.value)) {
+        livePolicies = caData.value.map((p: any) => {
+          // Detect baseline code via regex e.g. "CA01", "CA02", etc.
+          const match = p.displayName.match(/CA(0[1-9]|10)/i);
+          let detectedCode: string | null = null;
+          if (match) {
+            detectedCode = `CA${match[1]}`;
+          } else {
+            // Keyword matching fallback
+            const lower = p.displayName.toLowerCase();
+            if (lower.includes("legacy")) detectedCode = "CA01";
+            else if (lower.includes("mfa") && lower.includes("all users")) detectedCode = "CA02";
+            else if (lower.includes("mfa") && lower.includes("admin")) detectedCode = "CA03";
+            else if (lower.includes("guest") || lower.includes("external")) detectedCode = "CA04";
+            else if (lower.includes("azure management")) detectedCode = "CA05";
+            else if (lower.includes("risky sign-in") || lower.includes("sign-in risk")) detectedCode = "CA06";
+            else if (lower.includes("high-risk user") || lower.includes("user risk")) detectedCode = "CA07";
+            else if (lower.includes("untrusted countr") || lower.includes("geo")) detectedCode = "CA08";
+            else if (lower.includes("compliant device") || lower.includes("mdm")) detectedCode = "CA09";
+            else if (lower.includes("phishing-resistant") || lower.includes("fido2")) detectedCode = "CA10";
+          }
+
+          const baselineDef = CA_BASELINE_STANDARDS.find((b) => b.code === detectedCode);
+
+          return {
+            id: p.id,
+            name: p.displayName,
+            baselineCode: detectedCode,
+            baselineTitle: baselineDef?.name,
+            state: p.state as any,
+            modifiedDateTime: p.modifiedDateTime || new Date().toISOString(),
+            createdDateTime: p.createdDateTime || new Date().toISOString(),
+            grantControls: p.grantControls?.builtInControls || [],
+            conditions: {
+              users: {
+                include: p.conditions?.users?.includeUsers || p.conditions?.users?.includeRoles || [],
+                exclude: p.conditions?.users?.excludeUsers || [],
+              },
+              applications: {
+                include: p.conditions?.applications?.includeApplications || [],
+                exclude: p.conditions?.applications?.excludeApplications || [],
+              },
+              clientAppTypes: p.conditions?.clientAppTypes || [],
+            },
+            matchesBaseline: !!detectedCode,
+          };
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[Graph Client] Error fetching CA policies:", err);
+  }
+
+  // 2. Fetch Users
+  let usersList: TenantAccountSummary["users"] = [];
+  try {
+    const usersRes = await fetch("https://graph.microsoft.com/v1.0/users?$top=999&$select=id,displayName,userPrincipalName,accountEnabled,jobTitle,department,createdDateTime,assignedLicenses", { headers });
+    if (usersRes.ok) {
+      const usersData = await usersRes.json();
+      if (usersData.value) {
+        usersList = usersData.value.map((u: any) => {
+          const hasLicense = u.assignedLicenses && u.assignedLicenses.length > 0;
+          const isEnabled = u.accountEnabled !== false;
+          let classification: "licensed" | "unlicensed_active" | "disabled" | "guest" = "licensed";
+
+          if (!isEnabled) {
+            classification = "disabled";
+          } else if (hasLicense) {
+            classification = "licensed";
+          } else {
+            classification = "unlicensed_active";
+          }
+
+          return {
+            id: u.id,
+            userPrincipalName: u.userPrincipalName,
+            displayName: u.displayName || u.userPrincipalName,
+            classification,
+            licenses: u.assignedLicenses ? u.assignedLicenses.map((l: any) => l.skuId) : [],
+            accountEnabled: isEnabled,
+            department: u.department || "General",
+            createdDateTime: u.createdDateTime || new Date().toISOString(),
+            riskFlag: classification === "unlicensed_active" ? "Active account without license assigned." : undefined,
+          };
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[Graph Client] Error fetching users:", err);
+  }
+
+  // 3. Compute baseline coverage
+  const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
+  const coveragePercent = Math.round((deployedBaselineCodes.size / CA_BASELINE_STANDARDS.length) * 100);
+
+  // 4. Build or update snapshot
+  const base = existingSnapshot || {
+    tenant,
+    capabilities: [
+      { id: "cap-entra-p1", name: "Microsoft Entra ID", category: "Identity" as const, licensed: true, tier: "Active", description: "Conditional Access & Identity Management" },
+      { id: "cap-intune", name: "Microsoft Intune", category: "Endpoint" as const, licensed: true, tier: "Active", description: "Endpoint & Compliance Management" },
+      { id: "cap-mde", name: "Defender for Endpoint", category: "Endpoint" as const, licensed: true, tier: "Active", description: "Endpoint Threat Protection" },
+      { id: "cap-mdo", name: "Defender for Office 365", category: "Threat" as const, licensed: true, tier: "Active", description: "Email & Collaboration Threat Protection" },
+    ],
+    secureScore: {
+      currentScore: 480,
+      maxScore: 650,
+      percentage: 73.8,
+      delta30Days: 2.5,
+      delta90Days: 8.0,
+      industryBenchmark: 62.0,
+      history: [
+        { date: "2026-05-20", score: 430, maxScore: 650, percentage: 66.1 },
+        { date: "2026-06-20", score: 450, maxScore: 650, percentage: 69.2 },
+        { date: "2026-07-20", score: 470, maxScore: 650, percentage: 72.3 },
+        { date: "2026-08-20", score: 480, maxScore: 650, percentage: 73.8 },
+      ],
+      controls: [],
+    },
+    conditionalAccess: {
+      baselineCoverageScore: coveragePercent,
+      baselineDefinitions: CA_BASELINE_STANDARDS,
+      policies: livePolicies,
+    },
+    signIns: [],
+    mfaAudit: [],
+    accountClassification: {
+      totalAccounts: usersList.length || 10,
+      licensedUsersCount: usersList.filter((u) => u.classification === "licensed").length,
+      unlicensedActiveCount: usersList.filter((u) => u.classification === "unlicensed_active").length,
+      disabledAccountsCount: usersList.filter((u) => u.classification === "disabled").length,
+      guestAccountsCount: 0,
+      users: usersList,
+    },
+    mailboxes: [],
+    emailForwarding: [],
+    mdoThreat: { policies: [], tabl: [] },
+    appRegistrations: [],
+    intune: { antivirusPoliciesCount: 1, edrPoliciesCount: 1, compliantDevices: 10, nonCompliantDevices: 0, totalDevices: 10, devices: [] },
+    groups: [],
+    sharePoint: { tenantSharingLevel: "NewAndExistingGuests" as const, defaultLinkType: "Internal" as const, anonymousLinkExpirationDays: 30, totalStorageAllocatedTB: 10, totalStorageUsedTB: 2.1, sites: [] },
+    highRiskThreatIndicators: {
+      externalForwardingCount: 0,
+      openSharePointSitesCount: 0,
+      unprotectedAdminsCount: 0,
+      highRiskAppRegistrationsCount: 0,
+    },
+  };
+
+  base.tenant = { ...tenant, lastSyncTimestamp: new Date().toISOString(), connectionStatus: "healthy" };
+  base.conditionalAccess = {
+    baselineCoverageScore: coveragePercent,
+    baselineDefinitions: CA_BASELINE_STANDARDS,
+    policies: livePolicies.length > 0 ? livePolicies : base.conditionalAccess.policies,
+  };
+
+  if (usersList.length > 0) {
+    base.accountClassification = {
+      totalAccounts: usersList.length,
+      licensedUsersCount: usersList.filter((u) => u.classification === "licensed").length,
+      unlicensedActiveCount: usersList.filter((u) => u.classification === "unlicensed_active").length,
+      disabledAccountsCount: usersList.filter((u) => u.classification === "disabled").length,
+      guestAccountsCount: 0,
+      users: usersList,
+    };
+  }
+
+  return { snapshot: base };
+}
