@@ -190,11 +190,12 @@ export function buildGraphCaPolicyPayload(code: string, domain: string) {
           users: {
             includeRoles: [
               "62e90394-69f5-4237-9190-012177145e10", // Global Administrator
-              "f28a1f50-f6e7-4571-817b-6a15e2e66ad5", // Security Administrator
-              "2923200f-7827-46a4-baa5-010e67f0a12f", // Exchange Administrator
-              "b1b438e4-250e-4507-a901-57041e44d673", // SharePoint Administrator
               "e8611ab8-c189-46e8-94e1-60213ab1f814", // Privileged Role Administrator
-              "7be44c8a-a50e-44d4-aa94-712854cd42c2", // Conditional Access Administrator
+              "194ae4cb-b126-40b2-bd5b-6091b380977d", // Security Administrator
+              "9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3", // Application Administrator
+              "729827e3-9c14-49f7-bb1b-9608f156bbb8", // Helpdesk Administrator
+              "966707d0-3269-4727-9be2-8c3a10f19b9d", // User Administrator
+              "c4e39bd9-1100-46d3-8c65-fb160da0071f", // Authentication Administrator
             ],
             excludeUsers: [],
           },
@@ -280,10 +281,12 @@ export function buildGraphCaPolicyPayload(code: string, domain: string) {
         conditions: {
           users: {
             includeRoles: [
-              "62e90394-69f5-4237-9190-012177145e10",
-              "f28a1f50-f6e7-4571-817b-6a15e2e66ad5",
-              "2923200f-7827-46a4-baa5-010e67f0a12f",
-              "e8611ab8-c189-46e8-94e1-60213ab1f814",
+              "62e90394-69f5-4237-9190-012177145e10", // Global Administrator
+              "e8611ab8-c189-46e8-94e1-60213ab1f814", // Privileged Role Administrator
+              "194ae4cb-b126-40b2-bd5b-6091b380977d", // Security Administrator
+              "9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3", // Application Administrator
+              "966707d0-3269-4727-9be2-8c3a10f19b9d", // User Administrator
+              "c4e39bd9-1100-46d3-8c65-fb160da0071f", // Authentication Administrator
             ],
             excludeUsers: [],
           },
