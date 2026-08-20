@@ -109,7 +109,7 @@ export const AppShell: React.FC = () => {
         await fetchTenants();
         setSyncToast({
           show: true,
-          message: `✓ Synchronization complete for ${tenantName}. Live Conditional Access policies and telemetry updated.`,
+          message: `Synchronization complete for ${tenantName}. Live Conditional Access policies and telemetry updated at ${new Date().toLocaleTimeString()}.`,
           type: "success",
         });
       } else {
@@ -129,7 +129,7 @@ export const AppShell: React.FC = () => {
       setIsRefreshing(false);
       setTimeout(() => {
         setSyncToast((prev) => (prev?.type === "success" ? null : prev));
-      }, 4500);
+      }, 60000); // 60 seconds persistence or manual dismissal
     }
   };
 
@@ -198,13 +198,21 @@ export const AppShell: React.FC = () => {
             {syncToast.type === "error" && <AlertTriangle size={14} className="text-rose-600" />}
             <span>{syncToast.message}</span>
           </div>
-          <button
-            onClick={() => setSyncToast(null)}
-            className="p-1 hover:opacity-75 transition-opacity"
-            title="Dismiss notification"
-          >
-            <X size={13} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSyncToast(null)}
+              className="px-2 py-0.5 text-[11px] font-medium border border-current rounded-sm opacity-80 hover:opacity-100 transition-opacity"
+            >
+              Dismiss
+            </button>
+            <button
+              onClick={() => setSyncToast(null)}
+              className="p-1 hover:opacity-75 transition-opacity"
+              title="Dismiss notification"
+            >
+              <X size={13} />
+            </button>
+          </div>
         </div>
       )}
 
