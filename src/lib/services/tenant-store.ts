@@ -3,6 +3,7 @@ import path from "path";
 import { Tenant, TenantSecuritySnapshot, SystemSettings } from "../types";
 import { INITIAL_TENANTS, MOCK_TENANT_DATA } from "../data/mock-tenants";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
+import { fetchLiveTenantSnapshot, testAppRegistrationPermissions, TenantPermissionReport } from "./graph-client";
 
 // Persistent disk + in-memory store for multi-tenant configurations and snapshots
 class TenantStore {
@@ -110,6 +111,25 @@ class TenantStore {
       this.saveToDisk();
     }
     return snapshot;
+  }
+
+  public async syncTenant(tenantId: string): Promise<TenantSecuritySnapshot | undefined> {
+    const tenant = this.getTenant(tenantId);
+    if (!tenant) return undefined;
+    const existing = this.snapshots.get(tenantId);
+    const { snapshot } = await fetchLiveTenantSnapshot(tenant, existing);
+    if (snapshot) {
+      this.snapshots.set(tenantId, snapshot);
+      this.saveToDisk();
+      return snapshot;
+    }
+    return existing;
+  }
+
+  public async testPermissions(tenantId: string): Promise<TenantPermissionReport | null> {
+    const tenant = this.getTenant(tenantId);
+    if (!tenant) return null;
+    return await testAppRegistrationPermissions(tenant);
   }
 
   public addTenant(tenantData: Partial<Tenant>): Tenant {
