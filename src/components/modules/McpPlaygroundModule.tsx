@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
-import { MCP_TOOL_DEFINITIONS } from "@/lib/mcp/engine";
+import { MCP_TOOL_DEFINITIONS } from "@/lib/mcp/definitions";
 import { Cpu, Play, Terminal, Check, Copy, Code, Layers } from "lucide-react";
 
 interface McpPlaygroundModuleProps {

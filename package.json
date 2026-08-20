@@ -5,6 +5,8 @@
   "description": "Multi-Tenant M365 IRM & Security Posture Suite for MSPs & Enterprise IT",
   "scripts": {
     "dev": "next dev -H 127.0.0.1 -p 3000",
+    "stop": "node scripts/stop.js",
+    "restart": "node scripts/stop.js && next dev -H 127.0.0.1 -p 3000",
     "build": "next build",
     "start": "next start -H 127.0.0.1 -p 3000",
     "lint": "next lint",

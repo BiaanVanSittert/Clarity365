@@ -1,8 +1,10 @@
+import fs from "fs";
+import path from "path";
 import { Tenant, TenantSecuritySnapshot, SystemSettings } from "../types";
 import { INITIAL_TENANTS, MOCK_TENANT_DATA } from "../data/mock-tenants";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 
-// In-memory runtime store for server-side operations
+// Persistent disk + in-memory store for multi-tenant configurations and snapshots
 class TenantStore {
   private tenants: Map<string, Tenant> = new Map();
   private snapshots: Map<string, TenantSecuritySnapshot> = new Map();
@@ -17,7 +19,68 @@ class TenantStore {
   };
 
   constructor() {
+    this.loadFromDisk();
+  }
+
+  private getStorePath(): string {
+    return path.join(process.cwd(), "data", "clarity-store.json");
+  }
+
+  private loadFromDisk() {
+    try {
+      const storePath = this.getStorePath();
+      if (fs.existsSync(storePath)) {
+        const raw = fs.readFileSync(storePath, "utf-8");
+        const parsed = JSON.parse(raw);
+        if (parsed.tenants && Array.isArray(parsed.tenants)) {
+          parsed.tenants.forEach((t: Tenant) => this.tenants.set(t.id, t));
+        }
+        if (parsed.snapshots && typeof parsed.snapshots === "object") {
+          Object.entries(parsed.snapshots).forEach(([k, v]) => {
+            this.snapshots.set(k, v as TenantSecuritySnapshot);
+          });
+        }
+        if (parsed.settings) {
+          this.settings = { ...this.settings, ...parsed.settings };
+        }
+        // If loaded existing data successfully, ensure all tenants have snapshots
+        this.tenants.forEach((t) => {
+          if (!this.snapshots.has(t.id)) {
+            if (MOCK_TENANT_DATA[t.id]) {
+              this.snapshots.set(t.id, { ...MOCK_TENANT_DATA[t.id] });
+            } else {
+              this.snapshots.set(t.id, this.generateBlankSnapshot(t));
+            }
+          }
+        });
+        return;
+      }
+    } catch (err) {
+      console.error("[Clarity365 Store] Error reading persistence store from disk", err);
+    }
+
+    // Default initialization when no disk file exists
     this.seedDefaults();
+    this.saveToDisk();
+  }
+
+  private saveToDisk() {
+    try {
+      const storePath = this.getStorePath();
+      const dataDir = path.dirname(storePath);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      const payload = {
+        tenants: Array.from(this.tenants.values()),
+        snapshots: Object.fromEntries(this.snapshots.entries()),
+        settings: this.settings,
+        lastSaved: new Date().toISOString(),
+      };
+      fs.writeFileSync(storePath, JSON.stringify(payload, null, 2), "utf-8");
+    } catch (err) {
+      console.error("[Clarity365 Store] Error saving store to disk", err);
+    }
   }
 
   private seedDefaults() {
@@ -44,6 +107,7 @@ class TenantStore {
       const tenant = this.tenants.get(tenantId)!;
       snapshot = this.generateBlankSnapshot(tenant);
       this.snapshots.set(tenantId, snapshot);
+      this.saveToDisk();
     }
     return snapshot;
   }
@@ -71,6 +135,7 @@ class TenantStore {
     this.tenants.set(id, newTenant);
     const snapshot = this.generateBlankSnapshot(newTenant);
     this.snapshots.set(id, snapshot);
+    this.saveToDisk();
     return newTenant;
   }
 
@@ -83,6 +148,7 @@ class TenantStore {
     if (snap) {
       snap.tenant = updated;
     }
+    this.saveToDisk();
     return updated;
   }
 
@@ -91,6 +157,7 @@ class TenantStore {
     if (exists) {
       this.tenants.delete(id);
       this.snapshots.delete(id);
+      this.saveToDisk();
     }
     return exists;
   }
@@ -104,6 +171,7 @@ class TenantStore {
       dateAdded: new Date().toISOString(),
     };
     snap.mdoThreat.tabl.unshift(newEntry);
+    this.saveToDisk();
     return newEntry;
   }
 
@@ -112,7 +180,9 @@ class TenantStore {
     if (!snap) return false;
     const initialLen = snap.mdoThreat.tabl.length;
     snap.mdoThreat.tabl = snap.mdoThreat.tabl.filter((e) => e.id !== entryId);
-    return snap.mdoThreat.tabl.length < initialLen;
+    const removed = snap.mdoThreat.tabl.length < initialLen;
+    if (removed) this.saveToDisk();
+    return removed;
   }
 
   public addGroup(tenantId: string, group: Omit<TenantSecuritySnapshot["groups"][0], "id" | "createdDateTime">) {
@@ -124,6 +194,7 @@ class TenantStore {
       createdDateTime: new Date().toISOString(),
     };
     snap.groups.unshift(newGroup);
+    this.saveToDisk();
     return newGroup;
   }
 
@@ -134,6 +205,7 @@ class TenantStore {
     const snap = this.getSnapshot(tenantId);
     if (!snap) return null;
     snap.sharePoint = { ...snap.sharePoint, ...updates };
+    this.saveToDisk();
     return snap.sharePoint;
   }
 
@@ -143,6 +215,7 @@ class TenantStore {
 
   public updateSettings(updates: Partial<SystemSettings>): SystemSettings {
     this.settings = { ...this.settings, ...updates };
+    this.saveToDisk();
     return this.settings;
   }
 
