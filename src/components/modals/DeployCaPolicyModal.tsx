@@ -83,7 +83,7 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
         onClose();
       }}
       title={`Deploy Conditional Access Baseline: ${policy.code} — ${policy.name}`}
-      maxWidth="max-w-3xl"
+      maxWidth="3xl"
     >
       <div className="space-y-4">
         {/* Success Alert */}
