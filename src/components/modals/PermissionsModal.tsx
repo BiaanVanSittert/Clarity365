@@ -49,7 +49,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={`Azure App Registration Permissions — ${tenant.displayName}`}
-      maxWidth="max-w-3xl"
+      maxWidth="3xl"
     >
       <div className="space-y-4">
         {/* Header Summary */}
