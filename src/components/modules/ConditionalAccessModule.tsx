@@ -8,11 +8,13 @@ import { ShieldCheck, Lock, Terminal, Search, Filter, ShieldAlert, Code2 } from 
 interface ConditionalAccessModuleProps {
   snapshot: TenantSecuritySnapshot;
   onOpenRemediation: (findingType?: string) => void;
+  onRefresh?: () => void;
 }
 
 export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = ({
   snapshot,
   onOpenRemediation,
+  onRefresh,
 }) => {
   const { conditionalAccess, tenant, capabilities } = snapshot;
   const [searchQuery, setSearchQuery] = useState("");
@@ -286,8 +288,11 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
         isOpen={!!deployModalPolicy}
         onClose={() => setDeployModalPolicy(null)}
         policy={deployModalPolicy}
+        tenantId={tenant.id}
+        tenantName={tenant.displayName}
         tenantDomain={tenant.defaultDomainName}
         hasEntraP2={hasEntraP2}
+        onPolicyDeployed={onRefresh}
       />
     </div>
   );
