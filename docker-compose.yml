@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+  clarity365:
+    build: .
+    container_name: clarity365-suite
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - NODE_ENV=production
+      - HOST=127.0.0.1
+      - PORT=3000
+    restart: unless-stopped
