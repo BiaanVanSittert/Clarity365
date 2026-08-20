@@ -21,9 +21,11 @@ import { McpPlaygroundModule } from "../modules/McpPlaygroundModule";
 import { AddTenantModal } from "../modals/AddTenantModal";
 import { DeleteTenantModal } from "../modals/DeleteTenantModal";
 import { SettingsModal } from "../modals/SettingsModal";
+import { PermissionsModal } from "../modals/PermissionsModal";
 import { RemediationDrawer } from "../modals/RemediationDrawer";
 import { SearchDialog } from "../common/SearchDialog";
 import { generateRemediationPlanForTenant, RemediationPlan } from "@/lib/services/remediation-generator";
+import { RefreshCw, CheckCircle, AlertTriangle, X } from "lucide-react";
 
 export const AppShell: React.FC = () => {
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -37,7 +39,15 @@ export const AppShell: React.FC = () => {
   const [isAddTenantOpen, setIsAddTenantOpen] = useState(false);
   const [isDeleteTenantOpen, setIsDeleteTenantOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isPermissionsOpen, setIsPermissionsOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  // Sync feedback toast
+  const [syncToast, setSyncToast] = useState<{
+    show: boolean;
+    message: string;
+    type: "info" | "success" | "error";
+  } | null>(null);
 
   // Remediation Drawer
   const [isRemediationOpen, setIsRemediationOpen] = useState(false);
@@ -77,6 +87,51 @@ export const AppShell: React.FC = () => {
       setIsLoading(false);
     }
   }, []);
+
+  // Force Resync from Microsoft Graph with user notification
+  const handleForceSync = async () => {
+    if (!activeTenantId) return;
+    const currentTenant = tenants.find((t) => t.id === activeTenantId);
+    const tenantName = currentTenant?.displayName || "Tenant";
+
+    setIsRefreshing(true);
+    setSyncToast({
+      show: true,
+      message: `Connecting to Microsoft Graph API and synchronizing ${tenantName}...`,
+      type: "info",
+    });
+
+    try {
+      const res = await fetch(`/api/tenants/${activeTenantId}/sync`, { method: "POST" });
+      const data = await res.json();
+      if (data.success && data.snapshot) {
+        setSnapshot(data.snapshot);
+        await fetchTenants();
+        setSyncToast({
+          show: true,
+          message: `✓ Synchronization complete for ${tenantName}. Live Conditional Access policies and telemetry updated.`,
+          type: "success",
+        });
+      } else {
+        setSyncToast({
+          show: true,
+          message: `Sync warning: ${data.error || "Could not complete live sync. Using cached snapshot."}`,
+          type: "error",
+        });
+      }
+    } catch (err: any) {
+      setSyncToast({
+        show: true,
+        message: `Sync Error: ${err.message || "Failed to reach backend sync service"}`,
+        type: "error",
+      });
+    } finally {
+      setIsRefreshing(false);
+      setTimeout(() => {
+        setSyncToast((prev) => (prev?.type === "success" ? null : prev));
+      }, 4500);
+    }
+  };
 
   useEffect(() => {
     fetchTenants();
@@ -121,9 +176,37 @@ export const AppShell: React.FC = () => {
         onOpenDeleteTenant={() => setIsDeleteTenantOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenSearch={() => setIsSearchOpen(true)}
-        onRefresh={() => activeTenantId && fetchSnapshot(activeTenantId)}
+        onOpenPermissions={() => setIsPermissionsOpen(true)}
+        onRefresh={handleForceSync}
         isRefreshing={isRefreshing}
       />
+
+      {/* Real-time Sync & Notification Toast Banner */}
+      {syncToast && syncToast.show && (
+        <div
+          className={`px-4 py-2 text-xs flex items-center justify-between border-b transition-all select-none ${
+            syncToast.type === "info"
+              ? "bg-slate-900 text-white border-slate-800"
+              : syncToast.type === "success"
+              ? "bg-emerald-50 text-emerald-900 border-emerald-300"
+              : "bg-rose-50 text-rose-900 border-rose-300"
+          }`}
+        >
+          <div className="flex items-center gap-2 font-medium">
+            {syncToast.type === "info" && <RefreshCw size={13} className="animate-spin text-emerald-400" />}
+            {syncToast.type === "success" && <CheckCircle size={14} className="text-emerald-600" />}
+            {syncToast.type === "error" && <AlertTriangle size={14} className="text-rose-600" />}
+            <span>{syncToast.message}</span>
+          </div>
+          <button
+            onClick={() => setSyncToast(null)}
+            className="p-1 hover:opacity-75 transition-opacity"
+            title="Dismiss notification"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
 
       {/* Main Layout: Fixed Sidebar + Viewport-Optimized Content Body */}
       <div className="flex flex-1 h-[calc(100vh-3rem)] overflow-hidden">
@@ -191,7 +274,7 @@ export const AppShell: React.FC = () => {
           {activeView === "mdo_tabl" && snapshot && (
             <MdoPoliciesModule
               snapshot={snapshot}
-              onRefresh={() => activeTenantId && fetchSnapshot(activeTenantId)}
+              onRefresh={handleForceSync}
             />
           )}
 
@@ -206,14 +289,14 @@ export const AppShell: React.FC = () => {
           {activeView === "groups" && snapshot && (
             <GroupsManagementModule
               snapshot={snapshot}
-              onRefresh={() => activeTenantId && fetchSnapshot(activeTenantId)}
+              onRefresh={handleForceSync}
             />
           )}
 
           {activeView === "sharepoint" && snapshot && (
             <SharePointStorageModule
               snapshot={snapshot}
-              onRefresh={() => activeTenantId && fetchSnapshot(activeTenantId)}
+              onRefresh={handleForceSync}
             />
           )}
 
@@ -241,6 +324,14 @@ export const AppShell: React.FC = () => {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
       />
+
+      {activeTenant && (
+        <PermissionsModal
+          isOpen={isPermissionsOpen}
+          onClose={() => setIsPermissionsOpen(false)}
+          tenant={activeTenant}
+        />
+      )}
 
       <SearchDialog
         isOpen={isSearchOpen}
