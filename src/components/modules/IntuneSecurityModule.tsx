@@ -1,0 +1,187 @@
+import React, { useState } from "react";
+import { TenantSecuritySnapshot, IntuneDevice } from "@/lib/types";
+import { StatusPill } from "../common/StatusPill";
+import { HardDrive, ShieldCheck, ShieldAlert, Laptop, Search, Filter, CheckCircle2, XCircle } from "lucide-react";
+
+interface IntuneSecurityModuleProps {
+  snapshot: TenantSecuritySnapshot;
+}
+
+export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snapshot }) => {
+  const { intune } = snapshot;
+  const [searchQuery, setSearchQuery] = useState("");
+  const [osFilter, setOsFilter] = useState<string>("all");
+
+  const devices = intune.devices;
+
+  const filteredDevices = devices.filter((dev) => {
+    const matchesSearch =
+      dev.deviceName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      dev.userPrincipalName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      dev.osVersion.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (osFilter === "all") return matchesSearch;
+    return matchesSearch && dev.operatingSystem.toLowerCase() === osFilter.toLowerCase();
+  });
+
+  return (
+    <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
+      {/* Header */}
+      <div className="bg-[#F8FAFC] border border-[#CBD5E1] p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <HardDrive size={18} className="text-slate-800" />
+            <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+              Module 10: Intune Endpoint Security (Antivirus & EDR Fleet Onboarding)
+            </h2>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Fleet compliance, BitLocker/FileVault encryption, Microsoft Defender Antivirus status, and EDR onboarding state.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <div className="text-xs font-semibold text-slate-700">Fleet Compliance</div>
+            <div className="text-lg font-bold font-mono text-slate-900 tabular-nums">
+              {intune.totalDevices === 0 ? "0%" : `${Math.round((intune.compliantDevices / intune.totalDevices) * 100)}%`} ({intune.compliantDevices} / {intune.totalDevices})
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+        <div className="p-3 bg-white border border-[#CBD5E1] rounded-sm">
+          <div className="text-[10px] uppercase font-mono text-slate-500 font-semibold">Total Fleet Devices</div>
+          <div className="text-xl font-bold font-mono text-slate-900 tabular-nums mt-0.5">{intune.totalDevices}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">Enrolled in Intune</div>
+        </div>
+
+        <div className="p-3 bg-[#ECFDF5] border border-[#10B981] rounded-sm">
+          <div className="text-[10px] uppercase font-mono text-[#065F46] font-semibold">Compliant Endpoints</div>
+          <div className="text-xl font-bold font-mono text-[#065F46] tabular-nums mt-0.5">{intune.compliantDevices}</div>
+          <div className="text-[11px] text-[#065F46] mt-0.5">Passes compliance rules</div>
+        </div>
+
+        <div className="p-3 bg-[#FEF2F2] border border-[#EF4444] rounded-sm">
+          <div className="text-[10px] uppercase font-mono text-[#991B1B] font-semibold">Non-Compliant Endpoints</div>
+          <div className="text-xl font-bold font-mono text-[#991B1B] tabular-nums mt-0.5">{intune.nonCompliantDevices}</div>
+          <div className="text-[11px] text-[#991B1B] mt-0.5">Failing baseline</div>
+        </div>
+
+        <div className="p-3 bg-white border border-[#CBD5E1] rounded-sm">
+          <div className="text-[10px] uppercase font-mono text-slate-500 font-semibold">EDR Policy Profiles</div>
+          <div className="text-xl font-bold font-mono text-slate-900 tabular-nums mt-0.5">{intune.edrPoliciesCount}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">{intune.antivirusPoliciesCount} AV Profiles Active</div>
+        </div>
+      </div>
+
+      {/* Filter and Search */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 border border-[#CBD5E1] rounded-sm">
+        <div className="relative w-full sm:w-80">
+          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search device name, user, or OS..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Filter size={14} className="text-slate-500" />
+          <select
+            value={osFilter}
+            onChange={(e) => setOsFilter(e.target.value)}
+            className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-medium"
+          >
+            <option value="all">All Platforms (Windows, macOS, Linux)</option>
+            <option value="windows">Windows</option>
+            <option value="macos">macOS</option>
+            <option value="linux">Linux</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Device Table */}
+      <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-xs">
+        <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+            Managed Endpoint Inventory & Telemetry Status
+          </h3>
+          <span className="text-[11px] font-mono text-slate-500">{filteredDevices.length} Devices Listed</span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse table-dense">
+            <thead>
+              <tr>
+                <th>Device Hostname</th>
+                <th>Primary User (UPN)</th>
+                <th>Platform & OS Build</th>
+                <th>Disk Encryption</th>
+                <th>Defender Antivirus</th>
+                <th>Defender EDR Status</th>
+                <th className="w-28 text-right">Compliance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredDevices.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-4 text-center text-xs text-slate-500">
+                    No endpoint devices found matching active filter.
+                  </td>
+                </tr>
+              ) : (
+                filteredDevices.map((dev) => (
+                  <tr key={dev.id} className={dev.complianceState === "noncompliant" ? "bg-red-50/20" : ""}>
+                    <td>
+                      <div className="font-semibold text-xs text-slate-900 flex items-center gap-1.5">
+                        <Laptop size={13} className="text-slate-500" />
+                        <span>{dev.deviceName}</span>
+                      </div>
+                    </td>
+                    <td className="font-mono text-[11px] text-slate-600">{dev.userPrincipalName}</td>
+                    <td className="text-xs font-mono text-slate-700">
+                      {dev.operatingSystem} ({dev.osVersion})
+                    </td>
+                    <td>
+                      <StatusPill
+                        status={dev.isEncrypted ? "pass" : "fail"}
+                        label={dev.isEncrypted ? "BitLocker / Encrypted" : "Unencrypted"}
+                        size="sm"
+                      />
+                    </td>
+                    <td>
+                      <StatusPill
+                        status={dev.antivirusStatus === "active" ? "pass" : "fail"}
+                        label={dev.antivirusStatus === "active" ? "Active" : "Out of Date"}
+                        size="sm"
+                      />
+                    </td>
+                    <td>
+                      <StatusPill
+                        status={dev.edrOnboardingState === "onboarded" ? "pass" : "warn"}
+                        label={dev.edrOnboardingState === "onboarded" ? "Onboarded" : "Not Onboarded"}
+                        size="sm"
+                      />
+                    </td>
+                    <td className="text-right">
+                      <StatusPill
+                        status={dev.complianceState === "compliant" ? "pass" : "fail"}
+                        label={dev.complianceState.toUpperCase()}
+                        size="sm"
+                      />
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
