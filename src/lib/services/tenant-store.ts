@@ -3,7 +3,12 @@ import path from "path";
 import { Tenant, TenantSecuritySnapshot, SystemSettings } from "../types";
 import { INITIAL_TENANTS, MOCK_TENANT_DATA } from "../data/mock-tenants";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
-import { fetchLiveTenantSnapshot, testAppRegistrationPermissions, TenantPermissionReport } from "./graph-client";
+import {
+  fetchLiveTenantSnapshot,
+  testAppRegistrationPermissions,
+  deployConditionalAccessPolicy,
+  TenantPermissionReport,
+} from "./graph-client";
 
 // Persistent disk + in-memory store for multi-tenant configurations and snapshots
 class TenantStore {
@@ -130,6 +135,27 @@ class TenantStore {
     const tenant = this.getTenant(tenantId);
     if (!tenant) return null;
     return await testAppRegistrationPermissions(tenant);
+  }
+
+  public async deployBaselinePolicy(
+    tenantId: string,
+    baselineCode: string
+  ): Promise<{ success: boolean; policy?: any; snapshot?: TenantSecuritySnapshot; error?: string }> {
+    const tenant = this.getTenant(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+
+    const deployResult = await deployConditionalAccessPolicy(tenant, baselineCode);
+    if (!deployResult.success) {
+      return { success: false, error: deployResult.error };
+    }
+
+    // Resync immediately to update live snapshot
+    const updatedSnapshot = await this.syncTenant(tenantId);
+    return {
+      success: true,
+      policy: deployResult.policy,
+      snapshot: updatedSnapshot,
+    };
   }
 
   public addTenant(tenantData: Partial<Tenant>): Tenant {
