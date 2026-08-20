@@ -23,6 +23,8 @@ import {
   Layers,
 } from "lucide-react";
 
+import { CA_BASELINE_STANDARDS } from "@/lib/data/baseline-definitions";
+
 interface OverviewDashboardProps {
   snapshot: TenantSecuritySnapshot | null;
   isLoading: boolean;
@@ -54,8 +56,18 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
   const { tenant, secureScore, conditionalAccess, signIns, accountClassification, mailboxes, intune, capabilities, highRiskThreatIndicators } = snapshot;
 
-  const deployedCodes = new Set(conditionalAccess.policies.map((p) => p.baselineCode).filter(Boolean));
-  const missingCABaselineCount = conditionalAccess.baselineDefinitions.length - deployedCodes.size;
+  const deployedCodes = new Set<string>();
+  conditionalAccess.policies.forEach((p) => {
+    if (p.baselineCode) {
+      deployedCodes.add(p.baselineCode);
+    } else {
+      const m = p.name.match(/CA(0[1-9]|10)/i);
+      if (m) deployedCodes.add(`CA${m[1]}`);
+    }
+  });
+
+  const baselineDefinitions = CA_BASELINE_STANDARDS;
+  const missingCABaselineCount = baselineDefinitions.length - deployedCodes.size;
 
   const sharedMailboxesCount = mailboxes.filter((m) => m.recipientType === "SharedMailbox").length;
   const licensedSharedMailboxWasteCount = mailboxes.filter((m) => m.recipientType === "SharedMailbox" && m.hasDirectLicense).length;
@@ -274,15 +286,15 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
             {/* Grid of CA01 to CA10 pills */}
             <div className="grid grid-cols-5 gap-1.5 mt-3 pt-2 border-t border-[#E2E8F0]">
-              {conditionalAccess.baselineDefinitions.map((std) => {
-                const policy = conditionalAccess.policies.find((p) => p.baselineCode === std.code);
+              {baselineDefinitions.map((std) => {
+                const policy = conditionalAccess.policies.find((p) => p.baselineCode === std.code || p.name.toUpperCase().includes(std.code));
                 const isPass = policy && policy.state === "enabled";
                 const isReportOnly = policy && policy.state === "enabledForReportingButNotEnforced";
                 return (
                   <div
                     key={std.code}
-                    title={`${std.code}: ${std.name} (${policy ? policy.state : "Missing"})`}
-                    className={`py-1 text-center font-mono text-[11px] font-bold border rounded-sm ${
+                    title={`${std.code}: ${std.name} (${policy ? (isPass ? "Enabled (Enforced)" : isReportOnly ? "Report-Only" : "Disabled") : "Not Deployed"})`}
+                    className={`py-1 text-center font-mono text-[11px] font-bold border rounded-sm transition-transform hover:scale-105 cursor-default ${
                       isPass
                         ? "bg-[#ECFDF5] border-[#10B981] text-[#065F46]"
                         : isReportOnly
