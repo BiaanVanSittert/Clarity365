@@ -1,7 +1,9 @@
 import React, { useState } from "react";
-import { TenantSecuritySnapshot, CAPolicyRule, CABaselineItem } from "@/lib/types";
+import { TenantSecuritySnapshot, CAPolicyRule } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
-import { ShieldCheck, AlertTriangle, Lock, Plus, Terminal, CheckCircle2, XCircle, Search, Filter } from "lucide-react";
+import { CA_BASELINE_STANDARDS, CABaselinePolicyDefinition } from "@/lib/data/baseline-definitions";
+import { DeployCaPolicyModal } from "../modals/DeployCaPolicyModal";
+import { ShieldCheck, Lock, Terminal, Search, Filter, ShieldAlert, Code2 } from "lucide-react";
 
 interface ConditionalAccessModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -12,18 +14,30 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
   snapshot,
   onOpenRemediation,
 }) => {
-  const { conditionalAccess } = snapshot;
+  const { conditionalAccess, tenant, capabilities } = snapshot;
   const [searchQuery, setSearchQuery] = useState("");
   const [filterState, setFilterState] = useState<string>("all");
+  const [deployModalPolicy, setDeployModalPolicy] = useState<CABaselinePolicyDefinition | null>(null);
 
   const deployedPolicies = conditionalAccess.policies;
-  const baselineDefinitions = conditionalAccess.baselineDefinitions;
+  const baselineDefinitions = CA_BASELINE_STANDARDS;
 
-  // Analysis
+  // Check if tenant has Entra ID P2
+  const hasEntraP2 = capabilities?.some(
+    (c) => c.licensed && (c.name.toLowerCase().includes("p2") || c.name.toLowerCase().includes("e5"))
+  ) || tenant.tier === "M365_E5";
+
+  // Map deployed policies by baseline code or name
   const baselineMap = new Map<string, CAPolicyRule>();
   deployedPolicies.forEach((p) => {
     if (p.baselineCode) {
       baselineMap.set(p.baselineCode, p);
+    } else {
+      // Fallback detection
+      const match = p.name.match(/CA(0[1-9]|10)/i);
+      if (match) {
+        baselineMap.set(`CA${match[1]}`, p);
+      }
     }
   });
 
@@ -52,11 +66,11 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
           <div className="flex items-center gap-2">
             <Lock size={18} className="text-slate-800" />
             <h2 className="text-sm font-bold text-slate-900 tracking-tight">
-              Module 1: Conditional Access Policy Scanner & CA01-CA10 Baseline
+              Module 1: Conditional Access Policy Baseline Scanner (CA01–CA10)
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Strict prefix/name verification against the CIS / Microsoft Zero Trust standard baseline (CA01 through CA10).
+            Strict verification against the CIS Microsoft 365 Foundations & Zero-Trust standard baseline (CA01 through CA10).
           </p>
         </div>
 
@@ -73,7 +87,7 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
             className="px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm flex items-center gap-1.5 transition-colors shadow-sm"
           >
             <Terminal size={14} className="text-emerald-400" />
-            <span>Deploy Missing Baseline</span>
+            <span>Generate Full Remediation Script</span>
           </button>
         </div>
       </div>
@@ -121,12 +135,13 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
           <table className="w-full text-left border-collapse table-dense">
             <thead>
               <tr>
-                <th className="w-20">Code</th>
-                <th className="w-72">Baseline Standard</th>
+                <th className="w-16">Code</th>
+                <th className="w-64">Baseline Standard</th>
                 <th>Target Scope & Conditions</th>
                 <th>Risk Mitigated</th>
-                <th className="w-40">Deployed Policy State</th>
-                <th className="w-28 text-right">Status</th>
+                <th className="w-44">Deployed Policy State</th>
+                <th className="w-24">Status</th>
+                <th className="w-40 text-right">Deployment Action</th>
               </tr>
             </thead>
             <tbody>
@@ -137,13 +152,29 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                 const isReportOnly = policy?.state === "enabledForReportingButNotEnforced";
 
                 return (
-                  <tr key={baseline.code} className={!isDeployed ? "bg-amber-50/30" : ""}>
+                  <tr key={baseline.code} className={!isDeployed ? "bg-amber-50/20" : ""}>
                     <td className="font-mono font-bold text-slate-900 text-xs">
                       {baseline.code}
                     </td>
                     <td>
-                      <div className="font-semibold text-slate-900 text-xs">{baseline.name}</div>
+                      <div className="font-semibold text-slate-900 text-xs flex items-center gap-1.5 flex-wrap">
+                        <span>{baseline.name}</span>
+                        {baseline.requiresEntraP2 && (
+                          <span
+                            title="Requires Microsoft Entra ID Plan 2"
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-indigo-50 border border-indigo-200 text-indigo-800 text-[10px] font-medium rounded-sm"
+                          >
+                            <ShieldAlert className="w-3 h-3 text-indigo-600" />
+                            Requires Entra P2
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-slate-500 mt-0.5">{baseline.description}</div>
+                      {baseline.requiresEntraP2 && !hasEntraP2 && (
+                        <div className="text-[10px] font-medium text-rose-700 mt-1 bg-rose-50 p-1 border border-rose-200 rounded-sm">
+                          License Advisory: Obtain at least one Entra ID Plan 2 license to enable risk-based policies.
+                        </div>
+                      )}
                     </td>
                     <td className="text-[11px] text-slate-600 font-mono">
                       {baseline.targetScope}
@@ -154,29 +185,42 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                     <td>
                       {isDeployed ? (
                         <div className="space-y-0.5">
-                          <div className="text-[11px] font-mono text-slate-800 font-semibold truncate max-w-[180px]">
+                          <div className="text-[11px] font-mono text-slate-800 font-semibold truncate max-w-[180px]" title={policy.name}>
                             {policy.name}
                           </div>
                           <StatusPill
                             status={isEnabled ? "pass" : isReportOnly ? "warn" : "disabled"}
-                            label={isEnabled ? "Enforced (Enabled)" : isReportOnly ? "Report-Only" : "Disabled"}
+                            label={isEnabled ? "On (Enabled)" : isReportOnly ? "Report-Only" : "Disabled"}
                             size="sm"
                           />
                         </div>
                       ) : (
                         <span className="text-[11px] text-amber-700 font-medium italic">
-                          Not Deployed in Tenant
+                          Not Deployed
                         </span>
                       )}
                     </td>
-                    <td className="text-right">
+                    <td>
                       {isEnabled ? (
                         <StatusPill status="pass" label="Pass" size="sm" />
                       ) : isReportOnly ? (
-                        <StatusPill status="warn" label="Advisory" size="sm" />
+                        <StatusPill status="warn" label="Report-Only" size="sm" />
                       ) : (
-                        <StatusPill status="warn" label="Missing" size="sm" />
+                        <StatusPill status="fail" label="Missing" size="sm" />
                       )}
+                    </td>
+                    <td className="text-right">
+                      <button
+                        onClick={() => setDeployModalPolicy(baseline)}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-sm transition-colors border ${
+                          isDeployed && isEnabled
+                            ? "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
+                            : "bg-slate-900 border-slate-900 text-white hover:bg-slate-800"
+                        }`}
+                      >
+                        <Code2 size={12} className={isDeployed && isEnabled ? "text-slate-500" : "text-emerald-400"} />
+                        <span>{isDeployed ? "View Command" : "Deploy (Report-Only)"}</span>
+                      </button>
                     </td>
                   </tr>
                 );
@@ -193,7 +237,7 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
             Tenant Custom / Legacy Conditional Access Policies
           </h3>
           <span className="text-[11px] font-mono text-slate-500">
-            {deployedPolicies.filter((p) => !p.baselineCode).length} Custom Policies
+            {deployedPolicies.filter((p) => !p.baselineCode).length} Policies Detected
           </span>
         </div>
 
@@ -204,7 +248,7 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                 <th>Policy Display Name</th>
                 <th>Enforced Grant Controls</th>
                 <th>State</th>
-                <th>Baseline Matching Note</th>
+                <th>Baseline Matching Status</th>
               </tr>
             </thead>
             <tbody>
@@ -221,13 +265,13 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                     <tr key={pol.id}>
                       <td className="font-semibold text-xs text-slate-900">{pol.name}</td>
                       <td className="text-[11px] font-mono text-slate-600">
-                        {pol.grantControls.join(", ")}
+                        {pol.grantControls.length > 0 ? pol.grantControls.join(", ") : "None / Block"}
                       </td>
                       <td>
                         <StatusPill status={pol.state} label={pol.state} size="sm" />
                       </td>
-                      <td className="text-[11px] text-amber-700">
-                        {pol.recommendation || "Non-standard policy name. Recommend renaming or consolidating into CA01-CA10."}
+                      <td className="text-[11px] text-slate-600">
+                        Custom policy. Recommend validating scope against standard CA01–CA10 controls.
                       </td>
                     </tr>
                   ))
@@ -236,6 +280,15 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
           </table>
         </div>
       </div>
+
+      {/* Deploy CA Policy Modal */}
+      <DeployCaPolicyModal
+        isOpen={!!deployModalPolicy}
+        onClose={() => setDeployModalPolicy(null)}
+        policy={deployModalPolicy}
+        tenantDomain={tenant.defaultDomainName}
+        hasEntraP2={hasEntraP2}
+      />
     </div>
   );
 };
