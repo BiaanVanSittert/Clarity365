@@ -16,6 +16,14 @@ export const CA_BASELINE_STANDARDS: CABaselinePolicyDefinition[] = [
     powershellTemplate: (domain: string) => `# Connect to Microsoft Graph
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
 
+# Optional: Safely lookup emergency account GUID if present
+$excludeUserIds = @()
+$emergencyUser = Get-MgUser -Filter "userPrincipalName eq 'breakglass-emergency@${domain}'" -ErrorAction SilentlyContinue
+if ($emergencyUser) {
+    $excludeUserIds += $emergencyUser.Id
+    Write-Host "Excluded break-glass account: $($emergencyUser.UserPrincipalName)" -ForegroundColor Cyan
+}
+
 # Deploy CA01: Block legacy authentication in Report-Only Mode
 $ca01Params = @{
     displayName = "CA01: Block legacy authentication"
@@ -23,7 +31,7 @@ $ca01Params = @{
     conditions = @{
         users = @{
             includeUsers = @("All")
-            excludeUsers = @("upn:breakglass-emergency@${domain}")
+            excludeUsers = $excludeUserIds
         }
         applications = @{
             includeApplications = @("All")
@@ -36,8 +44,13 @@ $ca01Params = @{
     }
 }
 
-New-MgIdentityConditionalAccessPolicy -BodyParameter $ca01Params
-Write-Host "CA01 deployed successfully in Report-Only mode. Review sign-in logs before switching to Enabled." -ForegroundColor Green`,
+try {
+    $createdPolicy = New-MgIdentityConditionalAccessPolicy -BodyParameter $ca01Params
+    Write-Host "CA01 created successfully (ID: $($createdPolicy.Id)) in Report-Only mode." -ForegroundColor Green
+    Write-Host "Review sign-in logs before manually enabling the policy in Microsoft Entra Admin Center." -ForegroundColor Yellow
+} catch {
+    Write-Error "Deployment failed: $($_.Exception.Message)"
+}`,
   },
   {
     code: "CA02",
@@ -49,6 +62,14 @@ Write-Host "CA01 deployed successfully in Report-Only mode. Review sign-in logs 
     powershellTemplate: (domain: string) => `# Connect to Microsoft Graph
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
 
+# Optional: Safely lookup emergency account GUID if present
+$excludeUserIds = @()
+$emergencyUser = Get-MgUser -Filter "userPrincipalName eq 'breakglass-emergency@${domain}'" -ErrorAction SilentlyContinue
+if ($emergencyUser) {
+    $excludeUserIds += $emergencyUser.Id
+    Write-Host "Excluded break-glass account: $($emergencyUser.UserPrincipalName)" -ForegroundColor Cyan
+}
+
 # Deploy CA02: Require multifactor authentication for all users in Report-Only Mode
 $ca02Params = @{
     displayName = "CA02: Require multifactor authentication for all users"
@@ -56,7 +77,7 @@ $ca02Params = @{
     conditions = @{
         users = @{
             includeUsers = @("All")
-            excludeUsers = @("upn:breakglass-emergency@${domain}", "GuestsOrExternalUsers")
+            excludeUsers = $excludeUserIds
         }
         applications = @{
             includeApplications = @("All")
@@ -69,8 +90,13 @@ $ca02Params = @{
     }
 }
 
-New-MgIdentityConditionalAccessPolicy -BodyParameter $ca02Params
-Write-Host "CA02 deployed successfully in Report-Only mode. Review sign-in logs before switching to Enabled." -ForegroundColor Green`,
+try {
+    $createdPolicy = New-MgIdentityConditionalAccessPolicy -BodyParameter $ca02Params
+    Write-Host "CA02 created successfully (ID: $($createdPolicy.Id)) in Report-Only mode." -ForegroundColor Green
+    Write-Host "Review sign-in logs before manually enabling the policy in Microsoft Entra Admin Center." -ForegroundColor Yellow
+} catch {
+    Write-Error "Deployment failed: $($_.Exception.Message)"
+}`,
   },
   {
     code: "CA03",
@@ -81,6 +107,14 @@ Write-Host "CA02 deployed successfully in Report-Only mode. Review sign-in logs 
     riskMitigated: "Privileged account credential stuffing, password spraying, and unauthorized tenant takeover.",
     powershellTemplate: (domain: string) => `# Connect to Microsoft Graph
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
+
+# Optional: Safely lookup emergency account GUID if present
+$excludeUserIds = @()
+$emergencyUser = Get-MgUser -Filter "userPrincipalName eq 'breakglass-emergency@${domain}'" -ErrorAction SilentlyContinue
+if ($emergencyUser) {
+    $excludeUserIds += $emergencyUser.Id
+    Write-Host "Excluded break-glass account: $($emergencyUser.UserPrincipalName)" -ForegroundColor Cyan
+}
 
 # Deploy CA03: Require multifactor authentication for admins in Report-Only Mode
 $ca03Params = @{
@@ -96,7 +130,7 @@ $ca03Params = @{
                 "e8611ab8-c189-46e8-94e1-60213ab1f814", # Privileged Role Administrator
                 "7be44c8a-a50e-44d4-aa94-712854cd42c2"  # Conditional Access Administrator
             )
-            excludeUsers = @("upn:breakglass-emergency@${domain}")
+            excludeUsers = $excludeUserIds
         }
         applications = @{
             includeApplications = @("All")
@@ -109,8 +143,13 @@ $ca03Params = @{
     }
 }
 
-New-MgIdentityConditionalAccessPolicy -BodyParameter $ca03Params
-Write-Host "CA03 deployed successfully in Report-Only mode. Review sign-in logs before switching to Enabled." -ForegroundColor Green`,
+try {
+    $createdPolicy = New-MgIdentityConditionalAccessPolicy -BodyParameter $ca03Params
+    Write-Host "CA03 created successfully (ID: $($createdPolicy.Id)) in Report-Only mode." -ForegroundColor Green
+    Write-Host "Review sign-in logs before manually enabling the policy in Microsoft Entra Admin Center." -ForegroundColor Yellow
+} catch {
+    Write-Error "Deployment failed: $($_.Exception.Message)"
+}`,
   },
   {
     code: "CA04",
@@ -122,6 +161,14 @@ Write-Host "CA03 deployed successfully in Report-Only mode. Review sign-in logs 
     powershellTemplate: (domain: string) => `# Connect to Microsoft Graph
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
 
+# Optional: Safely lookup emergency account GUID if present
+$excludeUserIds = @()
+$emergencyUser = Get-MgUser -Filter "userPrincipalName eq 'breakglass-emergency@${domain}'" -ErrorAction SilentlyContinue
+if ($emergencyUser) {
+    $excludeUserIds += $emergencyUser.Id
+    Write-Host "Excluded break-glass account: $($emergencyUser.UserPrincipalName)" -ForegroundColor Cyan
+}
+
 # Deploy CA04: Require multifactor authentication for guest access in Report-Only Mode
 $ca04Params = @{
     displayName = "CA04: Require multifactor authentication for guest access"
@@ -129,7 +176,7 @@ $ca04Params = @{
     conditions = @{
         users = @{
             includeUsers = @("GuestsOrExternalUsers")
-            excludeUsers = @()
+            excludeUsers = $excludeUserIds
         }
         applications = @{
             includeApplications = @("All")
@@ -142,8 +189,13 @@ $ca04Params = @{
     }
 }
 
-New-MgIdentityConditionalAccessPolicy -BodyParameter $ca04Params
-Write-Host "CA04 deployed successfully in Report-Only mode. Review sign-in logs before switching to Enabled." -ForegroundColor Green`,
+try {
+    $createdPolicy = New-MgIdentityConditionalAccessPolicy -BodyParameter $ca04Params
+    Write-Host "CA04 created successfully (ID: $($createdPolicy.Id)) in Report-Only mode." -ForegroundColor Green
+    Write-Host "Review sign-in logs before manually enabling the policy in Microsoft Entra Admin Center." -ForegroundColor Yellow
+} catch {
+    Write-Error "Deployment failed: $($_.Exception.Message)"
+}`,
   },
   {
     code: "CA05",
@@ -155,6 +207,14 @@ Write-Host "CA04 deployed successfully in Report-Only mode. Review sign-in logs 
     powershellTemplate: (domain: string) => `# Connect to Microsoft Graph
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
 
+# Optional: Safely lookup emergency account GUID if present
+$excludeUserIds = @()
+$emergencyUser = Get-MgUser -Filter "userPrincipalName eq 'breakglass-emergency@${domain}'" -ErrorAction SilentlyContinue
+if ($emergencyUser) {
+    $excludeUserIds += $emergencyUser.Id
+    Write-Host "Excluded break-glass account: $($emergencyUser.UserPrincipalName)" -ForegroundColor Cyan
+}
+
 # Deploy CA05: Require multifactor authentication for Azure management in Report-Only Mode
 $ca05Params = @{
     displayName = "CA05: Require multifactor authentication for Azure management"
@@ -162,7 +222,7 @@ $ca05Params = @{
     conditions = @{
         users = @{
             includeUsers = @("All")
-            excludeUsers = @("upn:breakglass-emergency@${domain}")
+            excludeUsers = $excludeUserIds
         }
         applications = @{
             includeApplications = @("797f3427-79cd-4827-8132-47d473d450e4") # Microsoft Azure Management
@@ -175,8 +235,13 @@ $ca05Params = @{
     }
 }
 
-New-MgIdentityConditionalAccessPolicy -BodyParameter $ca05Params
-Write-Host "CA05 deployed successfully in Report-Only mode. Review sign-in logs before switching to Enabled." -ForegroundColor Green`,
+try {
+    $createdPolicy = New-MgIdentityConditionalAccessPolicy -BodyParameter $ca05Params
+    Write-Host "CA05 created successfully (ID: $($createdPolicy.Id)) in Report-Only mode." -ForegroundColor Green
+    Write-Host "Review sign-in logs before manually enabling the policy in Microsoft Entra Admin Center." -ForegroundColor Yellow
+} catch {
+    Write-Error "Deployment failed: $($_.Exception.Message)"
+}`,
   },
   {
     code: "CA06",
@@ -189,6 +254,14 @@ Write-Host "CA05 deployed successfully in Report-Only mode. Review sign-in logs 
     powershellTemplate: (domain: string) => `# Connect to Microsoft Graph (NOTE: Requires Microsoft Entra ID Plan 2 license)
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
 
+# Optional: Safely lookup emergency account GUID if present
+$excludeUserIds = @()
+$emergencyUser = Get-MgUser -Filter "userPrincipalName eq 'breakglass-emergency@${domain}'" -ErrorAction SilentlyContinue
+if ($emergencyUser) {
+    $excludeUserIds += $emergencyUser.Id
+    Write-Host "Excluded break-glass account: $($emergencyUser.UserPrincipalName)" -ForegroundColor Cyan
+}
+
 # Deploy CA06: Require multifactor authentication for risky sign-ins in Report-Only Mode
 $ca06Params = @{
     displayName = "CA06: Require multifactor authentication for risky sign-ins"
@@ -196,7 +269,7 @@ $ca06Params = @{
     conditions = @{
         users = @{
             includeUsers = @("All")
-            excludeUsers = @("upn:breakglass-emergency@${domain}")
+            excludeUsers = $excludeUserIds
         }
         applications = @{
             includeApplications = @("All")
@@ -210,8 +283,13 @@ $ca06Params = @{
     }
 }
 
-New-MgIdentityConditionalAccessPolicy -BodyParameter $ca06Params
-Write-Host "CA06 deployed successfully in Report-Only mode (Requires Entra ID P2). Review sign-in logs before switching to Enabled." -ForegroundColor Green`,
+try {
+    $createdPolicy = New-MgIdentityConditionalAccessPolicy -BodyParameter $ca06Params
+    Write-Host "CA06 created successfully (ID: $($createdPolicy.Id)) in Report-Only mode (Requires Entra ID P2)." -ForegroundColor Green
+    Write-Host "Review sign-in logs before manually enabling the policy in Microsoft Entra Admin Center." -ForegroundColor Yellow
+} catch {
+    Write-Error "Deployment failed: $($_.Exception.Message)"
+}`,
   },
   {
     code: "CA07",
@@ -224,6 +302,14 @@ Write-Host "CA06 deployed successfully in Report-Only mode (Requires Entra ID P2
     powershellTemplate: (domain: string) => `# Connect to Microsoft Graph (NOTE: Requires Microsoft Entra ID Plan 2 license)
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
 
+# Optional: Safely lookup emergency account GUID if present
+$excludeUserIds = @()
+$emergencyUser = Get-MgUser -Filter "userPrincipalName eq 'breakglass-emergency@${domain}'" -ErrorAction SilentlyContinue
+if ($emergencyUser) {
+    $excludeUserIds += $emergencyUser.Id
+    Write-Host "Excluded break-glass account: $($emergencyUser.UserPrincipalName)" -ForegroundColor Cyan
+}
+
 # Deploy CA07: Require risk remediation for high-risk users in Report-Only Mode
 $ca07Params = @{
     displayName = "CA07: Require risk remediation for high-risk users"
@@ -231,7 +317,7 @@ $ca07Params = @{
     conditions = @{
         users = @{
             includeUsers = @("All")
-            excludeUsers = @("upn:breakglass-emergency@${domain}")
+            excludeUsers = $excludeUserIds
         }
         applications = @{
             includeApplications = @("All")
@@ -245,8 +331,13 @@ $ca07Params = @{
     }
 }
 
-New-MgIdentityConditionalAccessPolicy -BodyParameter $ca07Params
-Write-Host "CA07 deployed successfully in Report-Only mode (Requires Entra ID P2). Review sign-in logs before switching to Enabled." -ForegroundColor Green`,
+try {
+    $createdPolicy = New-MgIdentityConditionalAccessPolicy -BodyParameter $ca07Params
+    Write-Host "CA07 created successfully (ID: $($createdPolicy.Id)) in Report-Only mode (Requires Entra ID P2)." -ForegroundColor Green
+    Write-Host "Review sign-in logs before manually enabling the policy in Microsoft Entra Admin Center." -ForegroundColor Yellow
+} catch {
+    Write-Error "Deployment failed: $($_.Exception.Message)"
+}`,
   },
   {
     code: "CA08",
@@ -258,6 +349,14 @@ Write-Host "CA07 deployed successfully in Report-Only mode (Requires Entra ID P2
     powershellTemplate: (domain: string) => `# Connect to Microsoft Graph
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
 
+# Optional: Safely lookup emergency account GUID if present
+$excludeUserIds = @()
+$emergencyUser = Get-MgUser -Filter "userPrincipalName eq 'breakglass-emergency@${domain}'" -ErrorAction SilentlyContinue
+if ($emergencyUser) {
+    $excludeUserIds += $emergencyUser.Id
+    Write-Host "Excluded break-glass account: $($emergencyUser.UserPrincipalName)" -ForegroundColor Cyan
+}
+
 # Deploy CA08: Block Access from Untrusted Countries in Report-Only Mode
 $ca08Params = @{
     displayName = "CA08: Block Access from Untrusted Countries"
@@ -265,7 +364,7 @@ $ca08Params = @{
     conditions = @{
         users = @{
             includeUsers = @("All")
-            excludeUsers = @("upn:breakglass-emergency@${domain}")
+            excludeUsers = $excludeUserIds
         }
         applications = @{
             includeApplications = @("All")
@@ -273,7 +372,7 @@ $ca08Params = @{
         clientAppTypes = @("all")
         locations = @{
             includeLocations = @("All")
-            excludeLocations = @("AllTrusted") # Exclude corporate office and trusted countries
+            excludeLocations = @("AllTrusted") # Excludes corporate trusted IP ranges and countries
         }
     }
     grantControls = @{
@@ -282,8 +381,13 @@ $ca08Params = @{
     }
 }
 
-New-MgIdentityConditionalAccessPolicy -BodyParameter $ca08Params
-Write-Host "CA08 deployed successfully in Report-Only mode. Review sign-in logs before switching to Enabled." -ForegroundColor Green`,
+try {
+    $createdPolicy = New-MgIdentityConditionalAccessPolicy -BodyParameter $ca08Params
+    Write-Host "CA08 created successfully (ID: $($createdPolicy.Id)) in Report-Only mode." -ForegroundColor Green
+    Write-Host "Review sign-in logs before manually enabling the policy in Microsoft Entra Admin Center." -ForegroundColor Yellow
+} catch {
+    Write-Error "Deployment failed: $($_.Exception.Message)"
+}`,
   },
   {
     code: "CA09",
@@ -295,6 +399,14 @@ Write-Host "CA08 deployed successfully in Report-Only mode. Review sign-in logs 
     powershellTemplate: (domain: string) => `# Connect to Microsoft Graph
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
 
+# Optional: Safely lookup emergency account GUID if present
+$excludeUserIds = @()
+$emergencyUser = Get-MgUser -Filter "userPrincipalName eq 'breakglass-emergency@${domain}'" -ErrorAction SilentlyContinue
+if ($emergencyUser) {
+    $excludeUserIds += $emergencyUser.Id
+    Write-Host "Excluded break-glass account: $($emergencyUser.UserPrincipalName)" -ForegroundColor Cyan
+}
+
 # Deploy CA09: Require MDM-enrolled and compliant device in Report-Only Mode
 $ca09Params = @{
     displayName = "CA09: Require MDM-enrolled and compliant device to access cloud apps for all users"
@@ -302,12 +414,12 @@ $ca09Params = @{
     conditions = @{
         users = @{
             includeUsers = @("All")
-            excludeUsers = @("upn:breakglass-emergency@${domain}")
+            excludeUsers = $excludeUserIds
         }
         applications = @{
             includeApplications = @("All")
         }
-        clientAppTypes = @("browser", "mobileAppsAndDesktopClients")
+        clientAppTypes = @("all")
         platforms = @{
             includePlatforms = @("windows", "macOS", "iOS", "android")
         }
@@ -318,8 +430,13 @@ $ca09Params = @{
     }
 }
 
-New-MgIdentityConditionalAccessPolicy -BodyParameter $ca09Params
-Write-Host "CA09 deployed successfully in Report-Only mode. Review sign-in logs before switching to Enabled." -ForegroundColor Green`,
+try {
+    $createdPolicy = New-MgIdentityConditionalAccessPolicy -BodyParameter $ca09Params
+    Write-Host "CA09 created successfully (ID: $($createdPolicy.Id)) in Report-Only mode." -ForegroundColor Green
+    Write-Host "Review sign-in logs before manually enabling the policy in Microsoft Entra Admin Center." -ForegroundColor Yellow
+} catch {
+    Write-Error "Deployment failed: $($_.Exception.Message)"
+}`,
   },
   {
     code: "CA10",
@@ -330,6 +447,14 @@ Write-Host "CA09 deployed successfully in Report-Only mode. Review sign-in logs 
     riskMitigated: "Adversary-in-the-Middle (AiTM) proxy phishing attacks bypassing push notifications and OTP codes.",
     powershellTemplate: (domain: string) => `# Connect to Microsoft Graph
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
+
+# Optional: Safely lookup emergency account GUID if present
+$excludeUserIds = @()
+$emergencyUser = Get-MgUser -Filter "userPrincipalName eq 'breakglass-emergency@${domain}'" -ErrorAction SilentlyContinue
+if ($emergencyUser) {
+    $excludeUserIds += $emergencyUser.Id
+    Write-Host "Excluded break-glass account: $($emergencyUser.UserPrincipalName)" -ForegroundColor Cyan
+}
 
 # Deploy CA10: Require phishing-resistant MFA for admins in Report-Only Mode
 $ca10Params = @{
@@ -343,7 +468,7 @@ $ca10Params = @{
                 "2923200f-7827-46a4-baa5-010e67f0a12f", # Exchange Administrator
                 "e8611ab8-c189-46e8-94e1-60213ab1f814"  # Privileged Role Administrator
             )
-            excludeUsers = @("upn:breakglass-emergency@${domain}")
+            excludeUsers = $excludeUserIds
         }
         applications = @{
             includeApplications = @("All")
@@ -353,12 +478,17 @@ $ca10Params = @{
     grantControls = @{
         operator = "OR"
         authenticationStrength = @{
-            id = "00000000-0000-0000-0000-000000000004" # Phishing-resistant MFA
+            id = "00000000-0000-0000-0000-000000000004" # Phishing-resistant MFA built-in strength
         }
     }
 }
 
-New-MgIdentityConditionalAccessPolicy -BodyParameter $ca10Params
-Write-Host "CA10 deployed successfully in Report-Only mode. Review sign-in logs before switching to Enabled." -ForegroundColor Green`,
+try {
+    $createdPolicy = New-MgIdentityConditionalAccessPolicy -BodyParameter $ca10Params
+    Write-Host "CA10 created successfully (ID: $($createdPolicy.Id)) in Report-Only mode." -ForegroundColor Green
+    Write-Host "Review sign-in logs before manually enabling the policy in Microsoft Entra Admin Center." -ForegroundColor Yellow
+} catch {
+    Write-Error "Deployment failed: $($_.Exception.Message)"
+}`,
   },
 ];
