@@ -183,7 +183,12 @@ export interface UserMfaProfile {
   isWeakAuth: boolean;
   passwordLastSetDateTime: string;
   lastSignInDateTime: string;
+  isSsprRegistered?: boolean;
+  isPasswordlessCapable?: boolean;
+  methodsCount?: number;
+  authStrength?: "phishing_resistant" | "strong" | "weak" | "none";
 }
+
 
 // Module 5: User & Account Classification
 export interface TenantAccountSummary {
