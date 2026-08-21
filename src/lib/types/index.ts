@@ -386,3 +386,28 @@ export interface SystemSettings {
   defaultTheme: "light" | "system";
   tableDensity: "compact" | "normal";
 }
+
+// Time Range & Date Filter Types
+export type TimeRangePreset = "all" | "24h" | "7d" | "30d" | "custom";
+
+export interface CustomDateRange {
+  startDate: string; // ISO date format YYYY-MM-DD or full ISO
+  endDate: string;   // ISO date format YYYY-MM-DD or full ISO
+}
+
+// Alert Dismissal / Clearance State
+export interface DismissedAlertsState {
+  [tenantId: string]: {
+    allCleared?: boolean;
+    clearedAt?: string;
+    modules?: {
+      ca_baseline?: boolean;
+      signin_logs?: boolean;
+      mfa_audit?: boolean;
+      user_class?: boolean;
+      forwarding?: boolean;
+      groups?: boolean;
+    };
+  };
+}
+
