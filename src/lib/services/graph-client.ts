@@ -1,4 +1,4 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 
 export interface PermissionTestResult {
@@ -460,11 +460,102 @@ export async function fetchLiveTenantSnapshot(
     console.error("[Graph Client] Error fetching users:", err);
   }
 
-  // 3. Compute baseline coverage
+  // 3. Fetch Sign-In Logs
+  let signInsList: SignInEvent[] = [];
+  try {
+    const signInsRes = await fetch("https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=100", { headers });
+    if (signInsRes.ok) {
+      const signInsData = await signInsRes.json();
+      if (signInsData.value && Array.isArray(signInsData.value)) {
+        signInsList = signInsData.value.map((s: any) => {
+          const appliedPolicies = (s.appliedConditionalAccessPolicies || []).map((p: any) => ({
+            id: p.id || "",
+            displayName: p.displayName || "Conditional Access Policy",
+            result: p.result || "notApplied",
+            enforcedGrantControls: p.enforcedGrantControls || [],
+            enforcedSessionControls: p.enforcedSessionControls || [],
+          }));
+
+          const hasReportOnlyFailure = appliedPolicies.some(
+            (p: any) => p.result === "reportOnlyFailure"
+          );
+          const reportOnlyFailedPolicies = appliedPolicies
+            .filter((p: any) => p.result === "reportOnlyFailure")
+            .map((p: any) => p.displayName);
+
+          const isBlocked =
+            appliedPolicies.some((p: any) => p.result === "failure") ||
+            s.status?.errorCode === 53003;
+          const isFailed = s.status?.errorCode !== 0;
+
+          let status: SignInStatus = "success";
+          if (isBlocked) {
+            status = "ca_blocked";
+          } else if (hasReportOnlyFailure) {
+            status = "report_only_failed";
+          } else if (isFailed) {
+            status = "failed";
+          }
+
+          const errorCode = s.status?.errorCode || 0;
+          let failureReason = s.status?.failureReason;
+          if (!failureReason || failureReason === "Other." || failureReason === "None") {
+            if (s.status?.additionalDetails) {
+              failureReason = s.status.additionalDetails;
+            } else if (errorCode !== 0) {
+              failureReason = `Error ${errorCode}: Authentication or conditional access requirement not met`;
+            } else {
+              failureReason = "Authentication successful (All controls satisfied)";
+            }
+          }
+
+          return {
+            id: s.id,
+            createdDateTime: s.createdDateTime || new Date().toISOString(),
+            userPrincipalName: s.userPrincipalName || "unknown@domain.com",
+            userDisplayName: s.userDisplayName || s.userPrincipalName || "Unknown User",
+            userId: s.userId || "",
+            ipAddress: s.ipAddress || "0.0.0.0",
+            location: {
+              city: s.location?.city || "Unknown",
+              state: s.location?.state || "",
+              country: s.location?.countryOrRegion || "Unknown",
+            },
+            clientApp: s.clientAppUsed || "Browser",
+            appDisplayName: s.appDisplayName || "Microsoft 365 Cloud App",
+            status,
+            errorCode,
+            failureReason,
+            isRisky:
+              s.riskLevelDuringSignIn === "medium" ||
+              s.riskLevelDuringSignIn === "high" ||
+              s.riskState === "atRisk",
+            riskLevel: (s.riskLevelDuringSignIn || s.riskLevelAggregated || "none").toLowerCase() as any,
+            deviceDetail: {
+              deviceId: s.deviceDetail?.deviceId || "",
+              displayName: s.deviceDetail?.displayName || "",
+              operatingSystem: s.deviceDetail?.operatingSystem || "Unknown OS",
+              browser: s.deviceDetail?.browser || "Unknown Browser",
+              isCompliant: !!s.deviceDetail?.isCompliant,
+              isManaged: !!s.deviceDetail?.isManaged,
+              trustType: s.deviceDetail?.trustType || undefined,
+            },
+            appliedConditionalAccessPolicies: appliedPolicies,
+            hasReportOnlyFailure,
+            reportOnlyFailedPolicies,
+          };
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[Graph Client] Error fetching sign-in logs:", err);
+  }
+
+  // 4. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = Math.round((deployedBaselineCodes.size / CA_BASELINE_STANDARDS.length) * 100);
 
-  // 4. Build or update snapshot
+  // 5. Build or update snapshot
   const base = existingSnapshot || {
     tenant,
     capabilities: [
@@ -493,7 +584,7 @@ export async function fetchLiveTenantSnapshot(
       baselineDefinitions: CA_BASELINE_STANDARDS,
       policies: livePolicies,
     },
-    signIns: [],
+    signIns: signInsList,
     mfaAudit: [],
     accountClassification: {
       totalAccounts: usersList.length || 10,
@@ -524,6 +615,10 @@ export async function fetchLiveTenantSnapshot(
     baselineDefinitions: CA_BASELINE_STANDARDS,
     policies: livePolicies.length > 0 ? livePolicies : base.conditionalAccess.policies,
   };
+
+  if (signInsList.length > 0) {
+    base.signIns = signInsList;
+  }
 
   if (usersList.length > 0) {
     base.accountClassification = {
