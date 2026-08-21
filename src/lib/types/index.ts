@@ -73,7 +73,6 @@ export interface CABaselineItem {
   riskMitigated: string;
 }
 
-// Module 2: Sign-In Logs
 export type SignInStatus = "success" | "failed" | "ca_blocked" | "report_only_failed";
 
 export interface SignInEvent {
@@ -107,9 +106,21 @@ export interface SignInEvent {
   appliedConditionalAccessPolicies: {
     id: string;
     displayName: string;
-    result: "success" | "failure" | "notApplied" | "reportOnlySuccess" | "reportOnlyFailure";
+    result:
+      | "success"
+      | "failure"
+      | "notApplied"
+      | "notEnabled"
+      | "reportOnlySuccess"
+      | "reportOnlyFailure"
+      | "reportOnlyNotApplied"
+      | "reportOnlyInterrupted"
+      | "unknown";
     enforcedGrantControls: string[];
+    enforcedSessionControls?: string[];
   }[];
+  hasReportOnlyFailure?: boolean;
+  reportOnlyFailedPolicies?: string[];
 }
 
 // Module 3: Microsoft Secure Score & Recommendations
