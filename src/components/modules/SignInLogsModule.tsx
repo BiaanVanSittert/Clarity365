@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { TenantSecuritySnapshot, SignInEvent } from "@/lib/types";
+import { TenantSecuritySnapshot, SignInEvent, TimeRangePreset } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Drawer } from "../common/Drawer";
 import {
@@ -21,32 +21,156 @@ import {
   ShieldX,
   Sparkles,
   Info,
+  Calendar,
+  Download,
+  Terminal,
+  Copy,
+  Check,
+  CheckCheck,
+  RotateCcw,
+  RefreshCw,
+  SlidersHorizontal,
+  X,
 } from "lucide-react";
 
 interface SignInLogsModuleProps {
   snapshot: TenantSecuritySnapshot;
+  onRefresh?: () => void;
 }
 
-const ERROR_CODE_TRANSLATIONS: Record<number, { title: string; explanation: string }> = {
-  0: { title: "Success", explanation: "Authentication succeeded and all evaluated Conditional Access policies passed." },
-  50126: { title: "Invalid Credentials", explanation: "Error validating credentials due to invalid username or password." },
-  53003: { title: "Blocked by Conditional Access", explanation: "Access has been blocked by Conditional Access policies. The access policy does not allow token issuance." },
-  50074: { title: "Strong Authentication Required", explanation: "Strong Authentication is required (user did not complete MFA challenge)." },
-  50076: { title: "Admin MFA Required", explanation: "User was required to perform MFA because of administrator role assignment." },
-  50053: { title: "Account Locked Out", explanation: "The account is locked; tried to sign in too many times with an incorrect user ID or password." },
-  50140: { title: "Keep Me Signed In Interrupt", explanation: "This occurred due to 'Keep me signed in' interrupt when the user was signing in." },
-  65001: { title: "Application Consent Missing", explanation: "The user or administrator has not consented to use the application. Interactive authorization required." },
-  50058: { title: "Silent Session Expired", explanation: "User session cookie expired or continuous access evaluation revoked the token." },
-  50011: { title: "Redirect URI Mismatch", explanation: "The redirect URI specified in the request does not match the URIs configured for the application." },
-  500113: { title: "Missing Reply Address", explanation: "No reply address is registered for the application." },
+const ERROR_CODE_TRANSLATIONS: Record<number, { title: string; explanation: string; remediation: string }> = {
+  0: {
+    title: "Success",
+    explanation: "Authentication succeeded and all evaluated Conditional Access policies passed.",
+    remediation: "No action required. Normal operational authentication.",
+  },
+  50126: {
+    title: "Invalid Credentials",
+    explanation: "Error validating credentials due to invalid username or password.",
+    remediation: "Verify user password or investigate possible credential stuffing / brute-force attempt if repeated.",
+  },
+  53003: {
+    title: "Blocked by Conditional Access",
+    explanation: "Access has been blocked by Conditional Access policies. The policy conditions blocked token issuance.",
+    remediation: "Check applied CA policies in the inspector below. Validate user scope, location, or device compliance requirements.",
+  },
+  50074: {
+    title: "Strong Authentication Required",
+    explanation: "Strong Authentication is required (user did not complete or was interrupted during MFA challenge).",
+    remediation: "Ensure user has registered Microsoft Authenticator / FIDO2 keys at https://aka.ms/setupmfa.",
+  },
+  50076: {
+    title: "Admin MFA Required",
+    explanation: "User was required to perform MFA because of administrator role assignment.",
+    remediation: "Enforce CA03 policy compliance and verify admin has strong phishing-resistant auth registered.",
+  },
+  50053: {
+    title: "Account Locked Out",
+    explanation: "The account is locked; tried to sign in too many times with an incorrect user ID or password.",
+    remediation: "Review Entra ID Smart Lockout settings or unlock user account in Microsoft 365 Admin Center.",
+  },
+  50140: {
+    title: "Keep Me Signed In Interrupt",
+    explanation: "Occurred due to 'Keep me signed in' interrupt when user was signing in.",
+    remediation: "Normal session checkpoint. Configure KMSI policy under Entra Company Branding if desired.",
+  },
+  65001: {
+    title: "Application Consent Missing",
+    explanation: "The user or administrator has not consented to use the application. Interactive authorization required.",
+    remediation: "Grant tenant-wide admin consent for this app in Entra ID Enterprise Applications.",
+  },
+  50058: {
+    title: "Silent Session Expired",
+    explanation: "User session cookie expired or continuous access evaluation revoked the token.",
+    remediation: "Prompt user to re-authenticate interactively.",
+  },
+  50011: {
+    title: "Redirect URI Mismatch",
+    explanation: "The redirect URI specified in the request does not match the URIs configured for the application.",
+    remediation: "Update Reply URLs in Azure App Registrations.",
+  },
+  500113: {
+    title: "Missing Reply Address",
+    explanation: "No reply address is registered for the application.",
+    remediation: "Configure valid redirect URI on the target Application Registration.",
+  },
 };
 
-export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) => {
-  const { signIns } = snapshot;
+const STORAGE_KEY_PREFIX = "clarity365_alerts_cleared_";
+
+export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, onRefresh }) => {
+  const { signIns, tenant } = snapshot;
+
+  // Search and general filters
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [serviceFilter, setServiceFilter] = useState<string>("all");
+  const [errorCodeFilter, setErrorCodeFilter] = useState<number | "all">("all");
   const [selectedEvent, setSelectedEvent] = useState<SignInEvent | null>(null);
+
+  // Time stamp & custom date range filters
+  const [timePreset, setTimePreset] = useState<TimeRangePreset>("all");
+  const [customStartDate, setCustomStartDate] = useState<string>("");
+  const [customEndDate, setCustomEndDate] = useState<string>("");
+  const [specificDate, setSpecificDate] = useState<string>("");
+
+  // Copy & export feedback state
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [kqlModalOpen, setKqlModalOpen] = useState(false);
+  const [isAlertCleared, setIsAlertCleared] = useState(false);
+
+  // Load alert clearance status
+  React.useEffect(() => {
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tenant.id}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.allCleared || parsed.modules?.signin_logs) {
+          setIsAlertCleared(true);
+        }
+      }
+    } catch {
+      // Fallback
+    }
+  }, [tenant.id]);
+
+  const handleClearAlerts = () => {
+    setIsAlertCleared(true);
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tenant.id}`);
+      const parsed = stored ? JSON.parse(stored) : { modules: {} };
+      parsed.modules = { ...(parsed.modules || {}), signin_logs: true };
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}${tenant.id}`, JSON.stringify(parsed));
+      // Dispatch storage event for sidebar update
+      window.dispatchEvent(new Event("storage"));
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleRestoreAlerts = () => {
+    setIsAlertCleared(false);
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tenant.id}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.modules) {
+          delete parsed.modules.signin_logs;
+          parsed.allCleared = false;
+        }
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}${tenant.id}`, JSON.stringify(parsed));
+        window.dispatchEvent(new Event("storage"));
+      }
+    } catch {
+      // Ignore
+    }
+  };
+
+  const copyToClipboard = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
 
   // Compute unique service names for filtering
   const availableServices = useMemo(() => {
@@ -57,23 +181,106 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
     return Array.from(services).sort();
   }, [signIns]);
 
-  // Compute high-level analytics
-  const stats = useMemo(() => {
-    const total = signIns.length;
-    const successful = signIns.filter((s) => s.status === "success" || s.errorCode === 0).length;
-    const failed = signIns.filter((s) => s.status === "failed" || (s.errorCode !== 0 && s.status !== "report_only_failed")).length;
-    const caBlocked = signIns.filter((s) => s.status === "ca_blocked" || s.errorCode === 53003).length;
-    const reportOnlyFailed = signIns.filter((s) => s.hasReportOnlyFailure || s.status === "report_only_failed").length;
+  // Compute Top Error Codes for quick filter bar
+  const topErrorCodes = useMemo(() => {
+    const counts: Record<number, number> = {};
+    signIns.forEach((s) => {
+      if (s.errorCode !== 0) {
+        counts[s.errorCode] = (counts[s.errorCode] || 0) + 1;
+      }
+    });
+    return Object.entries(counts)
+      .map(([code, count]) => ({ code: Number(code), count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+  }, [signIns]);
 
+  // Apply Time Stamp & Date Filtering
+  const timeFilteredSignIns = useMemo(() => {
+    if (timePreset === "all" && !customStartDate && !customEndDate && !specificDate) {
+      return signIns;
+    }
+
+    const now = new Date().getTime();
+
+    return signIns.filter((evt) => {
+      const evtTime = new Date(evt.createdDateTime).getTime();
+
+      if (timePreset === "24h") {
+        const dayAgo = now - 24 * 60 * 60 * 1000;
+        return evtTime >= dayAgo;
+      }
+
+      if (timePreset === "7d") {
+        const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+        return evtTime >= weekAgo;
+      }
+
+      if (timePreset === "30d") {
+        const monthAgo = now - 30 * 24 * 60 * 60 * 1000;
+        return evtTime >= monthAgo;
+      }
+
+      if (timePreset === "custom") {
+        if (specificDate) {
+          const startOfDay = new Date(`${specificDate}T00:00:00`).getTime();
+          const endOfDay = new Date(`${specificDate}T23:59:59`).getTime();
+          return evtTime >= startOfDay && evtTime <= endOfDay;
+        }
+
+        if (customStartDate) {
+          const start = new Date(customStartDate).getTime();
+          if (evtTime < start) return false;
+        }
+        if (customEndDate) {
+          const end = new Date(customEndDate).getTime() + (customEndDate.includes("T") ? 0 : 24 * 60 * 60 * 1000 - 1);
+          if (evtTime > end) return false;
+        }
+        return true;
+      }
+
+      return true;
+    });
+  }, [signIns, timePreset, customStartDate, customEndDate, specificDate]);
+
+  // Compute analytics on the time-filtered dataset
+  const stats = useMemo(() => {
+    const total = timeFilteredSignIns.length;
+    const successful = timeFilteredSignIns.filter((s) => s.status === "success" || s.errorCode === 0).length;
+    const failed = timeFilteredSignIns.filter((s) => s.status === "failed" || (s.errorCode !== 0 && s.status !== "report_only_failed")).length;
+    const caBlocked = timeFilteredSignIns.filter((s) => s.status === "ca_blocked" || s.errorCode === 53003).length;
+    const reportOnlyFailed = timeFilteredSignIns.filter((s) => s.hasReportOnlyFailure || s.status === "report_only_failed").length;
     const successRate = total > 0 ? Math.round((successful / total) * 100) : 100;
 
     return { total, successful, failed, caBlocked, reportOnlyFailed, successRate };
-  }, [signIns]);
+  }, [timeFilteredSignIns]);
 
+  // CA Report-Only Impact Analysis
+  const reportOnlyImpact = useMemo(() => {
+    const impactedUsers = new Set<string>();
+    const impactedPolicies: Record<string, number> = {};
+
+    timeFilteredSignIns.forEach((s) => {
+      if (s.hasReportOnlyFailure && s.reportOnlyFailedPolicies) {
+        impactedUsers.add(s.userPrincipalName);
+        s.reportOnlyFailedPolicies.forEach((p) => {
+          impactedPolicies[p] = (impactedPolicies[p] || 0) + 1;
+        });
+      }
+    });
+
+    return {
+      uniqueUsersImpacted: impactedUsers.size,
+      policyHits: impactedPolicies,
+    };
+  }, [timeFilteredSignIns]);
+
+  // Full filter pipeline
   const filteredSignIns = useMemo(() => {
-    return signIns.filter((evt) => {
+    return timeFilteredSignIns.filter((evt) => {
       const q = searchQuery.toLowerCase();
       const matchesSearch =
+        !q ||
         evt.userPrincipalName.toLowerCase().includes(q) ||
         evt.userDisplayName.toLowerCase().includes(q) ||
         evt.appDisplayName.toLowerCase().includes(q) ||
@@ -82,8 +289,9 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
         evt.location.city.toLowerCase().includes(q);
 
       const matchesService = serviceFilter === "all" || evt.appDisplayName === serviceFilter;
+      const matchesErrorCode = errorCodeFilter === "all" || evt.errorCode === errorCodeFilter;
 
-      if (!matchesSearch || !matchesService) return false;
+      if (!matchesSearch || !matchesService || !matchesErrorCode) return false;
 
       if (statusFilter === "all") return true;
       if (statusFilter === "success") return evt.status === "success" || evt.errorCode === 0;
@@ -93,7 +301,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
       if (statusFilter === "risky") return evt.isRisky;
       return true;
     });
-  }, [signIns, searchQuery, statusFilter, serviceFilter]);
+  }, [timeFilteredSignIns, searchQuery, statusFilter, serviceFilter, errorCodeFilter]);
 
   const getStatusDisplay = (evt: SignInEvent) => {
     if (evt.status === "ca_blocked" || evt.errorCode === 53003) {
@@ -108,6 +316,75 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
     return <StatusPill status="fail" label={`Failed (${evt.errorCode})`} size="sm" />;
   };
 
+  // Export to CSV
+  const handleExportCSV = () => {
+    const headers = [
+      "Timestamp",
+      "UserPrincipalName",
+      "UserDisplayName",
+      "Service",
+      "Status",
+      "ErrorCode",
+      "FailureReason",
+      "IPAddress",
+      "City",
+      "Country",
+      "OS",
+      "Browser",
+      "ReportOnlyFailures",
+    ];
+
+    const rows = filteredSignIns.map((s) => [
+      `"${s.createdDateTime}"`,
+      `"${s.userPrincipalName}"`,
+      `"${s.userDisplayName || ""}"`,
+      `"${s.appDisplayName}"`,
+      `"${s.status}"`,
+      s.errorCode,
+      `"${(s.failureReason || "").replace(/"/g, '""')}"`,
+      `"${s.ipAddress}"`,
+      `"${s.location.city || ""}"`,
+      `"${s.location.country || ""}"`,
+      `"${s.deviceDetail?.operatingSystem || ""}"`,
+      `"${s.deviceDetail?.browser || ""}"`,
+      `"${(s.reportOnlyFailedPolicies || []).join("; ")}"`,
+    ]);
+
+    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Clarity365_SignInLogs_${tenant.defaultDomainName}_${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Generate Sentinel / Defender KQL Query
+  const generateKqlQuery = () => {
+    let kql = `// Microsoft Sentinel / Defender XDR KQL Query\n// Tenant: ${tenant.displayName} (${tenant.defaultDomainName})\n`;
+    kql += `SigninLogs\n`;
+    if (timePreset === "24h") kql += `| where TimeGenerated >= ago(24h)\n`;
+    else if (timePreset === "7d") kql += `| where TimeGenerated >= ago(7d)\n`;
+    else if (timePreset === "30d") kql += `| where TimeGenerated >= ago(30d)\n`;
+    else if (timePreset === "custom" && customStartDate) kql += `| where TimeGenerated between (datetime(${customStartDate}) .. datetime(${customEndDate || "now()"}))\n`;
+    else kql += `| where TimeGenerated >= ago(30d)\n`;
+
+    if (statusFilter === "ca_blocked") kql += `| where ResultType == 53003 or ConditionalAccessStatus == "failure"\n`;
+    else if (statusFilter === "failed") kql += `| where ResultType != 0\n`;
+    else if (statusFilter === "report_only_failed") kql += `| where ConditionalAccessPolicies has "reportOnlyFailure"\n`;
+
+    if (errorCodeFilter !== "all") kql += `| where ResultType == ${errorCodeFilter}\n`;
+    if (serviceFilter !== "all") kql += `| where AppDisplayName =~ "${serviceFilter}"\n`;
+    if (searchQuery) kql += `| where UserPrincipalName has "${searchQuery}" or IPAddress == "${searchQuery}"\n`;
+
+    kql += `| project TimeGenerated, UserPrincipalName, AppDisplayName, IPAddress, ResultType, ResultDescription, ConditionalAccessPolicies\n`;
+    kql += `| order by TimeGenerated desc\n`;
+    kql += `| take 250`;
+    return kql;
+  };
+
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Header */}
@@ -120,18 +397,177 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
             </h2>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Real-time interactive log streamer with Conditional Access policy rule-chain inspection, failure reasons, and Report-Only impact analytics.
+            Real-time interactive log streamer with time filtering, Conditional Access policy rule-chain inspection, and failure analytics.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            <div className="text-xs font-semibold text-slate-700">Events Streamed</div>
-            <div className="text-lg font-bold font-mono text-slate-900 tabular-nums">
-              {signIns.length} Logged
-            </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Acknowledge / Clear Badges */}
+          {isAlertCleared ? (
+            <button
+              onClick={handleRestoreAlerts}
+              title="Restore sign-in alert badge on the sidebar"
+              className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+            >
+              <RotateCcw size={13} className="text-slate-500" />
+              <span>Restore Alert Badge</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleClearAlerts}
+              title="Acknowledge reviewed sign-in alerts and clear the sidebar number icon"
+              className="px-2.5 py-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+            >
+              <CheckCheck size={14} className="text-emerald-600" />
+              <span>Mark All Reviewed (Clear Alert)</span>
+            </button>
+          )}
+
+          {/* Export CSV */}
+          <button
+            onClick={handleExportCSV}
+            title="Export filtered logs to CSV"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <Download size={13} className="text-slate-500" />
+            <span>Export CSV</span>
+          </button>
+
+          {/* Sentinel KQL Query */}
+          <button
+            onClick={() => setKqlModalOpen(true)}
+            title="Generate KQL Query for Microsoft Sentinel"
+            className="px-2.5 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <Terminal size={13} className="text-emerald-400" />
+            <span>KQL Query</span>
+          </button>
+
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              title="Synchronize live sign-ins from Microsoft Graph"
+              className="p-1.5 text-slate-600 hover:text-slate-900 bg-white border border-[#CBD5E1] rounded-sm hover:bg-slate-50 transition-colors"
+            >
+              <RefreshCw size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Time Range & Timestamp Filtering Bar */}
+      <div className="bg-white border border-[#CBD5E1] p-3 rounded-sm space-y-3 shadow-2xs">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          {/* Preset Buttons */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mr-1 flex items-center gap-1">
+              <Calendar size={13} className="text-slate-500" />
+              <span>Timeframe:</span>
+            </span>
+
+            {[
+              { id: "all", label: "All Time" },
+              { id: "24h", label: "Today (24h)" },
+              { id: "7d", label: "Last 7 Days (Week)" },
+              { id: "30d", label: "Last 30 Days (Month)" },
+              { id: "custom", label: "Custom / Specific Date..." },
+            ].map((preset) => {
+              const isSelected = timePreset === preset.id;
+              return (
+                <button
+                  key={preset.id}
+                  onClick={() => {
+                    setTimePreset(preset.id as TimeRangePreset);
+                    if (preset.id !== "custom") {
+                      setCustomStartDate("");
+                      setCustomEndDate("");
+                      setSpecificDate("");
+                    }
+                  }}
+                  className={`px-2.5 py-1 text-xs rounded-sm font-medium transition-colors border ${
+                    isSelected
+                      ? "bg-slate-900 text-white border-slate-900 shadow-2xs font-semibold"
+                      : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100/70"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Quick Active Filter Indicators */}
+          <div className="text-[11px] text-slate-500 font-mono flex items-center gap-2">
+            <span>Showing:</span>
+            <span className="font-bold text-slate-900 tabular-nums">
+              {filteredSignIns.length} of {signIns.length} Events
+            </span>
           </div>
         </div>
+
+        {/* Custom Range & Specific Date Inputs (Shown when "custom" selected) */}
+        {timePreset === "custom" && (
+          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-3 bg-slate-50 p-2.5 rounded-sm">
+            {/* Specific Day Picker */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-semibold text-slate-700">Specific Day:</span>
+              <input
+                type="date"
+                value={specificDate}
+                onChange={(e) => {
+                  setSpecificDate(e.target.value);
+                  setCustomStartDate("");
+                  setCustomEndDate("");
+                }}
+                className="px-2 py-1 text-xs border border-slate-300 rounded-sm bg-white focus:outline-none focus:border-slate-800"
+              />
+            </div>
+
+            <div className="text-slate-400 text-xs font-semibold">OR</div>
+
+            {/* Date Range Start -> End */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-semibold text-slate-700">Start Date:</span>
+                <input
+                  type="date"
+                  value={customStartDate}
+                  onChange={(e) => {
+                    setCustomStartDate(e.target.value);
+                    setSpecificDate("");
+                  }}
+                  className="px-2 py-1 text-xs border border-slate-300 rounded-sm bg-white focus:outline-none focus:border-slate-800"
+                />
+              </div>
+
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-semibold text-slate-700">End Date:</span>
+                <input
+                  type="date"
+                  value={customEndDate}
+                  onChange={(e) => {
+                    setCustomEndDate(e.target.value);
+                    setSpecificDate("");
+                  }}
+                  className="px-2 py-1 text-xs border border-slate-300 rounded-sm bg-white focus:outline-none focus:border-slate-800"
+                />
+              </div>
+
+              {(customStartDate || customEndDate || specificDate) && (
+                <button
+                  onClick={() => {
+                    setCustomStartDate("");
+                    setCustomEndDate("");
+                    setSpecificDate("");
+                  }}
+                  className="px-2 py-1 text-xs text-rose-700 hover:text-rose-900 border border-rose-200 bg-rose-50 hover:bg-rose-100 rounded-sm transition-colors"
+                >
+                  Clear Date Filter
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Analytics KPI Metric Cards */}
@@ -139,7 +575,9 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
         <div className="p-3 bg-white border border-[#CBD5E1] rounded-sm">
           <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Sign-Ins</div>
           <div className="text-xl font-bold font-mono text-slate-900 mt-1">{stats.total}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">Live Graph Events</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">
+            {timePreset === "24h" ? "Past 24 Hours" : timePreset === "7d" ? "Past 7 Days" : timePreset === "30d" ? "Past 30 Days" : "Selected Range"}
+          </div>
         </div>
 
         <div className="p-3 bg-white border border-[#CBD5E1] rounded-sm">
@@ -159,7 +597,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
             <span>Auth Failures</span>
           </div>
           <div className="text-xl font-bold font-mono text-rose-900 mt-1">{stats.failed}</div>
-          <div className="text-[10px] text-rose-600 mt-0.5">Bad password / interrupts</div>
+          <div className="text-[10px] text-rose-600 mt-0.5">Bad credentials / policy blocks</div>
         </div>
 
         <div
@@ -175,9 +613,55 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
             <span>CA Report-Only Failures</span>
           </div>
           <div className="text-xl font-bold font-mono text-amber-950 mt-1">{stats.reportOnlyFailed}</div>
-          <div className="text-[10px] text-amber-700 mt-0.5">Would block if enabled (Click to filter)</div>
+          <div className="text-[10px] text-amber-700 mt-0.5">
+            {reportOnlyImpact.uniqueUsersImpacted > 0
+              ? `${reportOnlyImpact.uniqueUsersImpacted} users impacted (Click to filter)`
+              : "No report-only block events"}
+          </div>
         </div>
       </div>
+
+      {/* Top Error Code Breakdown Pills */}
+      {topErrorCodes.length > 0 && (
+        <div className="bg-slate-50 border border-[#CBD5E1] p-2.5 rounded-sm flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1">
+            <ShieldAlert size={12} className="text-rose-600" />
+            <span>Frequent Error Codes:</span>
+          </span>
+
+          <button
+            onClick={() => setErrorCodeFilter("all")}
+            className={`px-2 py-0.5 text-[11px] font-mono rounded-sm transition-colors border ${
+              errorCodeFilter === "all"
+                ? "bg-slate-800 text-white border-slate-800 font-bold"
+                : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+            }`}
+          >
+            All Codes
+          </button>
+
+          {topErrorCodes.map(({ code, count }) => {
+            const isSelected = errorCodeFilter === code;
+            const meta = ERROR_CODE_TRANSLATIONS[code];
+            return (
+              <button
+                key={code}
+                onClick={() => setErrorCodeFilter(isSelected ? "all" : code)}
+                title={`${meta?.title || "Error"}: ${meta?.explanation || ""}`}
+                className={`px-2 py-0.5 text-[11px] font-mono rounded-sm transition-colors border flex items-center gap-1 ${
+                  isSelected
+                    ? "bg-rose-700 text-white border-rose-700 font-bold shadow-2xs"
+                    : "bg-white text-rose-800 border-rose-200 hover:bg-rose-50"
+                }`}
+              >
+                <span>[{code}]</span>
+                <span className="font-sans font-medium text-[10px]">{meta?.title || "Error"}</span>
+                <span className="px-1 bg-rose-100 text-rose-900 rounded text-[9px] font-bold">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Filters Bar */}
       <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-white p-3 border border-[#CBD5E1] rounded-sm">
@@ -185,7 +669,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
           <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
           <input
             type="text"
-            placeholder="Search by User (UPN), Service, Failure Reason..."
+            placeholder="Search by User (UPN), Service, Failure Reason, IP..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
@@ -227,23 +711,28 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
             </select>
           </div>
 
-          {(statusFilter !== "all" || serviceFilter !== "all" || searchQuery) && (
+          {(statusFilter !== "all" || serviceFilter !== "all" || errorCodeFilter !== "all" || searchQuery || timePreset !== "all") && (
             <button
               onClick={() => {
                 setStatusFilter("all");
                 setServiceFilter("all");
+                setErrorCodeFilter("all");
                 setSearchQuery("");
+                setTimePreset("all");
+                setCustomStartDate("");
+                setCustomEndDate("");
+                setSpecificDate("");
               }}
-              className="px-2.5 py-1 text-xs text-slate-600 hover:text-slate-900 border border-slate-300 rounded-sm hover:bg-slate-50"
+              className="px-2.5 py-1 text-xs text-slate-600 hover:text-slate-900 border border-slate-300 rounded-sm hover:bg-slate-50 transition-colors"
             >
-              Reset Filters
+              Reset All Filters
             </button>
           )}
         </div>
       </div>
 
       {/* Log Table */}
-      <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-xs">
+      <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-2xs">
         <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
             Authentication & Session Audit Stream
@@ -269,8 +758,12 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
             <tbody>
               {filteredSignIns.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-xs text-slate-500">
-                    No sign-in events match the active filter criteria.
+                  <td colSpan={7} className="p-8 text-center text-xs text-slate-500">
+                    <div className="space-y-1">
+                      <Clock size={20} className="mx-auto text-slate-400 mb-1" />
+                      <div className="font-semibold text-slate-700">No sign-in events match the active filter criteria.</div>
+                      <div className="text-[11px] text-slate-400">Try adjusting the time range or resetting filters.</div>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -283,13 +776,13 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
                     {/* Timestamp */}
                     <td className="font-mono text-[11px] text-slate-600 whitespace-nowrap">
                       <div>{new Date(evt.createdDateTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
-                      <div className="text-[10px] text-slate-400">{new Date(evt.createdDateTime).toLocaleDateString([], { month: "short", day: "numeric" })}</div>
+                      <div className="text-[10px] text-slate-400">{new Date(evt.createdDateTime).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}</div>
                     </td>
 
                     {/* User */}
                     <td>
-                      <div className="font-mono font-semibold text-xs text-slate-900 leading-tight">
-                        {evt.userPrincipalName}
+                      <div className="font-mono font-semibold text-xs text-slate-900 leading-tight flex items-center gap-1">
+                        <span>{evt.userPrincipalName}</span>
                       </div>
                       <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
                         <span>{evt.userDisplayName || evt.userPrincipalName}</span>
@@ -398,6 +891,39 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
               <p className="text-xs mt-1.5 font-medium leading-relaxed">
                 {selectedEvent.failureReason || ERROR_CODE_TRANSLATIONS[selectedEvent.errorCode]?.explanation || "Authentication succeeded."}
               </p>
+              {ERROR_CODE_TRANSLATIONS[selectedEvent.errorCode]?.remediation && (
+                <div className="mt-2 pt-2 border-t border-current/10 text-[11px] opacity-90">
+                  <span className="font-bold">Remediation: </span>
+                  <span>{ERROR_CODE_TRANSLATIONS[selectedEvent.errorCode].remediation}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Copy Action Bar */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => copyToClipboard(selectedEvent.userPrincipalName, "upn")}
+                className="px-2 py-1 text-[11px] font-mono bg-slate-100 hover:bg-slate-200 text-slate-800 rounded border border-slate-300 flex items-center gap-1 transition-colors"
+              >
+                {copiedKey === "upn" ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                <span>Copy UPN</span>
+              </button>
+
+              <button
+                onClick={() => copyToClipboard(selectedEvent.ipAddress, "ip")}
+                className="px-2 py-1 text-[11px] font-mono bg-slate-100 hover:bg-slate-200 text-slate-800 rounded border border-slate-300 flex items-center gap-1 transition-colors"
+              >
+                {copiedKey === "ip" ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                <span>Copy IP ({selectedEvent.ipAddress})</span>
+              </button>
+
+              <button
+                onClick={() => copyToClipboard(selectedEvent.id, "id")}
+                className="px-2 py-1 text-[11px] font-mono bg-slate-100 hover:bg-slate-200 text-slate-800 rounded border border-slate-300 flex items-center gap-1 transition-colors"
+              >
+                {copiedKey === "id" ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                <span>Copy Session ID</span>
+              </button>
             </div>
 
             {/* User & Service Details */}
@@ -413,12 +939,12 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
               </div>
               <div>
                 <span className="text-slate-500 block text-[11px]">Client & OS:</span>
-                <span className="text-slate-800">{selectedEvent.clientApp} ({selectedEvent.deviceDetail.operatingSystem})</span>
+                <span className="text-slate-800">{selectedEvent.clientApp} ({selectedEvent.deviceDetail?.operatingSystem || "Unknown"})</span>
               </div>
               <div>
                 <span className="text-slate-500 block text-[11px]">IP & Location:</span>
                 <span className="font-mono text-slate-800">{selectedEvent.ipAddress}</span>
-                <span className="text-slate-600 block text-[11px]">{selectedEvent.location.city}, {selectedEvent.location.country}</span>
+                <span className="text-slate-600 block text-[11px]">{selectedEvent.location.city || "Unknown"}, {selectedEvent.location.country || "ZA"}</span>
               </div>
             </div>
 
@@ -478,6 +1004,52 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot }) 
           </div>
         </Drawer>
       )}
+
+      {/* KQL Query Generator Modal */}
+      {kqlModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white border border-[#CBD5E1] shadow-xl rounded-sm max-w-2xl w-full p-4 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <Terminal size={16} className="text-slate-900" />
+                <h3 className="text-sm font-bold text-slate-900">Microsoft Sentinel / Defender KQL Query</h3>
+              </div>
+              <button onClick={() => setKqlModalOpen(false)} className="text-slate-400 hover:text-slate-800">
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600">
+              Copy and execute this KQL query in the Microsoft Defender XDR Advanced Hunting portal or Microsoft Sentinel workspace:
+            </p>
+
+            <pre className="p-3 bg-slate-950 text-emerald-400 font-mono text-xs rounded-sm overflow-x-auto select-all leading-relaxed">
+              {generateKqlQuery()}
+            </pre>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setKqlModalOpen(false)}
+                className="px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 rounded-sm border border-slate-300"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(generateKqlQuery());
+                  setCopiedKey("kql");
+                  setTimeout(() => setCopiedKey(null), 2000);
+                }}
+                className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm flex items-center gap-1.5"
+              >
+                {copiedKey === "kql" ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                <span>{copiedKey === "kql" ? "Copied to Clipboard!" : "Copy KQL Query"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
