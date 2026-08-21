@@ -344,32 +344,34 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                 signIns.slice(0, 4).map((event) => (
                   <div key={event.id} className="pt-2 first:pt-0 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-900 truncate max-w-[170px]">
-                        {event.userDisplayName || event.userPrincipalName}
+                      <span className="font-mono text-xs font-semibold text-slate-900 truncate max-w-[170px]">
+                        {event.userPrincipalName}
                       </span>
                       <StatusPill
                         status={
-                          event.status === "success"
+                          event.status === "success" && !event.hasReportOnlyFailure
                             ? "pass"
-                            : event.status === "ca_blocked" || event.status === "failed"
+                            : event.status === "ca_blocked" || event.errorCode !== 0
                             ? "fail"
                             : "warn"
                         }
                         label={
                           event.status === "ca_blocked"
                             ? "CA Blocked"
-                            : event.status === "failed"
+                            : event.errorCode !== 0
                             ? `Failed (${event.errorCode})`
-                            : event.status === "report_only_failed"
+                            : event.hasReportOnlyFailure
                             ? "Report-Only Fail"
-                            : "Passed"
+                            : "Succeeded"
                         }
                         size="sm"
                       />
                     </div>
-                    <div className="text-[11px] font-mono text-slate-500 flex items-center justify-between">
-                      <span>{event.location.city}, {event.location.country}</span>
-                      <span>{event.clientApp}</span>
+                    <div className="text-[11px] text-slate-600 flex items-center justify-between">
+                      <span className="font-medium truncate max-w-[160px]">{event.appDisplayName}</span>
+                      <span className="font-mono text-[10px] text-slate-400">
+                        {event.location.city || "Unknown"}, {event.location.country || "ZA"}
+                      </span>
                     </div>
                   </div>
                 ))
