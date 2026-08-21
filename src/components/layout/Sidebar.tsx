@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   ShieldAlert,
@@ -14,6 +14,10 @@ import {
   AlertTriangle,
   Server,
   Lock,
+  BellOff,
+  BellRing,
+  CheckCheck,
+  RotateCcw,
 } from "lucide-react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 
@@ -21,6 +25,10 @@ interface SidebarProps {
   activeView: string;
   onSelectView: (view: string) => void;
   snapshot: TenantSecuritySnapshot | null;
+  dismissedAlerts?: Record<string, boolean>;
+  onClearAllAlerts?: () => void;
+  onRestoreAlerts?: () => void;
+  onDismissModuleAlert?: (moduleId: string) => void;
 }
 
 interface NavGroup {
@@ -34,7 +42,78 @@ interface NavGroup {
   }[];
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, snapshot }) => {
+const STORAGE_KEY_PREFIX = "clarity365_alerts_cleared_";
+
+export const Sidebar: React.FC<SidebarProps> = ({
+  activeView,
+  onSelectView,
+  snapshot,
+  dismissedAlerts: propDismissedAlerts,
+  onClearAllAlerts: propOnClearAllAlerts,
+  onRestoreAlerts: propOnRestoreAlerts,
+  onDismissModuleAlert: propOnDismissModuleAlert,
+}) => {
+  const tenantId = snapshot?.tenant?.id || "global";
+
+  // Local storage alert dismissal state
+  const [localDismissed, setLocalDismissed] = useState<Record<string, boolean>>({});
+  const [allCleared, setAllCleared] = useState<boolean>(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tenantId}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setLocalDismissed(parsed.modules || {});
+        setAllCleared(!!parsed.allCleared);
+      } else {
+        setLocalDismissed({});
+        setAllCleared(false);
+      }
+    } catch {
+      // Fallback
+    }
+  }, [tenantId]);
+
+  const saveDismissedState = (newAllCleared: boolean, newModules: Record<string, boolean>) => {
+    setAllCleared(newAllCleared);
+    setLocalDismissed(newModules);
+    try {
+      localStorage.setItem(
+        `${STORAGE_KEY_PREFIX}${tenantId}`,
+        JSON.stringify({ allCleared: newAllCleared, modules: newModules, updatedAt: new Date().toISOString() })
+      );
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleClearAll = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    saveDismissedState(true, {
+      ca_baseline: true,
+      signin_logs: true,
+      mfa_audit: true,
+      user_class: true,
+      forwarding: true,
+      groups: true,
+    });
+    if (propOnClearAllAlerts) propOnClearAllAlerts();
+  };
+
+  const handleRestoreAll = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    saveDismissedState(false, {});
+    if (propOnRestoreAlerts) propOnRestoreAlerts();
+  };
+
+  const isModuleDismissed = (moduleId: string) => {
+    if (propDismissedAlerts && propDismissedAlerts[moduleId] !== undefined) {
+      return propDismissedAlerts[moduleId];
+    }
+    return allCleared || !!localDismissed[moduleId];
+  };
+
   const missingCABaselineCount = snapshot
     ? snapshot.conditionalAccess.baselineDefinitions.length -
       new Set(snapshot.conditionalAccess.policies.map((p) => p.baselineCode).filter(Boolean)).size
@@ -51,6 +130,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, snap
   const externalForwardingCount = snapshot ? snapshot.highRiskThreatIndicators.externalForwardingCount : 0;
 
   const groupsCount = snapshot ? snapshot.groups.length : 0;
+
+  const totalRawAlertCount =
+    (missingCABaselineCount > 0 ? missingCABaselineCount : 0) +
+    (riskySignInsCount > 0 ? riskySignInsCount : 0) +
+    (weakMfaCount > 0 ? weakMfaCount : 0) +
+    (orphanedUsersCount > 0 ? orphanedUsersCount : 0) +
+    (externalForwardingCount > 0 ? externalForwardingCount : 0);
 
   const navGroups: NavGroup[] = [
     {
@@ -169,6 +255,44 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, snap
 
   return (
     <aside className="w-64 border-r border-[#CBD5E1] bg-[#F8FAFC] flex flex-col h-[calc(100vh-3rem)] select-none shrink-0 overflow-y-auto">
+      {/* Alert Clearance Status Bar */}
+      <div className="px-3 pt-3 pb-1 border-b border-[#E2E8F0] bg-white/70">
+        <div className="flex items-center justify-between text-[11px]">
+          <div className="flex items-center gap-1.5 font-medium text-slate-700">
+            {allCleared ? (
+              <BellOff size={13} className="text-slate-400" />
+            ) : totalRawAlertCount > 0 ? (
+              <BellRing size={13} className="text-amber-600 animate-pulse" />
+            ) : (
+              <CheckCheck size={13} className="text-emerald-600" />
+            )}
+            <span>{allCleared ? "Alerts Muted" : `${totalRawAlertCount} Active Alerts`}</span>
+          </div>
+
+          <div>
+            {allCleared ? (
+              <button
+                onClick={handleRestoreAll}
+                title="Restore sidebar alert badges"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 transition-colors"
+              >
+                <RotateCcw size={10} />
+                <span>Restore</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleClearAll}
+                title="Clear and mute all sidebar alert number badges"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 hover:text-slate-950 bg-slate-100 hover:bg-slate-200/80 rounded border border-slate-300 transition-colors"
+              >
+                <CheckCheck size={11} className="text-slate-500" />
+                <span>Clear Badges</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="p-3 space-y-4">
         {navGroups.map((group, gIdx) => (
           <div key={gIdx} className="space-y-1">
@@ -179,6 +303,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, snap
               {group.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeView === item.id;
+                const isDismissed = isModuleDismissed(item.id);
+                const hasBadge = item.badgeCount !== undefined && item.badgeCount > 0;
+
                 return (
                   <button
                     key={item.id}
@@ -194,20 +321,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, snap
                       <span className="truncate">{item.label}</span>
                     </div>
 
-                    {item.badgeCount !== undefined && (
-                      <span
-                        className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-sm border tabular-nums ${
-                          item.badgeStatus === "fail"
-                            ? "bg-red-50 text-red-700 border-red-200"
-                            : item.badgeStatus === "warn"
-                            ? "bg-amber-50 text-amber-800 border-amber-200"
-                            : item.badgeStatus === "pass"
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                            : "bg-slate-100 text-slate-700 border-slate-200"
-                        }`}
-                      >
-                        {item.badgeCount}
-                      </span>
+                    {hasBadge && (
+                      isDismissed ? (
+                        <span
+                          title="Alert badge acknowledged/cleared"
+                          className="text-[9px] font-mono text-slate-400 opacity-60"
+                        >
+                          ✓
+                        </span>
+                      ) : (
+                        <span
+                          className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-sm border tabular-nums ${
+                            item.badgeStatus === "fail"
+                              ? "bg-red-50 text-red-700 border-red-200"
+                              : item.badgeStatus === "warn"
+                              ? "bg-amber-50 text-amber-800 border-amber-200"
+                              : item.badgeStatus === "pass"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : "bg-slate-100 text-slate-700 border-slate-200"
+                          }`}
+                        >
+                          {item.badgeCount}
+                        </span>
+                      )
                     )}
                   </button>
                 );
@@ -219,3 +355,4 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView, snap
     </aside>
   );
 };
+
