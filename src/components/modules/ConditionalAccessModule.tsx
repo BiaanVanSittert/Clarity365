@@ -1,25 +1,76 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { TenantSecuritySnapshot, CAPolicyRule } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { CA_BASELINE_STANDARDS, CABaselinePolicyDefinition } from "@/lib/data/baseline-definitions";
 import { DeployCaPolicyModal } from "../modals/DeployCaPolicyModal";
-import { ShieldCheck, Lock, Terminal, Search, Filter, ShieldAlert, Code2 } from "lucide-react";
+import { ShieldCheck, Lock, Terminal, Search, Filter, ShieldAlert, Code2, CheckCheck, RotateCcw, Key } from "lucide-react";
 
 interface ConditionalAccessModuleProps {
   snapshot: TenantSecuritySnapshot;
   onOpenRemediation: (findingType?: string) => void;
   onRefresh?: () => void;
+  onNavigate?: (view: string) => void;
 }
+
+const STORAGE_KEY_PREFIX = "clarity365_alerts_cleared_";
 
 export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = ({
   snapshot,
   onOpenRemediation,
   onRefresh,
+  onNavigate,
 }) => {
   const { conditionalAccess, tenant, capabilities } = snapshot;
   const [searchQuery, setSearchQuery] = useState("");
   const [filterState, setFilterState] = useState<string>("all");
   const [deployModalPolicy, setDeployModalPolicy] = useState<CABaselinePolicyDefinition | null>(null);
+  const [isAlertCleared, setIsAlertCleared] = useState(false);
+
+  // Load alert clearance status
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tenant.id}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.allCleared || parsed.modules?.ca_baseline) {
+          setIsAlertCleared(true);
+        }
+      }
+    } catch {
+      // Fallback
+    }
+  }, [tenant.id]);
+
+  const handleClearAlerts = () => {
+    setIsAlertCleared(true);
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tenant.id}`);
+      const parsed = stored ? JSON.parse(stored) : { modules: {} };
+      parsed.modules = { ...(parsed.modules || {}), ca_baseline: true };
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}${tenant.id}`, JSON.stringify(parsed));
+      window.dispatchEvent(new Event("storage"));
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleRestoreAlerts = () => {
+    setIsAlertCleared(false);
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tenant.id}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.modules) {
+          delete parsed.modules.ca_baseline;
+          parsed.allCleared = false;
+        }
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}${tenant.id}`, JSON.stringify(parsed));
+        window.dispatchEvent(new Event("storage"));
+      }
+    } catch {
+      // Ignore
+    }
+  };
 
   const deployedPolicies = conditionalAccess.policies;
   const baselineDefinitions = CA_BASELINE_STANDARDS;
@@ -36,9 +87,10 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
       baselineMap.set(p.baselineCode, p);
     } else {
       // Fallback detection
-      const match = p.name.match(/CA(0[1-9]|10)/i);
+      const match = p.name.match(/(?:CA|CA-|\bCA\s*)(0[1-9]|10|[1-9])\b/i);
       if (match) {
-        baselineMap.set(`CA${match[1]}`, p);
+        const num = parseInt(match[1], 10);
+        baselineMap.set(num < 10 ? `CA0${num}` : `CA${num}`, p);
       }
     }
   });
@@ -76,7 +128,7 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="text-right">
             <div className="text-xs font-semibold text-slate-700">Baseline Compliance</div>
             <div className="text-lg font-bold font-mono text-slate-900 tabular-nums">
@@ -84,12 +136,44 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
             </div>
           </div>
 
+          {/* Alert Dismissal Button */}
+          {isAlertCleared ? (
+            <button
+              onClick={handleRestoreAlerts}
+              title="Restore baseline warning badge on sidebar"
+              className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+            >
+              <RotateCcw size={13} className="text-slate-500" />
+              <span>Restore Badge</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleClearAlerts}
+              title="Acknowledge baseline warnings and clear the sidebar number badge"
+              className="px-2.5 py-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+            >
+              <CheckCheck size={14} className="text-emerald-600" />
+              <span>Mark Reviewed (Clear Alert)</span>
+            </button>
+          )}
+
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate("signin_logs")}
+              title="Inspect real-time Sign-in logs evaluating these CA policies"
+              className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+            >
+              <Key size={13} className="text-slate-600" />
+              <span>View Sign-In Logs</span>
+            </button>
+          )}
+
           <button
             onClick={() => onOpenRemediation("conditional_access")}
-            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm flex items-center gap-1.5 transition-colors shadow-sm"
+            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
           >
             <Terminal size={14} className="text-emerald-400" />
-            <span>Generate Full Remediation Script</span>
+            <span>Generate Remediation Script</span>
           </button>
         </div>
       </div>
