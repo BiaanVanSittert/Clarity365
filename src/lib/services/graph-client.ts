@@ -373,22 +373,23 @@ export async function fetchLiveTenantSnapshot(
       const caData = await caRes.json();
       if (caData.value && Array.isArray(caData.value)) {
         livePolicies = caData.value.map((p: any) => {
-          const match = p.displayName.match(/CA(0[1-9]|10)/i);
+          const match = p.displayName.match(/(?:CA|CA-|\bCA\s*)(0[1-9]|10|[1-9])\b/i);
           let detectedCode: string | null = null;
           if (match) {
-            detectedCode = `CA${match[1]}`;
+            const num = parseInt(match[1], 10);
+            detectedCode = num < 10 ? `CA0${num}` : `CA${num}`;
           } else {
             const lower = p.displayName.toLowerCase();
-            if (lower.includes("legacy")) detectedCode = "CA01";
-            else if (lower.includes("mfa") && lower.includes("all users")) detectedCode = "CA02";
-            else if (lower.includes("mfa") && lower.includes("admin")) detectedCode = "CA03";
+            if (lower.includes("legacy") || lower.includes("basic auth") || lower.includes("activesync")) detectedCode = "CA01";
+            else if (lower.includes("mfa") && (lower.includes("all users") || lower.includes("all employees") || lower.includes("all members"))) detectedCode = "CA02";
+            else if ((lower.includes("mfa") || lower.includes("multifactor")) && (lower.includes("admin") || lower.includes("privileged") || lower.includes("global admin"))) detectedCode = "CA03";
             else if (lower.includes("guest") || lower.includes("external")) detectedCode = "CA04";
-            else if (lower.includes("azure management")) detectedCode = "CA05";
-            else if (lower.includes("risky sign-in") || lower.includes("sign-in risk")) detectedCode = "CA06";
-            else if (lower.includes("high-risk user") || lower.includes("user risk")) detectedCode = "CA07";
-            else if (lower.includes("untrusted countr") || lower.includes("geo")) detectedCode = "CA08";
-            else if (lower.includes("compliant device") || lower.includes("mdm")) detectedCode = "CA09";
-            else if (lower.includes("phishing-resistant") || lower.includes("fido2")) detectedCode = "CA10";
+            else if (lower.includes("azure management") || lower.includes("portal") || lower.includes("powershell") || lower.includes("cli")) detectedCode = "CA05";
+            else if (lower.includes("risky sign-in") || lower.includes("sign-in risk") || lower.includes("signin risk")) detectedCode = "CA06";
+            else if (lower.includes("high-risk user") || lower.includes("user risk") || lower.includes("risky user")) detectedCode = "CA07";
+            else if (lower.includes("untrusted countr") || lower.includes("geo") || lower.includes("location block") || lower.includes("foreign")) detectedCode = "CA08";
+            else if (lower.includes("compliant device") || lower.includes("mdm") || lower.includes("hybrid") || lower.includes("intune compliant")) detectedCode = "CA09";
+            else if (lower.includes("phishing-resistant") || lower.includes("fido2") || lower.includes("passwordless") || lower.includes("cba")) detectedCode = "CA10";
           }
 
           const baselineDef = CA_BASELINE_STANDARDS.find((b) => b.code === detectedCode);
@@ -463,7 +464,10 @@ export async function fetchLiveTenantSnapshot(
   // 3. Fetch Sign-In Logs
   let signInsList: SignInEvent[] = [];
   try {
-    const signInsRes = await fetch("https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=100", { headers });
+    let signInsRes = await fetch("https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=250", { headers });
+    if (!signInsRes.ok && signInsRes.status === 400) {
+      signInsRes = await fetch("https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=100", { headers });
+    }
     if (signInsRes.ok) {
       const signInsData = await signInsRes.json();
       if (signInsData.value && Array.isArray(signInsData.value)) {
