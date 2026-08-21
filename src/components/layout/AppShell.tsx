@@ -241,11 +241,15 @@ export const AppShell: React.FC = () => {
               snapshot={snapshot}
               onOpenRemediation={handleOpenRemediation}
               onRefresh={handleForceSync}
+              onNavigate={(view) => setActiveView(view)}
             />
           )}
 
           {activeView === "signin_logs" && snapshot && (
-            <SignInLogsModule snapshot={snapshot} />
+            <SignInLogsModule
+              snapshot={snapshot}
+              onRefresh={handleForceSync}
+            />
           )}
 
           {activeView === "sec_score" && snapshot && (
