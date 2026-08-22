@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Clarity365 — Multi-Tenant M365 IRM & Security Suite",
+  title: "Clarity365: Multi-Tenant M365 IRM & Security Suite",
   description: "Enterprise Information Rights Management (IRM) and Security Posture Dashboard for Microsoft 365 MSPs and IT Security Teams.",
 };
 

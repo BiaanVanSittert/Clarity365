@@ -1,8 +1,8 @@
-# Clarity365 — Multi-Tenant M365 IRM & Security Posture Suite
+# Clarity365: Multi-Tenant M365 IRM & Security Posture Suite
 
 Clarity365 is an enterprise-grade Information Rights Management (IRM) and Security Posture dashboard package built for Managed Service Providers (MSPs) and internal IT security teams.
 
-Designed following strict, high-density sysadmin principles (inspired by Bloomberg terminals and Dieter Rams), Clarity365 avoids aesthetic fluff and delivers immediate, actionable cloud security intelligence across all Microsoft 365 customer tenants.
+Designed following strict, high-density sysadmin and cybersecurity principles (inspired by Bloomberg terminals and Dieter Rams), Clarity365 avoids aesthetic fluff and delivers immediate, actionable cloud security intelligence across all Microsoft 365 customer tenants.
 
 ---
 
