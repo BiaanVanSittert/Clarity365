@@ -1,6 +1,7 @@
-// Session + password verification for Clarity365's single-operator login gate.
+// Session token signing/verification for Clarity365's single-operator login gate.
 // Uses Web Crypto (globalThis.crypto.subtle) exclusively so this module works
 // identically in the Node.js API routes and in the Edge-runtime middleware.
+// Password hashing/verification lives in ./crypto.ts (Node-only, never runs in middleware).
 
 const encoder = new TextEncoder();
 
@@ -48,13 +49,6 @@ async function hmacSign(data: string): Promise<string> {
   return bufferToBase64Url(signature);
 }
 
-async function sha256Hex(input: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(input));
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 export async function createSessionToken(): Promise<string> {
   const now = Date.now();
   const payload: SessionPayload = { iat: now, exp: now + SESSION_TTL_SECONDS * 1000 };
@@ -76,14 +70,4 @@ export async function verifySessionToken(token: string | undefined | null): Prom
   } catch {
     return false;
   }
-}
-
-export async function verifyAdminPassword(password: string): Promise<boolean> {
-  const expected = process.env.CLARITY365_ADMIN_PASSWORD;
-  if (!expected) {
-    throw new Error("CLARITY365_ADMIN_PASSWORD is not set.");
-  }
-  // Compare fixed-length hashes rather than raw input to avoid leaking length/content via timing.
-  const [a, b] = await Promise.all([sha256Hex(password), sha256Hex(expected)]);
-  return timingSafeEqualStr(a, b);
 }

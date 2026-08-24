@@ -47,3 +47,25 @@ export function decryptSecret(encoded: string): string {
 // Mask shown to API/UI consumers in place of a real secret value. Never send the
 // decrypted (or encrypted) value to a client — this is a write-only field.
 export const SECRET_MASK = "••••••••";
+
+// Operator password hashing (scrypt, salted per-password). Storage format:
+// "scrypt:v1:<salt-hex>:<hash-hex>". Deliberately slow/memory-hard, unlike the
+// plain SHA-256 used for session-token signing — this is for a real password.
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, 64);
+  return `scrypt:v1:${salt.toString("hex")}:${hash.toString("hex")}`;
+}
+
+export function verifyPasswordHash(password: string, stored: string): boolean {
+  const parts = stored.split(":");
+  if (parts.length !== 4 || parts[0] !== "scrypt" || parts[1] !== "v1") return false;
+  try {
+    const salt = Buffer.from(parts[2], "hex");
+    const expected = Buffer.from(parts[3], "hex");
+    const actual = crypto.scryptSync(password, salt, 64);
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}

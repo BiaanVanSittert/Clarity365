@@ -1,29 +1,26 @@
 import { NextResponse } from "next/server";
-import { createSessionToken, verifyAdminPassword, SESSION_COOKIE_NAME, SESSION_TTL_SECONDS } from "@/lib/services/auth";
+import { tenantStore } from "@/lib/services/tenant-store";
+import { verifyPasswordHash } from "@/lib/services/crypto";
+import { createSessionToken, SESSION_COOKIE_NAME, SESSION_TTL_SECONDS } from "@/lib/services/auth";
+import { isRateLimited } from "@/lib/services/rate-limit";
 
-// Best-effort, process-memory login throttle. Single-operator tool, single instance —
-// this is not a substitute for a real rate limiter behind a multi-instance deployment.
-const attempts = new Map<string, { count: number; resetAt: number }>();
 const MAX_ATTEMPTS = 10;
 const WINDOW_MS = 15 * 60 * 1000;
 
-function isRateLimited(key: string): boolean {
-  const now = Date.now();
-  const entry = attempts.get(key);
-  if (!entry || now > entry.resetAt) {
-    attempts.set(key, { count: 1, resetAt: now + WINDOW_MS });
-    return false;
-  }
-  entry.count += 1;
-  return entry.count > MAX_ATTEMPTS;
-}
-
 export async function POST(request: Request) {
   try {
-    if (isRateLimited("global")) {
+    if (isRateLimited("auth-login", MAX_ATTEMPTS, WINDOW_MS)) {
       return NextResponse.json(
         { success: false, error: "Too many login attempts. Try again in a few minutes." },
         { status: 429 }
+      );
+    }
+
+    const passwordHash = tenantStore.getPasswordHash();
+    if (!passwordHash) {
+      return NextResponse.json(
+        { success: false, error: "No password has been set up yet.", needsSetup: true },
+        { status: 409 }
       );
     }
 
@@ -33,8 +30,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "Password is required." }, { status: 400 });
     }
 
-    const valid = await verifyAdminPassword(password);
-    if (!valid) {
+    if (!verifyPasswordHash(password, passwordHash)) {
       return NextResponse.json({ success: false, error: "Incorrect password." }, { status: 401 });
     }
 

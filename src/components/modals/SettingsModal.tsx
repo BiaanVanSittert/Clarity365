@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Modal } from "../common/Modal";
 import { SystemSettings } from "@/lib/types";
-import { Settings, Cpu, Shield, Database, Check, RefreshCw } from "lucide-react";
+import { Settings, Cpu, Shield, Database, Check, RefreshCw, KeyRound } from "lucide-react";
 import { StatusPill } from "../common/StatusPill";
 
 interface SettingsModalProps {
@@ -23,11 +23,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
+  // Change Password
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
       fetchSettings();
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      setPasswordError(null);
+      setPasswordSuccess(false);
     }
   }, [isOpen]);
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    setPasswordSuccess(false);
+    setIsChangingPassword(true);
+
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword, confirmPassword: confirmNewPassword }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || "Failed to change password.");
+      }
+      setPasswordSuccess(true);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      setTimeout(() => setPasswordSuccess(false), 2500);
+    } catch (err: any) {
+      setPasswordError(err.message || "An unexpected error occurred.");
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
 
   const fetchSettings = async () => {
     setIsLoading(true);
@@ -78,6 +119,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       subtitle="Configure internal MCP server, localhost binding, and multi-tenant synchronization parameters"
       maxWidth="xl"
     >
+      <div className="space-y-4">
       <form onSubmit={handleSave} className="space-y-4">
         {/* Localhost Security Notice */}
         <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm flex items-start gap-2.5">
@@ -202,6 +244,67 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </button>
         </div>
       </form>
+
+      {/* Change Operator Password */}
+      <form onSubmit={handleChangePassword} className="border border-[#CBD5E1] p-3.5 bg-white rounded-sm space-y-3">
+        <div className="flex items-center gap-2 border-b border-[#E2E8F0] pb-2">
+          <KeyRound size={16} className="text-slate-700" />
+          <h4 className="text-xs font-semibold text-slate-900">Change Operator Password</h4>
+        </div>
+
+        {passwordError && (
+          <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-sm">
+            {passwordError}
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="block text-[11px] font-medium text-slate-600 mb-1">Current Password</label>
+            <input
+              type="password"
+              required
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-600 mb-1">New Password</label>
+            <input
+              type="password"
+              required
+              minLength={8}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-slate-600 mb-1">Confirm New Password</label>
+            <input
+              type="password"
+              required
+              minLength={8}
+              value={confirmNewPassword}
+              onChange={(e) => setConfirmNewPassword(e.target.value)}
+              className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            disabled={isChangingPassword}
+            className="px-3.5 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-sm flex items-center gap-1.5 transition-colors disabled:opacity-50"
+          >
+            {passwordSuccess ? <Check size={14} /> : <KeyRound size={14} />}
+            <span>{isChangingPassword ? "Updating..." : passwordSuccess ? "Password Updated" : "Update Password"}</span>
+          </button>
+        </div>
+      </form>
+      </div>
     </Modal>
   );
 };

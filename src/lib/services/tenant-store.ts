@@ -11,10 +11,16 @@ import {
   TenantPermissionReport,
 } from "./graph-client";
 
+interface AuthConfig {
+  passwordHash: string;
+  updatedAt: string;
+}
+
 // Persistent disk + in-memory store for multi-tenant configurations and snapshots
 class TenantStore {
   private tenants: Map<string, Tenant> = new Map();
   private snapshots: Map<string, TenantSecuritySnapshot> = new Map();
+  private authConfig: AuthConfig | null = null;
   private settings: SystemSettings = {
     enableMcpServer: true,
     mcpServerPort: 8365,
@@ -50,6 +56,9 @@ class TenantStore {
         }
         if (parsed.settings) {
           this.settings = { ...this.settings, ...parsed.settings };
+        }
+        if (parsed.authConfig) {
+          this.authConfig = parsed.authConfig;
         }
         // If loaded existing data successfully, ensure all tenants have snapshots
         this.tenants.forEach((t) => {
@@ -117,6 +126,7 @@ class TenantStore {
         tenants: Array.from(this.tenants.values()),
         snapshots: Object.fromEntries(this.snapshots.entries()),
         settings: this.settings,
+        authConfig: this.authConfig,
         lastSaved: new Date().toISOString(),
       };
       fs.writeFileSync(storePath, JSON.stringify(payload, null, 2), "utf-8");
@@ -354,6 +364,19 @@ class TenantStore {
     snap.sharePoint = { ...snap.sharePoint, ...updates };
     this.saveToDisk();
     return snap.sharePoint;
+  }
+
+  public isPasswordConfigured(): boolean {
+    return !!this.authConfig;
+  }
+
+  public getPasswordHash(): string | null {
+    return this.authConfig?.passwordHash ?? null;
+  }
+
+  public setPasswordHash(passwordHash: string): void {
+    this.authConfig = { passwordHash, updatedAt: new Date().toISOString() };
+    this.saveToDisk();
   }
 
   public getSettings(): SystemSettings {
