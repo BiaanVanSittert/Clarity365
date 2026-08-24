@@ -1,8 +1,9 @@
 import fs from "fs";
 import path from "path";
+import Database from "better-sqlite3";
 import { Tenant, TenantSecuritySnapshot, SystemSettings } from "../types";
 import { INITIAL_TENANTS, MOCK_TENANT_DATA } from "../data/mock-tenants";
-import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
+import { createBlankSnapshot } from "../data/default-snapshot";
 import { encryptSecret, decryptSecret, isEncrypted, SECRET_MASK } from "./crypto";
 import {
   fetchLiveTenantSnapshot,
@@ -11,142 +12,220 @@ import {
   TenantPermissionReport,
 } from "./graph-client";
 
-interface AuthConfig {
+interface AuthConfigRow {
   passwordHash: string;
   updatedAt: string;
 }
 
-// Persistent disk + in-memory store for multi-tenant configurations and snapshots
+const DEFAULT_SETTINGS: SystemSettings = {
+  enableMcpServer: true,
+  mcpServerPort: 8365,
+  allowToolExecution: true,
+  autoSyncIntervalMinutes: 30,
+  auditLogRetentionDays: 90,
+  defaultTheme: "light",
+  tableDensity: "compact",
+};
+
+// SQLite-backed store for multi-tenant configurations and snapshots. Each entity is
+// still just a JSON blob (same shape the app already used), but as its own row with
+// real transactional writes instead of a full-file rewrite on every mutation.
 class TenantStore {
-  private tenants: Map<string, Tenant> = new Map();
-  private snapshots: Map<string, TenantSecuritySnapshot> = new Map();
-  private authConfig: AuthConfig | null = null;
-  private settings: SystemSettings = {
-    enableMcpServer: true,
-    mcpServerPort: 8365,
-    allowToolExecution: true,
-    autoSyncIntervalMinutes: 30,
-    auditLogRetentionDays: 90,
-    defaultTheme: "light",
-    tableDensity: "compact",
-  };
+  private db: Database.Database;
 
   constructor() {
-    this.loadFromDisk();
-  }
-
-  private getStorePath(): string {
-    return path.join(process.cwd(), "data", "clarity-store.json");
-  }
-
-  private loadFromDisk() {
-    let loadedFromDisk = false;
-    try {
-      const storePath = this.getStorePath();
-      if (fs.existsSync(storePath)) {
-        const raw = fs.readFileSync(storePath, "utf-8");
-        const parsed = JSON.parse(raw);
-        if (parsed.tenants && Array.isArray(parsed.tenants)) {
-          parsed.tenants.forEach((t: Tenant) => this.tenants.set(t.id, t));
-        }
-        if (parsed.snapshots && typeof parsed.snapshots === "object") {
-          Object.entries(parsed.snapshots).forEach(([k, v]) => {
-            this.snapshots.set(k, v as TenantSecuritySnapshot);
-          });
-        }
-        if (parsed.settings) {
-          this.settings = { ...this.settings, ...parsed.settings };
-        }
-        if (parsed.authConfig) {
-          this.authConfig = parsed.authConfig;
-        }
-        // If loaded existing data successfully, ensure all tenants have snapshots
-        this.tenants.forEach((t) => {
-          if (!this.snapshots.has(t.id)) {
-            if (MOCK_TENANT_DATA[t.id]) {
-              this.snapshots.set(t.id, { ...MOCK_TENANT_DATA[t.id] });
-            } else {
-              this.snapshots.set(t.id, this.generateBlankSnapshot(t));
-            }
-          }
-        });
-        loadedFromDisk = true;
-      }
-    } catch (err) {
-      console.error("[Clarity365 Store] Error reading persistence store from disk", err);
+    const dataDir = path.join(process.cwd(), "data");
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
     }
+    this.db = new Database(path.join(dataDir, "clarity365.db"));
+    this.db.pragma("journal_mode = WAL");
+    this.initSchema();
+    this.migrateFromLegacyJsonIfNeeded();
+    this.migrateLegacyPlaintextSecrets();
+  }
 
-    if (!loadedFromDisk) {
-      // Default initialization when no disk file exists (or it was unreadable)
+  private initSchema() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS tenants (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS snapshots (
+        tenant_id TEXT PRIMARY KEY,
+        data TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        data TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS auth_config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        password_hash TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+  }
+
+  // One-time migration from the old data/clarity-store.json flat file. Only runs
+  // when the tenants table is empty (fresh DB). On success, the legacy file is
+  // renamed (never deleted) so it's obviously retired but still recoverable. On
+  // failure, the store is deliberately left empty rather than silently reseeded
+  // with demo tenants — that would paper over a real problem with fake data while
+  // the original file sits untouched.
+  private migrateFromLegacyJsonIfNeeded() {
+    const { c } = this.db.prepare("SELECT COUNT(*) as c FROM tenants").get() as { c: number };
+    if (c > 0) return;
+
+    const legacyPath = path.join(process.cwd(), "data", "clarity-store.json");
+    if (!fs.existsSync(legacyPath)) {
       this.seedDefaults();
-      this.saveToDisk();
       return;
     }
 
-    // Migrate any legacy plaintext client secrets (from pre-encryption versions of the
-    // store) to AES-256-GCM at rest. Never allowed to fall back to reseeding — a failed
-    // migration (e.g. missing CLARITY365_ENCRYPTION_KEY) just leaves that tenant's secret
-    // as-is with a warning, rather than risking real tenant data.
-    this.migrateLegacyPlaintextSecrets();
+    try {
+      const raw = fs.readFileSync(legacyPath, "utf-8");
+      const parsed = JSON.parse(raw);
+
+      const migrate = this.db.transaction(() => {
+        if (Array.isArray(parsed.tenants)) {
+          for (const t of parsed.tenants as Tenant[]) this.putTenantRow(t);
+        }
+        if (parsed.snapshots && typeof parsed.snapshots === "object") {
+          for (const [id, snap] of Object.entries(parsed.snapshots)) {
+            this.putSnapshotRow(id, snap as TenantSecuritySnapshot);
+          }
+        }
+        if (parsed.settings) {
+          this.putSettingsRow({ ...DEFAULT_SETTINGS, ...parsed.settings });
+        }
+        if (parsed.authConfig) {
+          this.putAuthConfigRow(parsed.authConfig as AuthConfigRow);
+        }
+      });
+      migrate();
+
+      fs.renameSync(legacyPath, `${legacyPath}.migrated-backup`);
+      console.log(`[Clarity365 Store] Migrated ${legacyPath} to SQLite (data/clarity365.db).`);
+    } catch (err) {
+      console.error(
+        `[Clarity365 Store] Found ${legacyPath} but failed to migrate it to SQLite. ` +
+          `Starting with an empty store rather than risking your data — the original file is untouched. ` +
+          `Fix the underlying issue and restart.`,
+        err
+      );
+    }
   }
 
   private migrateLegacyPlaintextSecrets() {
     let migrated = false;
-    this.tenants.forEach((t, id) => {
-      const secret = t.credentials.clientSecret;
-      if (!secret || isEncrypted(secret)) return;
+    for (const tenant of this.getAllTenantRows()) {
+      const secret = tenant.credentials.clientSecret;
+      if (!secret || isEncrypted(secret)) continue;
       try {
-        const encrypted = this.encryptTenantSecret(t);
-        this.tenants.set(id, encrypted);
-        const snap = this.snapshots.get(id);
-        if (snap) snap.tenant = encrypted;
+        this.putTenantRow(this.encryptTenantSecret(tenant));
+        const snap = this.getSnapshotRow(tenant.id);
+        if (snap) {
+          snap.tenant = this.encryptTenantSecret(tenant);
+          this.putSnapshotRow(tenant.id, snap);
+        }
         migrated = true;
       } catch (err) {
         console.error(
-          `[Clarity365 Store] Could not encrypt legacy plaintext client secret for tenant '${id}'. ` +
+          `[Clarity365 Store] Could not encrypt legacy plaintext client secret for tenant '${tenant.id}'. ` +
             `Set CLARITY365_ENCRYPTION_KEY and restart to migrate it.`,
           err
         );
       }
-    });
+    }
     if (migrated) {
       console.log("[Clarity365 Store] Migrated legacy plaintext client secret(s) to encrypted storage.");
-      this.saveToDisk();
-    }
-  }
-
-  private saveToDisk() {
-    try {
-      const storePath = this.getStorePath();
-      const dataDir = path.dirname(storePath);
-      if (!fs.existsSync(dataDir)) {
-        fs.mkdirSync(dataDir, { recursive: true });
-      }
-      const payload = {
-        tenants: Array.from(this.tenants.values()),
-        snapshots: Object.fromEntries(this.snapshots.entries()),
-        settings: this.settings,
-        authConfig: this.authConfig,
-        lastSaved: new Date().toISOString(),
-      };
-      fs.writeFileSync(storePath, JSON.stringify(payload, null, 2), "utf-8");
-    } catch (err) {
-      console.error("[Clarity365 Store] Error saving store to disk", err);
     }
   }
 
   private seedDefaults() {
-    INITIAL_TENANTS.forEach((t) => {
-      this.tenants.set(t.id, t);
-      if (MOCK_TENANT_DATA[t.id]) {
-        this.snapshots.set(t.id, { ...MOCK_TENANT_DATA[t.id] });
+    const seed = this.db.transaction(() => {
+      for (const t of INITIAL_TENANTS) {
+        this.putTenantRow(t);
+        if (MOCK_TENANT_DATA[t.id]) {
+          this.putSnapshotRow(t.id, { ...MOCK_TENANT_DATA[t.id] });
+        }
       }
     });
+    seed();
+  }
+
+  // ---- Row access (raw, encrypted-secret, no sanitization) ------------------------
+
+  private getAllTenantRows(): Tenant[] {
+    const rows = this.db.prepare("SELECT data FROM tenants").all() as { data: string }[];
+    return rows.map((r) => JSON.parse(r.data));
+  }
+
+  private getTenantRow(id: string): Tenant | undefined {
+    const row = this.db.prepare("SELECT data FROM tenants WHERE id = ?").get(id) as { data: string } | undefined;
+    return row ? JSON.parse(row.data) : undefined;
+  }
+
+  private putTenantRow(tenant: Tenant) {
+    this.db
+      .prepare("INSERT INTO tenants (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data")
+      .run(tenant.id, JSON.stringify(tenant));
+  }
+
+  private deleteTenantRow(id: string) {
+    this.db.prepare("DELETE FROM tenants WHERE id = ?").run(id);
+  }
+
+  private getSnapshotRow(tenantId: string): TenantSecuritySnapshot | undefined {
+    const row = this.db.prepare("SELECT data FROM snapshots WHERE tenant_id = ?").get(tenantId) as
+      | { data: string }
+      | undefined;
+    return row ? JSON.parse(row.data) : undefined;
+  }
+
+  private putSnapshotRow(tenantId: string, snapshot: TenantSecuritySnapshot) {
+    this.db
+      .prepare(
+        "INSERT INTO snapshots (tenant_id, data) VALUES (?, ?) ON CONFLICT(tenant_id) DO UPDATE SET data = excluded.data"
+      )
+      .run(tenantId, JSON.stringify(snapshot));
+  }
+
+  private deleteSnapshotRow(tenantId: string) {
+    this.db.prepare("DELETE FROM snapshots WHERE tenant_id = ?").run(tenantId);
+  }
+
+  private getSettingsRow(): SystemSettings {
+    const row = this.db.prepare("SELECT data FROM settings WHERE id = 1").get() as { data: string } | undefined;
+    return row ? { ...DEFAULT_SETTINGS, ...JSON.parse(row.data) } : { ...DEFAULT_SETTINGS };
+  }
+
+  private putSettingsRow(settings: SystemSettings) {
+    this.db
+      .prepare("INSERT INTO settings (id, data) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data")
+      .run(JSON.stringify(settings));
+  }
+
+  private getAuthConfigRow(): AuthConfigRow | undefined {
+    const row = this.db.prepare("SELECT password_hash, updated_at FROM auth_config WHERE id = 1").get() as
+      | { password_hash: string; updated_at: string }
+      | undefined;
+    return row ? { passwordHash: row.password_hash, updatedAt: row.updated_at } : undefined;
+  }
+
+  private putAuthConfigRow(config: AuthConfigRow) {
+    this.db
+      .prepare(
+        `INSERT INTO auth_config (id, password_hash, updated_at) VALUES (1, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, updated_at = excluded.updated_at`
+      )
+      .run(config.passwordHash, config.updatedAt);
   }
 
   // ---- Secret handling -----------------------------------------------------------
-  // Tenants are ALWAYS held in memory and on disk with clientSecret encrypted (or
-  // absent). Decryption only ever happens transiently, right before a Graph API call.
+  // Tenants are ALWAYS held on disk with clientSecret encrypted (or absent).
+  // Decryption only ever happens transiently, right before a Graph API call.
   // Anything handed back to an API route/UI goes through sanitizeTenant/sanitizeSnapshot,
   // which mask the secret entirely — it is a write-only field from the client's perspective.
 
@@ -172,21 +251,20 @@ class TenantStore {
 
   /** @internal Raw lookup, used only right before a Microsoft Graph call. */
   private getTenantWithDecryptedSecret(id: string): Tenant | undefined {
-    const tenant = this.tenants.get(id);
+    const tenant = this.getTenantRow(id);
     if (!tenant) return undefined;
     const secret = tenant.credentials.clientSecret;
     if (!secret || !isEncrypted(secret)) return tenant;
     return { ...tenant, credentials: { ...tenant.credentials, clientSecret: decryptSecret(secret) } };
   }
 
-  /** @internal Raw (encrypted-secret) snapshot lookup/creation, safe to mutate by reference. */
+  /** @internal Raw (encrypted-secret) snapshot lookup/creation. */
   private ensureSnapshot(tenantId: string): TenantSecuritySnapshot | undefined {
-    let snapshot = this.snapshots.get(tenantId);
-    if (!snapshot && this.tenants.has(tenantId)) {
-      const tenant = this.tenants.get(tenantId)!;
-      snapshot = this.generateBlankSnapshot(tenant);
-      this.snapshots.set(tenantId, snapshot);
-      this.saveToDisk();
+    let snapshot = this.getSnapshotRow(tenantId);
+    if (!snapshot && this.getTenantRow(tenantId)) {
+      const tenant = this.getTenantRow(tenantId)!;
+      snapshot = createBlankSnapshot(tenant);
+      this.putSnapshotRow(tenantId, snapshot);
     }
     return snapshot;
   }
@@ -194,11 +272,11 @@ class TenantStore {
   // ---- Public API -----------------------------------------------------------------
 
   public getAllTenants(): Tenant[] {
-    return Array.from(this.tenants.values()).map((t) => this.sanitizeTenant(t));
+    return this.getAllTenantRows().map((t) => this.sanitizeTenant(t));
   }
 
   public getTenant(id: string): Tenant | undefined {
-    const tenant = this.tenants.get(id);
+    const tenant = this.getTenantRow(id);
     return tenant ? this.sanitizeTenant(tenant) : undefined;
   }
 
@@ -210,13 +288,12 @@ class TenantStore {
   public async syncTenant(tenantId: string): Promise<TenantSecuritySnapshot | undefined> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return undefined;
-    const existing = this.snapshots.get(tenantId);
+    const existing = this.getSnapshotRow(tenantId);
     const { snapshot } = await fetchLiveTenantSnapshot(tenant, existing);
     if (snapshot) {
-      // Never let a decrypted secret end up cached in the snapshot's embedded tenant.
+      // Never let a decrypted secret end up persisted in the snapshot's embedded tenant.
       snapshot.tenant = this.encryptTenantSecret(snapshot.tenant);
-      this.snapshots.set(tenantId, snapshot);
-      this.saveToDisk();
+      this.putSnapshotRow(tenantId, snapshot);
       return this.sanitizeSnapshot(snapshot);
     }
     return existing ? this.sanitizeSnapshot(existing) : undefined;
@@ -270,15 +347,16 @@ class TenantStore {
     };
 
     const stored = this.encryptTenantSecret(newTenant);
-    this.tenants.set(id, stored);
-    const snapshot = this.generateBlankSnapshot(stored);
-    this.snapshots.set(id, snapshot);
-    this.saveToDisk();
+    const add = this.db.transaction(() => {
+      this.putTenantRow(stored);
+      this.putSnapshotRow(id, createBlankSnapshot(stored));
+    });
+    add();
     return this.sanitizeTenant(stored);
   }
 
   public updateTenant(id: string, updates: Partial<Tenant>): Tenant | undefined {
-    const existing = this.tenants.get(id);
+    const existing = this.getTenantRow(id);
     if (!existing) return undefined;
 
     let mergedCredentials = existing.credentials;
@@ -300,21 +378,27 @@ class TenantStore {
       credentials: mergedCredentials,
       lastSyncTimestamp: new Date().toISOString(),
     };
-    this.tenants.set(id, updated);
-    const snap = this.snapshots.get(id);
-    if (snap) {
-      snap.tenant = updated;
-    }
-    this.saveToDisk();
+
+    const write = this.db.transaction(() => {
+      this.putTenantRow(updated);
+      const snap = this.getSnapshotRow(id);
+      if (snap) {
+        snap.tenant = updated;
+        this.putSnapshotRow(id, snap);
+      }
+    });
+    write();
     return this.sanitizeTenant(updated);
   }
 
   public removeTenant(id: string): boolean {
-    const exists = this.tenants.has(id);
+    const exists = !!this.getTenantRow(id);
     if (exists) {
-      this.tenants.delete(id);
-      this.snapshots.delete(id);
-      this.saveToDisk();
+      const remove = this.db.transaction(() => {
+        this.deleteTenantRow(id);
+        this.deleteSnapshotRow(id);
+      });
+      remove();
     }
     return exists;
   }
@@ -328,7 +412,7 @@ class TenantStore {
       dateAdded: new Date().toISOString(),
     };
     snap.mdoThreat.tabl.unshift(newEntry);
-    this.saveToDisk();
+    this.putSnapshotRow(tenantId, snap);
     return newEntry;
   }
 
@@ -338,7 +422,7 @@ class TenantStore {
     const initialLen = snap.mdoThreat.tabl.length;
     snap.mdoThreat.tabl = snap.mdoThreat.tabl.filter((e) => e.id !== entryId);
     const removed = snap.mdoThreat.tabl.length < initialLen;
-    if (removed) this.saveToDisk();
+    if (removed) this.putSnapshotRow(tenantId, snap);
     return removed;
   }
 
@@ -351,7 +435,7 @@ class TenantStore {
       createdDateTime: new Date().toISOString(),
     };
     snap.groups.unshift(newGroup);
-    this.saveToDisk();
+    this.putSnapshotRow(tenantId, snap);
     return newGroup;
   }
 
@@ -362,145 +446,30 @@ class TenantStore {
     const snap = this.ensureSnapshot(tenantId);
     if (!snap) return null;
     snap.sharePoint = { ...snap.sharePoint, ...updates };
-    this.saveToDisk();
+    this.putSnapshotRow(tenantId, snap);
     return snap.sharePoint;
   }
 
   public isPasswordConfigured(): boolean {
-    return !!this.authConfig;
+    return !!this.getAuthConfigRow();
   }
 
   public getPasswordHash(): string | null {
-    return this.authConfig?.passwordHash ?? null;
+    return this.getAuthConfigRow()?.passwordHash ?? null;
   }
 
   public setPasswordHash(passwordHash: string): void {
-    this.authConfig = { passwordHash, updatedAt: new Date().toISOString() };
-    this.saveToDisk();
+    this.putAuthConfigRow({ passwordHash, updatedAt: new Date().toISOString() });
   }
 
   public getSettings(): SystemSettings {
-    return this.settings;
+    return this.getSettingsRow();
   }
 
   public updateSettings(updates: Partial<SystemSettings>): SystemSettings {
-    this.settings = { ...this.settings, ...updates };
-    this.saveToDisk();
-    return this.settings;
-  }
-
-  private generateBlankSnapshot(tenant: Tenant): TenantSecuritySnapshot {
-    return {
-      tenant,
-      capabilities: [
-        { id: "cap-entra", name: "Microsoft Entra ID P1/P2", category: "Identity", licensed: true, tier: "Active", description: "Identity and Access Management" },
-        { id: "cap-intune", name: "Microsoft Intune", category: "Endpoint", licensed: true, tier: "Active", description: "Endpoint Management" },
-        { id: "cap-mde", name: "Defender for Endpoint", category: "Endpoint", licensed: true, tier: "Active", description: "EDR Protection" },
-        { id: "cap-mdo", name: "Defender for Office 365", category: "Threat", licensed: true, tier: "Active", description: "Email & Collaboration Threat Protection" },
-      ],
-      secureScore: {
-        currentScore: 420,
-        maxScore: 650,
-        percentage: 64.6,
-        delta30Days: 1.5,
-        delta90Days: 5.0,
-        industryBenchmark: 61.2,
-        history: [
-          { date: "2026-05-20", score: 390, maxScore: 650, percentage: 60.0 },
-          { date: "2026-06-20", score: 405, maxScore: 650, percentage: 62.3 },
-          { date: "2026-07-20", score: 415, maxScore: 650, percentage: 63.8 },
-          { date: "2026-08-20", score: 420, maxScore: 650, percentage: 64.6 },
-        ],
-        controls: [
-          {
-            id: "SEC-GEN-01",
-            title: "Require MFA for administrative roles",
-            category: "Identity",
-            scoreCurrent: 50,
-            scoreMax: 50,
-            implementationCost: "Low",
-            userImpact: "Low",
-            status: "Completed",
-            actionType: "Policy",
-            remediationSummary: "Enforced globally via Conditional Access.",
-          },
-          {
-            id: "SEC-GEN-02",
-            title: "Block legacy authentication protocols (CA02)",
-            category: "Identity",
-            scoreCurrent: 0,
-            scoreMax: 35,
-            implementationCost: "Low",
-            userImpact: "Low",
-            status: "Unresolved",
-            actionType: "Policy",
-            remediationSummary: "Legacy auth protocols still permitted.",
-          },
-        ],
-      },
-      conditionalAccess: {
-        baselineCoverageScore: 60,
-        baselineDefinitions: CA_BASELINE_STANDARDS,
-        policies: [
-          {
-            id: `ca-pol-${tenant.id}-01`,
-            name: "CA01: Require MFA for All Administrators",
-            baselineCode: "CA01",
-            baselineTitle: "Require MFA for All Administrators",
-            state: "enabled",
-            modifiedDateTime: new Date().toISOString(),
-            createdDateTime: new Date().toISOString(),
-            grantControls: ["mfa"],
-            conditions: {
-              users: { include: ["DirectoryRole:GlobalAdmin"], exclude: [] },
-              applications: { include: ["All"], exclude: [] },
-              clientAppTypes: ["all"],
-            },
-            matchesBaseline: true,
-          },
-        ],
-      },
-      signIns: [],
-      mfaAudit: [],
-      accountClassification: {
-        totalAccounts: 150,
-        licensedUsersCount: 135,
-        unlicensedActiveCount: 5,
-        disabledAccountsCount: 10,
-        guestAccountsCount: 0,
-        users: [],
-      },
-      mailboxes: [],
-      emailForwarding: [],
-      mdoThreat: {
-        policies: [],
-        tabl: [],
-      },
-      appRegistrations: [],
-      intune: {
-        antivirusPoliciesCount: 1,
-        edrPoliciesCount: 1,
-        compliantDevices: 120,
-        nonCompliantDevices: 15,
-        totalDevices: 135,
-        devices: [],
-      },
-      groups: [],
-      sharePoint: {
-        tenantSharingLevel: "NewAndExistingGuests",
-        defaultLinkType: "Internal",
-        anonymousLinkExpirationDays: 30,
-        totalStorageAllocatedTB: 5.0,
-        totalStorageUsedTB: 1.2,
-        sites: [],
-      },
-      highRiskThreatIndicators: {
-        externalForwardingCount: 0,
-        openSharePointSitesCount: 0,
-        unprotectedAdminsCount: 0,
-        highRiskAppRegistrationsCount: 0,
-      },
-    };
+    const merged = { ...this.getSettingsRow(), ...updates };
+    this.putSettingsRow(merged);
+    return merged;
   }
 }
 

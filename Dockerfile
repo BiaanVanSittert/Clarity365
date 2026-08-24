@@ -2,6 +2,11 @@ FROM node:20-alpine AS base
 
 WORKDIR /app
 
+# better-sqlite3 is a native module. Alpine (musl libc) doesn't always have a
+# matching prebuilt binary, so make sure the toolchain is here for npm to
+# compile it from source as a fallback.
+RUN apk add --no-cache python3 make g++
+
 COPY package*.json ./
 RUN npm ci
 

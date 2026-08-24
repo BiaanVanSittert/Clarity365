@@ -2,6 +2,7 @@ import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAcc
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { matchCaBaselineCode } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
+import { createBlankSnapshot } from "../data/default-snapshot";
 
 export interface PermissionTestResult {
   permission: string;
@@ -716,59 +717,10 @@ export async function fetchLiveTenantSnapshot(
     lastAttemptAt: new Date().toISOString(),
   };
 
-  // 6. Build or update snapshot
-  const base = existingSnapshot || {
-    tenant,
-    capabilities: [
-      { id: "cap-entra-p1", name: "Microsoft Entra ID", category: "Identity" as const, licensed: true, tier: "Active", description: "Conditional Access & Identity Management" },
-      { id: "cap-intune", name: "Microsoft Intune", category: "Endpoint" as const, licensed: true, tier: "Active", description: "Endpoint & Compliance Management" },
-      { id: "cap-mde", name: "Defender for Endpoint", category: "Endpoint" as const, licensed: true, tier: "Active", description: "Endpoint Threat Protection" },
-      { id: "cap-mdo", name: "Defender for Office 365", category: "Threat" as const, licensed: true, tier: "Active", description: "Email & Collaboration Threat Protection" },
-    ],
-    secureScore: {
-      currentScore: 480,
-      maxScore: 650,
-      percentage: 73.8,
-      delta30Days: 2.5,
-      delta90Days: 8.0,
-      industryBenchmark: 62.0,
-      history: [
-        { date: "2026-05-20", score: 430, maxScore: 650, percentage: 66.1 },
-        { date: "2026-06-20", score: 450, maxScore: 650, percentage: 69.2 },
-        { date: "2026-07-20", score: 470, maxScore: 650, percentage: 72.3 },
-        { date: "2026-08-20", score: 480, maxScore: 650, percentage: 73.8 },
-      ],
-      controls: [],
-    },
-    conditionalAccess: {
-      baselineCoverageScore: coveragePercent,
-      baselineDefinitions: CA_BASELINE_STANDARDS,
-      policies: livePolicies,
-    },
-    signIns: signInsList,
-    mfaAudit: mfaProfilesList,
-    accountClassification: {
-      totalAccounts: usersList.length || 10,
-      licensedUsersCount: usersList.filter((u) => u.classification === "licensed").length,
-      unlicensedActiveCount: usersList.filter((u) => u.classification === "unlicensed_active").length,
-      disabledAccountsCount: usersList.filter((u) => u.classification === "disabled").length,
-      guestAccountsCount: 0,
-      users: usersList,
-    },
-    mailboxes: [],
-    emailForwarding: [],
-    mdoThreat: { policies: [], tabl: [] },
-    appRegistrations: [],
-    intune: { antivirusPoliciesCount: 1, edrPoliciesCount: 1, compliantDevices: 10, nonCompliantDevices: 0, totalDevices: 10, devices: [] },
-    groups: [],
-    sharePoint: { tenantSharingLevel: "NewAndExistingGuests" as const, defaultLinkType: "Internal" as const, anonymousLinkExpirationDays: 30, totalStorageAllocatedTB: 10, totalStorageUsedTB: 2.1, sites: [] },
-    highRiskThreatIndicators: {
-      externalForwardingCount: 0,
-      openSharePointSitesCount: 0,
-      unprotectedAdminsCount: 0,
-      highRiskAppRegistrationsCount: 0,
-    },
-  };
+  // 6. Build or update snapshot. The fields below are all overwritten immediately
+  // after with the data just fetched — createBlankSnapshot only needs to supply a
+  // structurally valid starting point for a tenant's first-ever sync.
+  const base = existingSnapshot || createBlankSnapshot(tenant);
 
   base.tenant = {
     ...tenant,
