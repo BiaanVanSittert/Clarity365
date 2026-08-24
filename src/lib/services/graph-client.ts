@@ -1,5 +1,7 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
+import { matchCaBaselineCode } from "./ca-baseline-matcher";
+import { fetchAllPages } from "./graph-pagination";
 
 export interface PermissionTestResult {
   permission: string;
@@ -371,63 +373,47 @@ export async function fetchLiveTenantSnapshot(
   }
 
   const headers = { Authorization: `Bearer ${token}` };
+  const syncErrors: string[] = [];
 
   // 1. Fetch Conditional Access Policies
   let livePolicies: CAPolicyRule[] = [];
   try {
-    const caRes = await fetch("https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies", { headers });
-    if (caRes.ok) {
-      const caData = await caRes.json();
-      if (caData.value && Array.isArray(caData.value)) {
-        livePolicies = caData.value.map((p: any) => {
-          const match = p.displayName.match(/(?:CA|CA-|\bCA\s*)(0[1-9]|10|[1-9])\b/i);
-          let detectedCode: string | null = null;
-          if (match) {
-            const num = parseInt(match[1], 10);
-            detectedCode = num < 10 ? `CA0${num}` : `CA${num}`;
-          } else {
-            const lower = p.displayName.toLowerCase();
-            if (lower.includes("legacy") || lower.includes("basic auth") || lower.includes("activesync")) detectedCode = "CA01";
-            else if (lower.includes("mfa") && (lower.includes("all users") || lower.includes("all employees") || lower.includes("all members"))) detectedCode = "CA02";
-            else if ((lower.includes("mfa") || lower.includes("multifactor")) && (lower.includes("admin") || lower.includes("privileged") || lower.includes("global admin"))) detectedCode = "CA03";
-            else if (lower.includes("guest") || lower.includes("external")) detectedCode = "CA04";
-            else if (lower.includes("azure management") || lower.includes("portal") || lower.includes("powershell") || lower.includes("cli")) detectedCode = "CA05";
-            else if (lower.includes("risky sign-in") || lower.includes("sign-in risk") || lower.includes("signin risk")) detectedCode = "CA06";
-            else if (lower.includes("high-risk user") || lower.includes("user risk") || lower.includes("risky user")) detectedCode = "CA07";
-            else if (lower.includes("untrusted countr") || lower.includes("geo") || lower.includes("location block") || lower.includes("foreign")) detectedCode = "CA08";
-            else if (lower.includes("compliant device") || lower.includes("mdm") || lower.includes("hybrid") || lower.includes("intune compliant")) detectedCode = "CA09";
-            else if (lower.includes("phishing-resistant") || lower.includes("fido2") || lower.includes("passwordless") || lower.includes("cba")) detectedCode = "CA10";
-          }
+    const caResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
+      headers
+    );
+    if (caResult.error) syncErrors.push(`Conditional Access policies: ${caResult.error}`);
 
-          const baselineDef = CA_BASELINE_STANDARDS.find((b) => b.code === detectedCode);
+    livePolicies = caResult.items.map((p: any) => {
+      const detectedCode = matchCaBaselineCode(p);
+      const baselineDef = CA_BASELINE_STANDARDS.find((b) => b.code === detectedCode);
 
-          return {
-            id: p.id,
-            name: p.displayName,
-            baselineCode: detectedCode,
-            baselineTitle: baselineDef?.name,
-            state: p.state as any,
-            modifiedDateTime: p.modifiedDateTime || new Date().toISOString(),
-            createdDateTime: p.createdDateTime || new Date().toISOString(),
-            grantControls: p.grantControls?.builtInControls || [],
-            conditions: {
-              users: {
-                include: p.conditions?.users?.includeUsers || p.conditions?.users?.includeRoles || [],
-                exclude: p.conditions?.users?.excludeUsers || [],
-              },
-              applications: {
-                include: p.conditions?.applications?.includeApplications || [],
-                exclude: p.conditions?.applications?.excludeApplications || [],
-              },
-              clientAppTypes: p.conditions?.clientAppTypes || [],
-            },
-            matchesBaseline: !!detectedCode,
-          };
-        });
-      }
-    }
-  } catch (err) {
+      return {
+        id: p.id,
+        name: p.displayName,
+        baselineCode: detectedCode,
+        baselineTitle: baselineDef?.name,
+        state: p.state as any,
+        modifiedDateTime: p.modifiedDateTime || new Date().toISOString(),
+        createdDateTime: p.createdDateTime || new Date().toISOString(),
+        grantControls: p.grantControls?.builtInControls || [],
+        conditions: {
+          users: {
+            include: p.conditions?.users?.includeUsers || p.conditions?.users?.includeRoles || [],
+            exclude: p.conditions?.users?.excludeUsers || [],
+          },
+          applications: {
+            include: p.conditions?.applications?.includeApplications || [],
+            exclude: p.conditions?.applications?.excludeApplications || [],
+          },
+          clientAppTypes: p.conditions?.clientAppTypes || [],
+        },
+        matchesBaseline: !!detectedCode,
+      };
+    });
+  } catch (err: any) {
     console.error("[Graph Client] Error fetching CA policies:", err);
+    syncErrors.push(`Conditional Access policies: ${err.message || "Unexpected error while processing policies."}`);
   }
 
   // 2. Fetch Users & Directory Roles
@@ -435,231 +421,247 @@ export async function fetchLiveTenantSnapshot(
   const adminUserRolesMap = new Map<string, string[]>(); // userId -> roleNames[]
 
   try {
-    const usersRes = await fetch("https://graph.microsoft.com/v1.0/users?$top=999&$select=id,displayName,userPrincipalName,accountEnabled,jobTitle,department,createdDateTime,assignedLicenses", { headers });
-    if (usersRes.ok) {
-      const usersData = await usersRes.json();
-      if (usersData.value) {
-        usersList = usersData.value.map((u: any) => {
-          const hasLicense = u.assignedLicenses && u.assignedLicenses.length > 0;
-          const isEnabled = u.accountEnabled !== false;
-          let classification: "licensed" | "unlicensed_active" | "disabled" | "guest" = "licensed";
+    const usersResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/v1.0/users?$top=999&$select=id,displayName,userPrincipalName,accountEnabled,jobTitle,department,createdDateTime,assignedLicenses",
+      headers
+    );
+    if (usersResult.error) syncErrors.push(`Users: ${usersResult.error}`);
 
-          if (!isEnabled) {
-            classification = "disabled";
-          } else if (hasLicense) {
-            classification = "licensed";
-          } else {
-            classification = "unlicensed_active";
+    usersList = usersResult.items.map((u: any) => {
+      const hasLicense = u.assignedLicenses && u.assignedLicenses.length > 0;
+      const isEnabled = u.accountEnabled !== false;
+      let classification: "licensed" | "unlicensed_active" | "disabled" | "guest" = "licensed";
+
+      if (!isEnabled) {
+        classification = "disabled";
+      } else if (hasLicense) {
+        classification = "licensed";
+      } else {
+        classification = "unlicensed_active";
+      }
+
+      return {
+        id: u.id,
+        userPrincipalName: u.userPrincipalName,
+        displayName: u.displayName || u.userPrincipalName,
+        classification,
+        licenses: u.assignedLicenses ? u.assignedLicenses.map((l: any) => l.skuId) : [],
+        accountEnabled: isEnabled,
+        department: u.department || "General",
+        createdDateTime: u.createdDateTime || new Date().toISOString(),
+        riskFlag: classification === "unlicensed_active" ? "Active account without license assigned." : undefined,
+      };
+    });
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching users:", err);
+    syncErrors.push(`Users: ${err.message || "Unexpected error while processing users."}`);
+  }
+
+  try {
+    // Query Directory Roles to identify privileged admins. $top on the expanded
+    // members collection raises Graph's default expand page size; Graph does not
+    // support @odata.nextLink cursoring *within* an expanded property, so an
+    // exceptionally large single role's membership could still be capped here.
+    const rolesResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/v1.0/directoryRoles?$expand=members($top=999)",
+      headers
+    );
+    if (rolesResult.error) syncErrors.push(`Directory roles: ${rolesResult.error}`);
+
+    rolesResult.items.forEach((role: any) => {
+      const roleName = role.displayName || "Directory Role";
+      if (role.members && Array.isArray(role.members)) {
+        role.members.forEach((m: any) => {
+          if (m.id) {
+            const existing = adminUserRolesMap.get(m.id) || [];
+            existing.push(roleName);
+            adminUserRolesMap.set(m.id, existing);
           }
-
-          return {
-            id: u.id,
-            userPrincipalName: u.userPrincipalName,
-            displayName: u.displayName || u.userPrincipalName,
-            classification,
-            licenses: u.assignedLicenses ? u.assignedLicenses.map((l: any) => l.skuId) : [],
-            accountEnabled: isEnabled,
-            department: u.department || "General",
-            createdDateTime: u.createdDateTime || new Date().toISOString(),
-            riskFlag: classification === "unlicensed_active" ? "Active account without license assigned." : undefined,
-          };
         });
       }
-    }
-
-    // Query Directory Roles to identify privileged admins
-    const rolesRes = await fetch("https://graph.microsoft.com/v1.0/directoryRoles?$expand=members", { headers });
-    if (rolesRes.ok) {
-      const rolesData = await rolesRes.json();
-      if (rolesData.value && Array.isArray(rolesData.value)) {
-        rolesData.value.forEach((role: any) => {
-          const roleName = role.displayName || "Directory Role";
-          if (role.members && Array.isArray(role.members)) {
-            role.members.forEach((m: any) => {
-              if (m.id) {
-                const existing = adminUserRolesMap.get(m.id) || [];
-                existing.push(roleName);
-                adminUserRolesMap.set(m.id, existing);
-              }
-            });
-          }
-        });
-      }
-    }
-  } catch (err) {
-    console.error("[Graph Client] Error fetching users and roles:", err);
+    });
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching directory roles:", err);
+    syncErrors.push(`Directory roles: ${err.message || "Unexpected error while processing roles."}`);
   }
 
   // 3. Fetch Sign-In Logs
   let signInsList: SignInEvent[] = [];
   try {
-    let signInsRes = await fetch("https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=250", { headers });
-    if (!signInsRes.ok && signInsRes.status === 400) {
-      signInsRes = await fetch("https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=100", { headers });
-    }
-    if (signInsRes.ok) {
-      const signInsData = await signInsRes.json();
-      if (signInsData.value && Array.isArray(signInsData.value)) {
-        signInsList = signInsData.value.map((s: any) => {
-          const appliedPolicies = (s.appliedConditionalAccessPolicies || []).map((p: any) => ({
-            id: p.id || "",
-            displayName: p.displayName || "Conditional Access Policy",
-            result: p.result || "notApplied",
-            enforcedGrantControls: p.enforcedGrantControls || [],
-            enforcedSessionControls: p.enforcedSessionControls || [],
-          }));
+    // Some tenant configurations reject a $top=250 audit log request with 400;
+    // fall back to a smaller page size for the first page, then paginate normally.
+    // Sign-in volume can be very high, so this is capped tighter than other lists.
+    const signInsResult = await fetchAllPages<any>(
+      [
+        "https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=250",
+        "https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=100",
+      ],
+      headers,
+      20
+    );
+    if (signInsResult.error) syncErrors.push(`Sign-in logs: ${signInsResult.error}`);
 
-          const hasReportOnlyFailure = appliedPolicies.some(
-            (p: any) => p.result === "reportOnlyFailure"
-          );
-          const reportOnlyFailedPolicies = appliedPolicies
-            .filter((p: any) => p.result === "reportOnlyFailure")
-            .map((p: any) => p.displayName);
+    signInsList = signInsResult.items.map((s: any) => {
+      const appliedPolicies = (s.appliedConditionalAccessPolicies || []).map((p: any) => ({
+        id: p.id || "",
+        displayName: p.displayName || "Conditional Access Policy",
+        result: p.result || "notApplied",
+        enforcedGrantControls: p.enforcedGrantControls || [],
+        enforcedSessionControls: p.enforcedSessionControls || [],
+      }));
 
-          const isBlocked =
-            appliedPolicies.some((p: any) => p.result === "failure") ||
-            s.status?.errorCode === 53003;
-          const isFailed = s.status?.errorCode !== 0;
+      const hasReportOnlyFailure = appliedPolicies.some(
+        (p: any) => p.result === "reportOnlyFailure"
+      );
+      const reportOnlyFailedPolicies = appliedPolicies
+        .filter((p: any) => p.result === "reportOnlyFailure")
+        .map((p: any) => p.displayName);
 
-          let status: SignInStatus = "success";
-          if (isBlocked) {
-            status = "ca_blocked";
-          } else if (hasReportOnlyFailure) {
-            status = "report_only_failed";
-          } else if (isFailed) {
-            status = "failed";
-          }
+      const isBlocked =
+        appliedPolicies.some((p: any) => p.result === "failure") ||
+        s.status?.errorCode === 53003;
+      const isFailed = s.status?.errorCode !== 0;
 
-          const errorCode = s.status?.errorCode || 0;
-          let failureReason = s.status?.failureReason;
-          if (!failureReason || failureReason === "Other." || failureReason === "None") {
-            if (s.status?.additionalDetails) {
-              failureReason = s.status.additionalDetails;
-            } else if (errorCode !== 0) {
-              failureReason = `Error ${errorCode}: Authentication or conditional access requirement not met`;
-            } else {
-              failureReason = "Authentication successful (All controls satisfied)";
-            }
-          }
-
-          return {
-            id: s.id,
-            createdDateTime: s.createdDateTime || new Date().toISOString(),
-            userPrincipalName: s.userPrincipalName || "unknown@domain.com",
-            userDisplayName: s.userDisplayName || s.userPrincipalName || "Unknown User",
-            userId: s.userId || "",
-            ipAddress: s.ipAddress || "0.0.0.0",
-            location: {
-              city: s.location?.city || "Unknown",
-              state: s.location?.state || "",
-              country: s.location?.countryOrRegion || "Unknown",
-            },
-            clientApp: s.clientAppUsed || "Browser",
-            appDisplayName: s.appDisplayName || "Microsoft 365 Cloud App",
-            status,
-            errorCode,
-            failureReason,
-            isRisky:
-              s.riskLevelDuringSignIn === "medium" ||
-              s.riskLevelDuringSignIn === "high" ||
-              s.riskState === "atRisk",
-            riskLevel: (s.riskLevelDuringSignIn || s.riskLevelAggregated || "none").toLowerCase() as any,
-            deviceDetail: {
-              deviceId: s.deviceDetail?.deviceId || "",
-              displayName: s.deviceDetail?.displayName || "",
-              operatingSystem: s.deviceDetail?.operatingSystem || "Unknown OS",
-              browser: s.deviceDetail?.browser || "Unknown Browser",
-              isCompliant: !!s.deviceDetail?.isCompliant,
-              isManaged: !!s.deviceDetail?.isManaged,
-              trustType: s.deviceDetail?.trustType || undefined,
-            },
-            appliedConditionalAccessPolicies: appliedPolicies,
-            hasReportOnlyFailure,
-            reportOnlyFailedPolicies,
-          };
-        });
+      let status: SignInStatus = "success";
+      if (isBlocked) {
+        status = "ca_blocked";
+      } else if (hasReportOnlyFailure) {
+        status = "report_only_failed";
+      } else if (isFailed) {
+        status = "failed";
       }
-    }
-  } catch (err) {
+
+      const errorCode = s.status?.errorCode || 0;
+      let failureReason = s.status?.failureReason;
+      if (!failureReason || failureReason === "Other." || failureReason === "None") {
+        if (s.status?.additionalDetails) {
+          failureReason = s.status.additionalDetails;
+        } else if (errorCode !== 0) {
+          failureReason = `Error ${errorCode}: Authentication or conditional access requirement not met`;
+        } else {
+          failureReason = "Authentication successful (All controls satisfied)";
+        }
+      }
+
+      return {
+        id: s.id,
+        createdDateTime: s.createdDateTime || new Date().toISOString(),
+        userPrincipalName: s.userPrincipalName || "unknown@domain.com",
+        userDisplayName: s.userDisplayName || s.userPrincipalName || "Unknown User",
+        userId: s.userId || "",
+        ipAddress: s.ipAddress || "0.0.0.0",
+        location: {
+          city: s.location?.city || "Unknown",
+          state: s.location?.state || "",
+          country: s.location?.countryOrRegion || "Unknown",
+        },
+        clientApp: s.clientAppUsed || "Browser",
+        appDisplayName: s.appDisplayName || "Microsoft 365 Cloud App",
+        status,
+        errorCode,
+        failureReason,
+        isRisky:
+          s.riskLevelDuringSignIn === "medium" ||
+          s.riskLevelDuringSignIn === "high" ||
+          s.riskState === "atRisk",
+        riskLevel: (s.riskLevelDuringSignIn || s.riskLevelAggregated || "none").toLowerCase() as any,
+        deviceDetail: {
+          deviceId: s.deviceDetail?.deviceId || "",
+          displayName: s.deviceDetail?.displayName || "",
+          operatingSystem: s.deviceDetail?.operatingSystem || "Unknown OS",
+          browser: s.deviceDetail?.browser || "Unknown Browser",
+          isCompliant: !!s.deviceDetail?.isCompliant,
+          isManaged: !!s.deviceDetail?.isManaged,
+          trustType: s.deviceDetail?.trustType || undefined,
+        },
+        appliedConditionalAccessPolicies: appliedPolicies,
+        hasReportOnlyFailure,
+        reportOnlyFailedPolicies,
+      };
+    });
+  } catch (err: any) {
     console.error("[Graph Client] Error fetching sign-in logs:", err);
+    syncErrors.push(`Sign-in logs: ${err.message || "Unexpected error while processing sign-in logs."}`);
   }
 
   // 4. Fetch MFA & Authentication Methods
   let mfaProfilesList: UserMfaProfile[] = [];
   try {
-    const mfaRes = await fetch("https://graph.microsoft.com/v1.0/reports/authenticationMethods/userRegistrationDetails?$top=999", { headers });
+    const mfaResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/v1.0/reports/authenticationMethods/userRegistrationDetails?$top=999",
+      headers
+    );
+    if (mfaResult.error) syncErrors.push(`MFA registration details: ${mfaResult.error}`);
+
     const hasCaMfaEnforced = livePolicies.some(
       (p) => (p.baselineCode === "CA02" || p.baselineCode === "CA03") && p.state === "enabled"
     );
 
-    if (mfaRes.ok) {
-      const mfaData = await mfaRes.json();
-      if (mfaData.value && Array.isArray(mfaData.value)) {
-        const registrationMap = new Map<string, any>();
-        mfaData.value.forEach((reg: any) => {
-          registrationMap.set(reg.id || reg.userPrincipalName?.toLowerCase(), reg);
-        });
+    if (mfaResult.items.length > 0) {
+      const registrationMap = new Map<string, any>();
+      mfaResult.items.forEach((reg: any) => {
+        registrationMap.set(reg.id || reg.userPrincipalName?.toLowerCase(), reg);
+      });
 
-        mfaProfilesList = usersList.map((u) => {
-          const reg = registrationMap.get(u.id) || registrationMap.get(u.userPrincipalName.toLowerCase());
-          const roles = adminUserRolesMap.get(u.id) || [];
-          const isAdmin = roles.length > 0 || (reg && !!reg.isAdmin);
+      mfaProfilesList = usersList.map((u) => {
+        const reg = registrationMap.get(u.id) || registrationMap.get(u.userPrincipalName.toLowerCase());
+        const roles = adminUserRolesMap.get(u.id) || [];
+        const isAdmin = roles.length > 0 || (reg && !!reg.isAdmin);
 
-          const registeredMethods: any[] = [];
-          if (reg && reg.methodsRegistered && Array.isArray(reg.methodsRegistered)) {
-            reg.methodsRegistered.forEach((m: string) => {
-              const lower = m.toLowerCase();
-              if (lower.includes("fido") || lower.includes("passkey") || lower.includes("securitykey")) registeredMethods.push("passkey_fido2");
-              else if (lower.includes("push") || lower.includes("authenticatorpush")) registeredMethods.push("ms_authenticator_push");
-              else if (lower.includes("softwareonetime") || lower.includes("totp") || lower.includes("authenticator")) registeredMethods.push("ms_authenticator_totp");
-              else if (lower.includes("phone") || lower.includes("sms") || lower.includes("mobile")) registeredMethods.push("sms");
-              else if (lower.includes("voice")) registeredMethods.push("voice_call");
-              else if (lower.includes("email")) registeredMethods.push("email_otp");
-              else if (lower.includes("password")) registeredMethods.push("app_password");
-            });
-          }
+        const registeredMethods: any[] = [];
+        if (reg && reg.methodsRegistered && Array.isArray(reg.methodsRegistered)) {
+          reg.methodsRegistered.forEach((m: string) => {
+            const lower = m.toLowerCase();
+            if (lower.includes("fido") || lower.includes("passkey") || lower.includes("securitykey")) registeredMethods.push("passkey_fido2");
+            else if (lower.includes("push") || lower.includes("authenticatorpush")) registeredMethods.push("ms_authenticator_push");
+            else if (lower.includes("softwareonetime") || lower.includes("totp") || lower.includes("authenticator")) registeredMethods.push("ms_authenticator_totp");
+            else if (lower.includes("phone") || lower.includes("sms") || lower.includes("mobile")) registeredMethods.push("sms");
+            else if (lower.includes("voice")) registeredMethods.push("voice_call");
+            else if (lower.includes("email")) registeredMethods.push("email_otp");
+            else if (lower.includes("password")) registeredMethods.push("app_password");
+          });
+        }
 
-          // Pick default/best method
-          let defaultMethod: any = "none";
-          if (registeredMethods.includes("passkey_fido2")) defaultMethod = "passkey_fido2";
-          else if (registeredMethods.includes("ms_authenticator_push")) defaultMethod = "ms_authenticator_push";
-          else if (registeredMethods.includes("ms_authenticator_totp")) defaultMethod = "ms_authenticator_totp";
-          else if (registeredMethods.includes("sms")) defaultMethod = "sms";
-          else if (registeredMethods.includes("voice_call")) defaultMethod = "voice_call";
-          else if (registeredMethods.includes("email_otp")) defaultMethod = "email_otp";
-          else if (registeredMethods.includes("app_password")) defaultMethod = "app_password";
+        // Pick default/best method
+        let defaultMethod: any = "none";
+        if (registeredMethods.includes("passkey_fido2")) defaultMethod = "passkey_fido2";
+        else if (registeredMethods.includes("ms_authenticator_push")) defaultMethod = "ms_authenticator_push";
+        else if (registeredMethods.includes("ms_authenticator_totp")) defaultMethod = "ms_authenticator_totp";
+        else if (registeredMethods.includes("sms")) defaultMethod = "sms";
+        else if (registeredMethods.includes("voice_call")) defaultMethod = "voice_call";
+        else if (registeredMethods.includes("email_otp")) defaultMethod = "email_otp";
+        else if (registeredMethods.includes("app_password")) defaultMethod = "app_password";
 
-          const mfaRegistered = (reg ? !!reg.isMfaRegistered : false) || registeredMethods.length > 0;
-          const isWeakAuth = !mfaRegistered || defaultMethod === "sms" || defaultMethod === "voice_call" || defaultMethod === "email_otp" || defaultMethod === "app_password" || defaultMethod === "none";
+        const mfaRegistered = (reg ? !!reg.isMfaRegistered : false) || registeredMethods.length > 0;
+        const isWeakAuth = !mfaRegistered || defaultMethod === "sms" || defaultMethod === "voice_call" || defaultMethod === "email_otp" || defaultMethod === "app_password" || defaultMethod === "none";
 
-          let authStrength: "phishing_resistant" | "strong" | "weak" | "none" = "none";
-          if (defaultMethod === "passkey_fido2") authStrength = "phishing_resistant";
-          else if (defaultMethod === "ms_authenticator_push" || defaultMethod === "ms_authenticator_totp") authStrength = "strong";
-          else if (mfaRegistered) authStrength = "weak";
+        let authStrength: "phishing_resistant" | "strong" | "weak" | "none" = "none";
+        if (defaultMethod === "passkey_fido2") authStrength = "phishing_resistant";
+        else if (defaultMethod === "ms_authenticator_push" || defaultMethod === "ms_authenticator_totp") authStrength = "strong";
+        else if (mfaRegistered) authStrength = "weak";
 
-          return {
-            id: u.id,
-            userPrincipalName: u.userPrincipalName,
-            displayName: u.displayName,
-            jobTitle: "Enterprise User",
-            department: u.department || "General",
-            accountEnabled: u.accountEnabled,
-            isAdmin,
-            adminRoles: roles.length > 0 ? roles : isAdmin ? ["Global Administrator"] : undefined,
-            mfaRegistered,
-            mfaEnforcedByPolicy: hasCaMfaEnforced || isAdmin,
-            defaultMethod,
-            registeredMethods: registeredMethods.length > 0 ? registeredMethods : ["none"],
-            isWeakAuth,
-            passwordLastSetDateTime: u.createdDateTime,
-            lastSignInDateTime: new Date().toISOString(),
-            isSsprRegistered: reg ? !!reg.isSsprRegistered : false,
-            isPasswordlessCapable: reg ? !!reg.isPasswordlessCapable : defaultMethod === "passkey_fido2",
-            methodsCount: registeredMethods.length,
-            authStrength,
-          };
-        });
-      }
+        return {
+          id: u.id,
+          userPrincipalName: u.userPrincipalName,
+          displayName: u.displayName,
+          jobTitle: "Enterprise User",
+          department: u.department || "General",
+          accountEnabled: u.accountEnabled,
+          isAdmin,
+          adminRoles: roles.length > 0 ? roles : isAdmin ? ["Global Administrator"] : undefined,
+          mfaRegistered,
+          mfaEnforcedByPolicy: hasCaMfaEnforced || isAdmin,
+          defaultMethod,
+          registeredMethods: registeredMethods.length > 0 ? registeredMethods : ["none"],
+          isWeakAuth,
+          passwordLastSetDateTime: u.createdDateTime,
+          lastSignInDateTime: new Date().toISOString(),
+          isSsprRegistered: reg ? !!reg.isSsprRegistered : false,
+          isPasswordlessCapable: reg ? !!reg.isPasswordlessCapable : defaultMethod === "passkey_fido2",
+          methodsCount: registeredMethods.length,
+          authStrength,
+        };
+      });
     }
 
     // Fallback: If registration report was forbidden or returned 0 rows, synthesize profiles from directory users & sign-in logs
@@ -699,13 +701,20 @@ export async function fetchLiveTenantSnapshot(
         };
       });
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error("[Graph Client] Error fetching MFA registration details:", err);
+    syncErrors.push(`MFA registration details: ${err.message || "Unexpected error while processing MFA data."}`);
   }
 
   // 5. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = Math.round((deployedBaselineCodes.size / CA_BASELINE_STANDARDS.length) * 100);
+
+  const syncHealth: SyncHealth = {
+    isPartial: syncErrors.length > 0,
+    errors: syncErrors,
+    lastAttemptAt: new Date().toISOString(),
+  };
 
   // 6. Build or update snapshot
   const base = existingSnapshot || {
@@ -761,7 +770,12 @@ export async function fetchLiveTenantSnapshot(
     },
   };
 
-  base.tenant = { ...tenant, lastSyncTimestamp: new Date().toISOString(), connectionStatus: "healthy" };
+  base.tenant = {
+    ...tenant,
+    lastSyncTimestamp: new Date().toISOString(),
+    connectionStatus: syncHealth.isPartial ? "degraded" : "healthy",
+  };
+  base.syncHealth = syncHealth;
   base.conditionalAccess = {
     baselineCoverageScore: coveragePercent,
     baselineDefinitions: CA_BASELINE_STANDARDS,
@@ -789,4 +803,3 @@ export async function fetchLiveTenantSnapshot(
 
   return { snapshot: base };
 }
-

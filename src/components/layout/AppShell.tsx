@@ -46,7 +46,7 @@ export const AppShell: React.FC = () => {
   const [syncToast, setSyncToast] = useState<{
     show: boolean;
     message: string;
-    type: "info" | "success" | "error";
+    type: "info" | "success" | "warning" | "error";
   } | null>(null);
 
   // Remediation Drawer
@@ -107,11 +107,20 @@ export const AppShell: React.FC = () => {
       if (data.success && data.snapshot) {
         setSnapshot(data.snapshot);
         await fetchTenants();
-        setSyncToast({
-          show: true,
-          message: `Synchronization complete for ${tenantName}. Live Conditional Access policies and telemetry updated at ${new Date().toLocaleTimeString()}.`,
-          type: "success",
-        });
+        const syncHealth = data.snapshot.syncHealth;
+        if (syncHealth?.isPartial) {
+          setSyncToast({
+            show: true,
+            message: `Sync completed for ${tenantName} with some sections incomplete: ${syncHealth.errors.join(" | ")}`,
+            type: "warning",
+          });
+        } else {
+          setSyncToast({
+            show: true,
+            message: `Synchronization complete for ${tenantName}. Live Conditional Access policies and telemetry updated at ${new Date().toLocaleTimeString()}.`,
+            type: "success",
+          });
+        }
       } else {
         setSyncToast({
           show: true,
@@ -198,12 +207,15 @@ export const AppShell: React.FC = () => {
               ? "bg-slate-900 text-white border-slate-800"
               : syncToast.type === "success"
               ? "bg-emerald-50 text-emerald-900 border-emerald-300"
+              : syncToast.type === "warning"
+              ? "bg-amber-50 text-amber-900 border-amber-300"
               : "bg-rose-50 text-rose-900 border-rose-300"
           }`}
         >
           <div className="flex items-center gap-2 font-medium">
             {syncToast.type === "info" && <RefreshCw size={13} className="animate-spin text-emerald-400" />}
             {syncToast.type === "success" && <CheckCircle size={14} className="text-emerald-600" />}
+            {syncToast.type === "warning" && <AlertTriangle size={14} className="text-amber-600" />}
             {syncToast.type === "error" && <AlertTriangle size={14} className="text-rose-600" />}
             <span>{syncToast.message}</span>
           </div>

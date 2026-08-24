@@ -349,9 +349,18 @@ export interface SharePointTenantPolicy {
   sites: SharePointSiteItem[];
 }
 
+// Per-section result of the most recent live Graph sync. Absent entirely for
+// demo/mock tenants and for snapshots that predate this field.
+export interface SyncHealth {
+  isPartial: boolean;
+  errors: string[]; // e.g. "Sign-in logs: Pagination stopped early: Insufficient privileges."
+  lastAttemptAt: string;
+}
+
 // Full Tenant Aggregated Snapshot
 export interface TenantSecuritySnapshot {
   tenant: Tenant;
+  syncHealth?: SyncHealth;
   capabilities: TenantCapability[];
   secureScore: TenantSecureScore;
   conditionalAccess: {
