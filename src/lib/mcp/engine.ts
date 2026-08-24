@@ -5,7 +5,36 @@ import { MCP_TOOL_DEFINITIONS, McpToolDefinition } from "./definitions";
 export { MCP_TOOL_DEFINITIONS };
 export type { McpToolDefinition };
 
+// Every MCP tool call is audit-logged — read-only lookups and mutations alike —
+// since MCP lets an external AI agent act against real tenants (manage_tabl
+// writes directly to a customer's TABL), and a security product needs a record
+// of what an agent actually did, not just what a human clicked.
 export async function executeMcpTool(name: string, args: Record<string, any>) {
+  const startedAt = new Date().toISOString();
+  let result: any;
+  try {
+    result = await runMcpTool(name, args);
+  } catch (err: any) {
+    result = { success: false, error: err.message || "Tool execution failed." };
+  }
+
+  const tenantId = args?.tenantId;
+  const tenant = tenantId ? tenantStore.getTenant(tenantId) : undefined;
+  const outcomeDetail = result?.error || result?.message;
+  tenantStore.addAuditLogEntry({
+    timestamp: startedAt,
+    category: "mcp_tool_call",
+    action: name,
+    tenantId,
+    tenantName: tenant?.displayName,
+    success: result?.success !== false,
+    detail: [JSON.stringify(args || {}).slice(0, 300), outcomeDetail].filter(Boolean).join(" | "),
+  });
+
+  return result;
+}
+
+async function runMcpTool(name: string, args: Record<string, any>) {
   const { tenantId } = args;
 
   switch (name) {

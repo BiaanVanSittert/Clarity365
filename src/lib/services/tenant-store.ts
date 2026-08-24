@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
-import { Tenant, TenantSecuritySnapshot, SystemSettings } from "../types";
+import { Tenant, TenantSecuritySnapshot, SystemSettings, AuditLogEntry } from "../types";
 import { INITIAL_TENANTS, MOCK_TENANT_DATA } from "../data/mock-tenants";
 import { createBlankSnapshot } from "../data/default-snapshot";
 import { encryptSecret, decryptSecret, isEncrypted, SECRET_MASK } from "./crypto";
@@ -64,6 +64,17 @@ class TenantStore {
         password_hash TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        category TEXT NOT NULL,
+        action TEXT NOT NULL,
+        tenant_id TEXT,
+        tenant_name TEXT,
+        success INTEGER NOT NULL,
+        detail TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log (timestamp DESC);
     `);
   }
 
@@ -313,6 +324,18 @@ class TenantStore {
     if (!tenant) return { success: false, error: "Tenant not found" };
 
     const deployResult = await deployConditionalAccessPolicy(tenant, baselineCode);
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "ca_policy_deploy",
+      action: `Deploy baseline policy ${baselineCode}`,
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: deployResult.success,
+      detail: deployResult.success
+        ? `Created '${deployResult.policy?.displayName || baselineCode}' in Report-Only mode.`
+        : deployResult.error,
+    });
+
     if (!deployResult.success) {
       return { success: false, error: deployResult.error };
     }
@@ -470,6 +493,65 @@ class TenantStore {
     const merged = { ...this.getSettingsRow(), ...updates };
     this.putSettingsRow(merged);
     return merged;
+  }
+
+  public addAuditLogEntry(entry: Omit<AuditLogEntry, "id">): void {
+    this.db
+      .prepare(
+        `INSERT INTO audit_log (timestamp, category, action, tenant_id, tenant_name, success, detail)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        entry.timestamp,
+        entry.category,
+        entry.action,
+        entry.tenantId ?? null,
+        entry.tenantName ?? null,
+        entry.success ? 1 : 0,
+        entry.detail ?? null
+      );
+
+    // Prune on write rather than on a schedule — audit log volume here is low
+    // (deploys + MCP tool calls only), so an occasional extra DELETE is cheap and
+    // avoids needing a separate timer alongside the sync scheduler.
+    const retentionDays = this.getSettingsRow().auditLogRetentionDays;
+    if (retentionDays > 0) {
+      const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
+      this.db.prepare("DELETE FROM audit_log WHERE timestamp < ?").run(cutoff);
+    }
+  }
+
+  public getAuditLog(filters: { tenantId?: string; category?: string; limit?: number } = {}): AuditLogEntry[] {
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    if (filters.tenantId) {
+      conditions.push("tenant_id = ?");
+      params.push(filters.tenantId);
+    }
+    if (filters.category) {
+      conditions.push("category = ?");
+      params.push(filters.category);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const limit = Math.min(Math.max(filters.limit ?? 200, 1), 1000);
+    params.push(limit);
+
+    const rows = this.db
+      .prepare(`SELECT * FROM audit_log ${whereClause} ORDER BY timestamp DESC, id DESC LIMIT ?`)
+      .all(...params) as any[];
+
+    return rows.map((r) => ({
+      id: r.id,
+      timestamp: r.timestamp,
+      category: r.category,
+      action: r.action,
+      tenantId: r.tenant_id ?? undefined,
+      tenantName: r.tenant_name ?? undefined,
+      success: !!r.success,
+      detail: r.detail ?? undefined,
+    }));
   }
 }
 

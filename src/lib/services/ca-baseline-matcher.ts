@@ -108,3 +108,12 @@ export function matchCaBaselineCode(policy: RawGraphCaPolicy): string | null {
 
   return null;
 }
+
+// Percentage of the CA01-CA10 baseline standards that have at least one deployed
+// policy matching them. totalCount is a parameter (rather than importing
+// CA_BASELINE_STANDARDS here) to keep this module dependency-free and testable
+// in isolation.
+export function computeBaselineCoveragePercent(deployedCount: number, totalCount: number): number {
+  if (totalCount <= 0) return 0;
+  return Math.round((deployedCount / totalCount) * 100);
+}

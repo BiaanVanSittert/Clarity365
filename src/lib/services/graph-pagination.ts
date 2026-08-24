@@ -3,6 +3,8 @@
 // failure (a later page erroring, or the safety cap being hit) so callers can surface
 // "this data may be incomplete" instead of presenting a truncated result as complete.
 
+import { graphFetch } from "./graph-fetch";
+
 export interface PagedFetchResult<T = any> {
   items: T[];
   isPartial: boolean;
@@ -32,7 +34,7 @@ export async function fetchAllPages<T = any>(
 
   for (const candidate of candidates) {
     try {
-      const res = await fetch(candidate, { headers });
+      const res = await graphFetch(candidate, { headers });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.value)) items.push(...data.value);
@@ -61,7 +63,7 @@ export async function fetchAllPages<T = any>(
       };
     }
     try {
-      const res = await fetch(nextUrl, { headers });
+      const res = await graphFetch(nextUrl, { headers });
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         const message = errJson?.error?.message || `HTTP ${res.status} ${res.statusText}`;

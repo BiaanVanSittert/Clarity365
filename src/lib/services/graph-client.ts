@@ -1,8 +1,32 @@
 import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
-import { matchCaBaselineCode } from "./ca-baseline-matcher";
+import { matchCaBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
 import { createBlankSnapshot } from "../data/default-snapshot";
+import { classifyUserAuthMethods } from "./mfa-classifier";
+import { graphFetch } from "./graph-fetch";
+
+interface CachedToken {
+  token: string;
+  expiresAt: number;
+}
+
+interface TokenCacheGlobal {
+  clarity365GraphTokenCache?: Map<string, CachedToken>;
+}
+
+// Cached per app-registration (Azure tenant ID + client ID), not per Clarity365
+// tenant record, since that pair is what actually identifies the credential. Kept
+// on globalThis so a Next.js dev-mode hot-reload doesn't spawn a second cache and
+// silently double the token-endpoint traffic. A 5-minute safety margin is
+// subtracted from the real expiry so a long paginated sync can't start a request
+// with a token that expires mid-flight.
+const TOKEN_SAFETY_MARGIN_MS = 5 * 60_000;
+const tokenCacheGlobal = globalThis as unknown as TokenCacheGlobal;
+if (!tokenCacheGlobal.clarity365GraphTokenCache) {
+  tokenCacheGlobal.clarity365GraphTokenCache = new Map<string, CachedToken>();
+}
+const tokenCache = tokenCacheGlobal.clarity365GraphTokenCache;
 
 export interface PermissionTestResult {
   permission: string;
@@ -28,6 +52,12 @@ export async function getGraphAccessToken(credentials: Tenant["credentials"]): P
     return { error: "Missing Tenant ID, Client ID, or Client Secret in tenant configuration." };
   }
 
+  const cacheKey = `${credentials.tenantId}:${credentials.clientId}`;
+  const cached = tokenCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { token: cached.token };
+  }
+
   const tokenEndpoint = `https://login.microsoftonline.com/${encodeURIComponent(credentials.tenantId)}/oauth2/v2.0/token`;
   const body = new URLSearchParams();
   body.append("client_id", credentials.clientId);
@@ -36,7 +66,7 @@ export async function getGraphAccessToken(credentials: Tenant["credentials"]): P
   body.append("grant_type", "client_credentials");
 
   try {
-    const res = await fetch(tokenEndpoint, {
+    const res = await graphFetch(tokenEndpoint, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
@@ -46,6 +76,13 @@ export async function getGraphAccessToken(credentials: Tenant["credentials"]): P
     if (!res.ok || !data.access_token) {
       return { error: data.error_description || data.error || `Authentication failed with status ${res.status}` };
     }
+
+    const expiresInSeconds = typeof data.expires_in === "number" ? data.expires_in : 3600;
+    tokenCache.set(cacheKey, {
+      token: data.access_token,
+      expiresAt: Date.now() + expiresInSeconds * 1000 - TOKEN_SAFETY_MARGIN_MS,
+    });
+    console.log(`[Graph Client] Acquired new access token for tenant ${credentials.tenantId} (valid ${expiresInSeconds}s).`);
 
     return { token: data.access_token };
   } catch (err: any) {
@@ -129,7 +166,7 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
 
   for (const perm of permissionsToTest) {
     try {
-      const res = await fetch(perm.endpoint, {
+      const res = await graphFetch(perm.endpoint, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -337,14 +374,22 @@ export async function deployConditionalAccessPolicy(
   const payload = buildGraphCaPolicyPayload(baselineCode, tenant.defaultDomainName);
 
   try {
-    const res = await fetch("https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
+    const res = await graphFetch(
+      "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
       },
-      body: JSON.stringify(payload),
-    });
+      // A network exception here is ambiguous — the POST may have already reached
+      // Graph and created the policy before the response was lost. Only retry a
+      // structured 429/503 HTTP response, where Graph is explicitly confirming it
+      // did not process the request.
+      { retryOnNetworkError: false }
+    );
 
     const data = await res.json();
     if (!res.ok) {
@@ -609,37 +654,10 @@ export async function fetchLiveTenantSnapshot(
         const roles = adminUserRolesMap.get(u.id) || [];
         const isAdmin = roles.length > 0 || (reg && !!reg.isAdmin);
 
-        const registeredMethods: any[] = [];
-        if (reg && reg.methodsRegistered && Array.isArray(reg.methodsRegistered)) {
-          reg.methodsRegistered.forEach((m: string) => {
-            const lower = m.toLowerCase();
-            if (lower.includes("fido") || lower.includes("passkey") || lower.includes("securitykey")) registeredMethods.push("passkey_fido2");
-            else if (lower.includes("push") || lower.includes("authenticatorpush")) registeredMethods.push("ms_authenticator_push");
-            else if (lower.includes("softwareonetime") || lower.includes("totp") || lower.includes("authenticator")) registeredMethods.push("ms_authenticator_totp");
-            else if (lower.includes("phone") || lower.includes("sms") || lower.includes("mobile")) registeredMethods.push("sms");
-            else if (lower.includes("voice")) registeredMethods.push("voice_call");
-            else if (lower.includes("email")) registeredMethods.push("email_otp");
-            else if (lower.includes("password")) registeredMethods.push("app_password");
-          });
-        }
-
-        // Pick default/best method
-        let defaultMethod: any = "none";
-        if (registeredMethods.includes("passkey_fido2")) defaultMethod = "passkey_fido2";
-        else if (registeredMethods.includes("ms_authenticator_push")) defaultMethod = "ms_authenticator_push";
-        else if (registeredMethods.includes("ms_authenticator_totp")) defaultMethod = "ms_authenticator_totp";
-        else if (registeredMethods.includes("sms")) defaultMethod = "sms";
-        else if (registeredMethods.includes("voice_call")) defaultMethod = "voice_call";
-        else if (registeredMethods.includes("email_otp")) defaultMethod = "email_otp";
-        else if (registeredMethods.includes("app_password")) defaultMethod = "app_password";
-
-        const mfaRegistered = (reg ? !!reg.isMfaRegistered : false) || registeredMethods.length > 0;
-        const isWeakAuth = !mfaRegistered || defaultMethod === "sms" || defaultMethod === "voice_call" || defaultMethod === "email_otp" || defaultMethod === "app_password" || defaultMethod === "none";
-
-        let authStrength: "phishing_resistant" | "strong" | "weak" | "none" = "none";
-        if (defaultMethod === "passkey_fido2") authStrength = "phishing_resistant";
-        else if (defaultMethod === "ms_authenticator_push" || defaultMethod === "ms_authenticator_totp") authStrength = "strong";
-        else if (mfaRegistered) authStrength = "weak";
+        const { registeredMethods, defaultMethod, mfaRegistered, isWeakAuth, authStrength } = classifyUserAuthMethods(
+          reg?.methodsRegistered,
+          reg ? !!reg.isMfaRegistered : false
+        );
 
         return {
           id: u.id,
@@ -709,7 +727,7 @@ export async function fetchLiveTenantSnapshot(
 
   // 5. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
-  const coveragePercent = Math.round((deployedBaselineCodes.size / CA_BASELINE_STANDARDS.length) * 100);
+  const coveragePercent = computeBaselineCoveragePercent(deployedBaselineCodes.size, CA_BASELINE_STANDARDS.length);
 
   const syncHealth: SyncHealth = {
     isPartial: syncErrors.length > 0,

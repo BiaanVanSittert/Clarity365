@@ -389,6 +389,20 @@ export interface TenantSecuritySnapshot {
   };
 }
 
+// Audit Trail — records mutating/sensitive actions (CA policy deployments, MCP
+// tool executions) for after-the-fact review. Pruned on write according to
+// SystemSettings.auditLogRetentionDays.
+export interface AuditLogEntry {
+  id: number;
+  timestamp: string;
+  category: "ca_policy_deploy" | "mcp_tool_call";
+  action: string;
+  tenantId?: string;
+  tenantName?: string;
+  success: boolean;
+  detail?: string;
+}
+
 // System Settings & MCP Config
 export interface SystemSettings {
   enableMcpServer: boolean;

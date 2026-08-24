@@ -18,6 +18,7 @@ import {
   BellRing,
   CheckCheck,
   RotateCcw,
+  History,
 } from "lucide-react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 
@@ -248,6 +249,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: "mcp",
           label: "MCP Tools & Playground",
           icon: Cpu,
+        },
+        {
+          id: "audit_log",
+          label: "Audit Log",
+          icon: History,
         },
       ],
     },

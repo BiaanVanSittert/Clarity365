@@ -18,6 +18,7 @@ import { IntuneSecurityModule } from "../modules/IntuneSecurityModule";
 import { GroupsManagementModule } from "../modules/GroupsManagementModule";
 import { SharePointStorageModule } from "../modules/SharePointStorageModule";
 import { McpPlaygroundModule } from "../modules/McpPlaygroundModule";
+import { AuditLogModule } from "../modules/AuditLogModule";
 import { AddTenantModal } from "../modals/AddTenantModal";
 import { DeleteTenantModal } from "../modals/DeleteTenantModal";
 import { SettingsModal } from "../modals/SettingsModal";
@@ -337,6 +338,8 @@ export const AppShell: React.FC = () => {
           {activeView === "mcp" && snapshot && (
             <McpPlaygroundModule snapshot={snapshot} />
           )}
+
+          {activeView === "audit_log" && <AuditLogModule tenants={tenants} />}
         </main>
       </div>
 
