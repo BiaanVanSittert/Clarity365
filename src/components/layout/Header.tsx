@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Tenant, TenantSecuritySnapshot } from "@/lib/types";
-import { ChevronDown, Plus, Trash2, Search, Settings, RefreshCw, ShieldCheck, Check, Globe, Server } from "lucide-react";
+import { ChevronDown, Plus, Trash2, Search, Settings, RefreshCw, ShieldCheck, Check, Globe, Server, LogOut } from "lucide-react";
 import { StatusPill } from "../common/StatusPill";
 
 interface HeaderProps {
@@ -15,6 +15,7 @@ interface HeaderProps {
   onOpenPermissions: () => void;
   onRefresh: () => void;
   isRefreshing: boolean;
+  onLogout: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,6 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenPermissions,
   onRefresh,
   isRefreshing,
+  onLogout,
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
@@ -209,6 +211,15 @@ export const Header: React.FC<HeaderProps> = ({
           className="p-1.5 text-slate-600 hover:text-slate-900 border border-[#CBD5E1] bg-white hover:bg-slate-50 rounded-sm transition-colors"
         >
           <Settings size={14} />
+        </button>
+
+        {/* Sign out of the operator session */}
+        <button
+          onClick={onLogout}
+          title="Sign out"
+          className="p-1.5 text-slate-600 hover:text-red-600 border border-[#CBD5E1] bg-white hover:bg-red-50 rounded-sm transition-colors"
+        >
+          <LogOut size={14} />
         </button>
       </div>
     </header>

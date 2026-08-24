@@ -164,6 +164,14 @@ export const AppShell: React.FC = () => {
 
   const activeTenant = tenants.find((t) => t.id === activeTenantId) || null;
 
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      window.location.href = "/login";
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-white text-slate-900 font-sans">
       {/* Top Header with Tenant Switcher and Settings Gear Icon */}
@@ -179,6 +187,7 @@ export const AppShell: React.FC = () => {
         onOpenPermissions={() => setIsPermissionsOpen(true)}
         onRefresh={handleForceSync}
         isRefreshing={isRefreshing}
+        onLogout={handleLogout}
       />
 
       {/* Real-time Sync & Notification Toast Banner */}

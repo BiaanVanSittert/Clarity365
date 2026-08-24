@@ -3,6 +3,7 @@ import path from "path";
 import { Tenant, TenantSecuritySnapshot, SystemSettings } from "../types";
 import { INITIAL_TENANTS, MOCK_TENANT_DATA } from "../data/mock-tenants";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
+import { encryptSecret, decryptSecret, isEncrypted, SECRET_MASK } from "./crypto";
 import {
   fetchLiveTenantSnapshot,
   testAppRegistrationPermissions,
@@ -33,6 +34,7 @@ class TenantStore {
   }
 
   private loadFromDisk() {
+    let loadedFromDisk = false;
     try {
       const storePath = this.getStorePath();
       if (fs.existsSync(storePath)) {
@@ -59,15 +61,49 @@ class TenantStore {
             }
           }
         });
-        return;
+        loadedFromDisk = true;
       }
     } catch (err) {
       console.error("[Clarity365 Store] Error reading persistence store from disk", err);
     }
 
-    // Default initialization when no disk file exists
-    this.seedDefaults();
-    this.saveToDisk();
+    if (!loadedFromDisk) {
+      // Default initialization when no disk file exists (or it was unreadable)
+      this.seedDefaults();
+      this.saveToDisk();
+      return;
+    }
+
+    // Migrate any legacy plaintext client secrets (from pre-encryption versions of the
+    // store) to AES-256-GCM at rest. Never allowed to fall back to reseeding — a failed
+    // migration (e.g. missing CLARITY365_ENCRYPTION_KEY) just leaves that tenant's secret
+    // as-is with a warning, rather than risking real tenant data.
+    this.migrateLegacyPlaintextSecrets();
+  }
+
+  private migrateLegacyPlaintextSecrets() {
+    let migrated = false;
+    this.tenants.forEach((t, id) => {
+      const secret = t.credentials.clientSecret;
+      if (!secret || isEncrypted(secret)) return;
+      try {
+        const encrypted = this.encryptTenantSecret(t);
+        this.tenants.set(id, encrypted);
+        const snap = this.snapshots.get(id);
+        if (snap) snap.tenant = encrypted;
+        migrated = true;
+      } catch (err) {
+        console.error(
+          `[Clarity365 Store] Could not encrypt legacy plaintext client secret for tenant '${id}'. ` +
+            `Set CLARITY365_ENCRYPTION_KEY and restart to migrate it.`,
+          err
+        );
+      }
+    });
+    if (migrated) {
+      console.log("[Clarity365 Store] Migrated legacy plaintext client secret(s) to encrypted storage.");
+      this.saveToDisk();
+    }
   }
 
   private saveToDisk() {
@@ -98,16 +134,43 @@ class TenantStore {
     });
   }
 
-  public getAllTenants(): Tenant[] {
-    return Array.from(this.tenants.values());
+  // ---- Secret handling -----------------------------------------------------------
+  // Tenants are ALWAYS held in memory and on disk with clientSecret encrypted (or
+  // absent). Decryption only ever happens transiently, right before a Graph API call.
+  // Anything handed back to an API route/UI goes through sanitizeTenant/sanitizeSnapshot,
+  // which mask the secret entirely — it is a write-only field from the client's perspective.
+
+  private encryptTenantSecret(tenant: Tenant): Tenant {
+    const secret = tenant.credentials.clientSecret;
+    if (!secret || isEncrypted(secret)) return tenant;
+    return { ...tenant, credentials: { ...tenant.credentials, clientSecret: encryptSecret(secret) } };
   }
 
-  public getTenant(id: string): Tenant | undefined {
-    return this.tenants.get(id);
+  private sanitizeTenant(tenant: Tenant): Tenant {
+    return {
+      ...tenant,
+      credentials: {
+        ...tenant.credentials,
+        clientSecret: tenant.credentials.clientSecret ? SECRET_MASK : undefined,
+      },
+    };
   }
 
-  public getSnapshot(tenantId: string): TenantSecuritySnapshot | undefined {
-    // If tenant exists but snapshot doesn't, generate a default one
+  private sanitizeSnapshot(snapshot: TenantSecuritySnapshot): TenantSecuritySnapshot {
+    return { ...snapshot, tenant: this.sanitizeTenant(snapshot.tenant) };
+  }
+
+  /** @internal Raw lookup, used only right before a Microsoft Graph call. */
+  private getTenantWithDecryptedSecret(id: string): Tenant | undefined {
+    const tenant = this.tenants.get(id);
+    if (!tenant) return undefined;
+    const secret = tenant.credentials.clientSecret;
+    if (!secret || !isEncrypted(secret)) return tenant;
+    return { ...tenant, credentials: { ...tenant.credentials, clientSecret: decryptSecret(secret) } };
+  }
+
+  /** @internal Raw (encrypted-secret) snapshot lookup/creation, safe to mutate by reference. */
+  private ensureSnapshot(tenantId: string): TenantSecuritySnapshot | undefined {
     let snapshot = this.snapshots.get(tenantId);
     if (!snapshot && this.tenants.has(tenantId)) {
       const tenant = this.tenants.get(tenantId)!;
@@ -118,21 +181,39 @@ class TenantStore {
     return snapshot;
   }
 
+  // ---- Public API -----------------------------------------------------------------
+
+  public getAllTenants(): Tenant[] {
+    return Array.from(this.tenants.values()).map((t) => this.sanitizeTenant(t));
+  }
+
+  public getTenant(id: string): Tenant | undefined {
+    const tenant = this.tenants.get(id);
+    return tenant ? this.sanitizeTenant(tenant) : undefined;
+  }
+
+  public getSnapshot(tenantId: string): TenantSecuritySnapshot | undefined {
+    const snapshot = this.ensureSnapshot(tenantId);
+    return snapshot ? this.sanitizeSnapshot(snapshot) : undefined;
+  }
+
   public async syncTenant(tenantId: string): Promise<TenantSecuritySnapshot | undefined> {
-    const tenant = this.getTenant(tenantId);
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return undefined;
     const existing = this.snapshots.get(tenantId);
     const { snapshot } = await fetchLiveTenantSnapshot(tenant, existing);
     if (snapshot) {
+      // Never let a decrypted secret end up cached in the snapshot's embedded tenant.
+      snapshot.tenant = this.encryptTenantSecret(snapshot.tenant);
       this.snapshots.set(tenantId, snapshot);
       this.saveToDisk();
-      return snapshot;
+      return this.sanitizeSnapshot(snapshot);
     }
-    return existing;
+    return existing ? this.sanitizeSnapshot(existing) : undefined;
   }
 
   public async testPermissions(tenantId: string): Promise<TenantPermissionReport | null> {
-    const tenant = this.getTenant(tenantId);
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return null;
     return await testAppRegistrationPermissions(tenant);
   }
@@ -141,7 +222,7 @@ class TenantStore {
     tenantId: string,
     baselineCode: string
   ): Promise<{ success: boolean; policy?: any; snapshot?: TenantSecuritySnapshot; error?: string }> {
-    const tenant = this.getTenant(tenantId);
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return { success: false, error: "Tenant not found" };
 
     const deployResult = await deployConditionalAccessPolicy(tenant, baselineCode);
@@ -178,24 +259,44 @@ class TenantStore {
       isDemo: tenantData.isDemo ?? false,
     };
 
-    this.tenants.set(id, newTenant);
-    const snapshot = this.generateBlankSnapshot(newTenant);
+    const stored = this.encryptTenantSecret(newTenant);
+    this.tenants.set(id, stored);
+    const snapshot = this.generateBlankSnapshot(stored);
     this.snapshots.set(id, snapshot);
     this.saveToDisk();
-    return newTenant;
+    return this.sanitizeTenant(stored);
   }
 
   public updateTenant(id: string, updates: Partial<Tenant>): Tenant | undefined {
     const existing = this.tenants.get(id);
     if (!existing) return undefined;
-    const updated = { ...existing, ...updates, lastSyncTimestamp: new Date().toISOString() };
+
+    let mergedCredentials = existing.credentials;
+    if (updates.credentials) {
+      const incomingSecret = updates.credentials.clientSecret;
+      // A masked value coming back from the UI (or no value at all) means "leave the
+      // existing secret alone" — the client never has the real value to send back.
+      const keepExistingSecret = !incomingSecret || incomingSecret === SECRET_MASK;
+      mergedCredentials = {
+        ...existing.credentials,
+        ...updates.credentials,
+        clientSecret: keepExistingSecret ? existing.credentials.clientSecret : encryptSecret(incomingSecret!),
+      };
+    }
+
+    const updated: Tenant = {
+      ...existing,
+      ...updates,
+      credentials: mergedCredentials,
+      lastSyncTimestamp: new Date().toISOString(),
+    };
     this.tenants.set(id, updated);
     const snap = this.snapshots.get(id);
     if (snap) {
       snap.tenant = updated;
     }
     this.saveToDisk();
-    return updated;
+    return this.sanitizeTenant(updated);
   }
 
   public removeTenant(id: string): boolean {
@@ -209,7 +310,7 @@ class TenantStore {
   }
 
   public addTablEntry(tenantId: string, entry: Omit<TenantSecuritySnapshot["mdoThreat"]["tabl"][0], "id" | "dateAdded">) {
-    const snap = this.getSnapshot(tenantId);
+    const snap = this.ensureSnapshot(tenantId);
     if (!snap) return null;
     const newEntry = {
       ...entry,
@@ -222,7 +323,7 @@ class TenantStore {
   }
 
   public removeTablEntry(tenantId: string, entryId: string): boolean {
-    const snap = this.getSnapshot(tenantId);
+    const snap = this.ensureSnapshot(tenantId);
     if (!snap) return false;
     const initialLen = snap.mdoThreat.tabl.length;
     snap.mdoThreat.tabl = snap.mdoThreat.tabl.filter((e) => e.id !== entryId);
@@ -232,7 +333,7 @@ class TenantStore {
   }
 
   public addGroup(tenantId: string, group: Omit<TenantSecuritySnapshot["groups"][0], "id" | "createdDateTime">) {
-    const snap = this.getSnapshot(tenantId);
+    const snap = this.ensureSnapshot(tenantId);
     if (!snap) return null;
     const newGroup = {
       ...group,
@@ -248,7 +349,7 @@ class TenantStore {
     tenantId: string,
     updates: Partial<Pick<TenantSecuritySnapshot["sharePoint"], "tenantSharingLevel" | "defaultLinkType" | "anonymousLinkExpirationDays">>
   ) {
-    const snap = this.getSnapshot(tenantId);
+    const snap = this.ensureSnapshot(tenantId);
     if (!snap) return null;
     snap.sharePoint = { ...snap.sharePoint, ...updates };
     this.saveToDisk();

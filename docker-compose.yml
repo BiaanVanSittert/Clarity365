@@ -6,6 +6,8 @@ services:
     container_name: clarity365-suite
     ports:
       - "127.0.0.1:3000:3000"
+    env_file:
+      - .env.local
     environment:
       - NODE_ENV=production
       - HOST=127.0.0.1
