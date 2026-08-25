@@ -34,9 +34,9 @@ export function generateRemediationPlanForTenant(snapshot: TenantSecuritySnapsho
       powershellScript: `# Connect to Microsoft Graph
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
 
-# Deploy CA02: Block Legacy Authentication Protocols
-$ca02Params = @{
-    displayName = "CA02: Block Legacy Authentication Protocols"
+# Deploy CA01: Block Legacy Authentication Protocols
+$ca01Params = @{
+    displayName = "CA01: Block Legacy Authentication Protocols"
     state = "enabledForReportingButNotEnforced" # Switch to 'enabled' after verification
     conditions = @{
         users = @{
@@ -53,7 +53,7 @@ $ca02Params = @{
         builtInControls = @("block")
     }
 }
-New-MgIdentityConditionalAccessPolicy -BodyParameter $ca02Params
+New-MgIdentityConditionalAccessPolicy -BodyParameter $ca01Params
 
 Write-Host "Conditional Access Baseline deployed in Report-Only mode successfully." -ForegroundColor Green`,
       rollbackPlan: "Set policy state to 'disabled' via `Update-MgIdentityConditionalAccessPolicy -ConditionalAccessPolicyId <ID> -State 'disabled'`.",
@@ -78,7 +78,7 @@ Write-Host "Conditional Access Baseline deployed in Report-Only mode successfull
 Connect-ExchangeOnline
 
 # 1. Enforce global outbound forwarding disablement
-Set-HostedOutboundSpamFilterPolicy -Identity Default -AutoForwardingMode On
+Set-HostedOutboundSpamFilterPolicy -Identity Default -AutoForwardingMode Off
 
 # 2. Disable identified malicious inbox forwarding rules
 ${criticalForwarding

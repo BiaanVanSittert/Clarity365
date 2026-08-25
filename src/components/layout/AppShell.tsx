@@ -1,24 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense, lazy } from "react";
 import { Tenant, TenantSecuritySnapshot } from "@/lib/types";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
-import { OverviewDashboard } from "../dashboard/OverviewDashboard";
-import { ConditionalAccessModule } from "../modules/ConditionalAccessModule";
-import { SignInLogsModule } from "../modules/SignInLogsModule";
-import { SecureScoreModule } from "../modules/SecureScoreModule";
-import { MfaAuditModule } from "../modules/MfaAuditModule";
-import { UserClassificationModule } from "../modules/UserClassificationModule";
-import { MailboxPermissionsModule } from "../modules/MailboxPermissionsModule";
-import { EmailForwardingModule } from "../modules/EmailForwardingModule";
-import { MdoPoliciesModule } from "../modules/MdoPoliciesModule";
-import { AppRegistrationsModule } from "../modules/AppRegistrationsModule";
-import { IntuneSecurityModule } from "../modules/IntuneSecurityModule";
-import { GroupsManagementModule } from "../modules/GroupsManagementModule";
-import { SharePointStorageModule } from "../modules/SharePointStorageModule";
-import { McpPlaygroundModule } from "../modules/McpPlaygroundModule";
-import { AuditLogModule } from "../modules/AuditLogModule";
+import { ErrorBoundary } from "../common/ErrorBoundary";
+import { SkeletonLoader } from "../common/SkeletonLoader";
 import { AddTenantModal } from "../modals/AddTenantModal";
 import { DeleteTenantModal } from "../modals/DeleteTenantModal";
 import { SettingsModal } from "../modals/SettingsModal";
@@ -27,6 +14,25 @@ import { RemediationDrawer } from "../modals/RemediationDrawer";
 import { SearchDialog } from "../common/SearchDialog";
 import { generateRemediationPlanForTenant, RemediationPlan } from "@/lib/services/remediation-generator";
 import { RefreshCw, CheckCircle, AlertTriangle, X } from "lucide-react";
+
+// Lazy-loaded module components — only fetched when the user navigates to them.
+// Cuts initial bundle size significantly since each module is 8-48KB.
+const OverviewDashboard = lazy(() => import("../dashboard/OverviewDashboard").then(m => ({ default: m.OverviewDashboard })));
+const ConditionalAccessModule = lazy(() => import("../modules/ConditionalAccessModule").then(m => ({ default: m.ConditionalAccessModule })));
+const SignInLogsModule = lazy(() => import("../modules/SignInLogsModule").then(m => ({ default: m.SignInLogsModule })));
+const SecureScoreModule = lazy(() => import("../modules/SecureScoreModule").then(m => ({ default: m.SecureScoreModule })));
+const MfaAuditModule = lazy(() => import("../modules/MfaAuditModule").then(m => ({ default: m.MfaAuditModule })));
+const UserClassificationModule = lazy(() => import("../modules/UserClassificationModule").then(m => ({ default: m.UserClassificationModule })));
+const MailboxPermissionsModule = lazy(() => import("../modules/MailboxPermissionsModule").then(m => ({ default: m.MailboxPermissionsModule })));
+const EmailForwardingModule = lazy(() => import("../modules/EmailForwardingModule").then(m => ({ default: m.EmailForwardingModule })));
+const MdoPoliciesModule = lazy(() => import("../modules/MdoPoliciesModule").then(m => ({ default: m.MdoPoliciesModule })));
+const AppRegistrationsModule = lazy(() => import("../modules/AppRegistrationsModule").then(m => ({ default: m.AppRegistrationsModule })));
+const IntuneSecurityModule = lazy(() => import("../modules/IntuneSecurityModule").then(m => ({ default: m.IntuneSecurityModule })));
+const GroupsManagementModule = lazy(() => import("../modules/GroupsManagementModule").then(m => ({ default: m.GroupsManagementModule })));
+const SharePointStorageModule = lazy(() => import("../modules/SharePointStorageModule").then(m => ({ default: m.SharePointStorageModule })));
+const McpPlaygroundModule = lazy(() => import("../modules/McpPlaygroundModule").then(m => ({ default: m.McpPlaygroundModule })));
+const AuditLogModule = lazy(() => import("../modules/AuditLogModule").then(m => ({ default: m.AuditLogModule })));
+
 
 export const AppShell: React.FC = () => {
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -61,16 +67,20 @@ export const AppShell: React.FC = () => {
       const data = await res.json();
       if (data.success && data.tenants) {
         setTenants(data.tenants);
-        if (!activeTenantId && data.tenants.length > 0) {
-          setActiveTenantId(data.tenants[0].id);
-        } else if (activeTenantId && !data.tenants.some((t: Tenant) => t.id === activeTenantId)) {
-          setActiveTenantId(data.tenants[0]?.id || null);
-        }
+        setActiveTenantId((prev) => {
+          if (!prev && data.tenants.length > 0) {
+            return data.tenants[0].id;
+          }
+          if (prev && !data.tenants.some((t: Tenant) => t.id === prev)) {
+            return data.tenants[0]?.id || null;
+          }
+          return prev;
+        });
       }
     } catch (err) {
       console.error("Failed to load tenants", err);
     }
-  }, [activeTenantId]);
+  }, []);
 
   // Fetch active snapshot
   const fetchSnapshot = useCallback(async (tenantId: string) => {
@@ -249,97 +259,129 @@ export const AppShell: React.FC = () => {
 
         {/* Dynamic Main Workspace Container */}
         <main className="flex-1 overflow-y-auto bg-white">
-          {activeView === "overview" && (
-            <OverviewDashboard
-              snapshot={snapshot}
-              isLoading={isLoading}
-              onNavigate={(view) => setActiveView(view)}
-              onOpenRemediation={handleOpenRemediation}
-            />
-          )}
+          <Suspense fallback={<SkeletonLoader />}>
+            <ErrorBoundary moduleName="Overview Dashboard" key={`eb-overview-${activeTenantId}`}>
+              {activeView === "overview" && (
+                <OverviewDashboard
+                  snapshot={snapshot}
+                  isLoading={isLoading}
+                  onNavigate={(view) => setActiveView(view)}
+                  onOpenRemediation={handleOpenRemediation}
+                />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "ca_baseline" && snapshot && (
-            <ConditionalAccessModule
-              snapshot={snapshot}
-              onOpenRemediation={handleOpenRemediation}
-              onRefresh={handleForceSync}
-              onNavigate={(view) => setActiveView(view)}
-            />
-          )}
+            <ErrorBoundary moduleName="Conditional Access" key={`eb-ca-${activeTenantId}`}>
+              {activeView === "ca_baseline" && snapshot && (
+                <ConditionalAccessModule
+                  snapshot={snapshot}
+                  onOpenRemediation={handleOpenRemediation}
+                  onRefresh={handleForceSync}
+                  onNavigate={(view) => setActiveView(view)}
+                />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "signin_logs" && snapshot && (
-            <SignInLogsModule
-              snapshot={snapshot}
-              onRefresh={handleForceSync}
-            />
-          )}
+            <ErrorBoundary moduleName="Sign-In Logs" key={`eb-signin-${activeTenantId}`}>
+              {activeView === "signin_logs" && snapshot && (
+                <SignInLogsModule
+                  snapshot={snapshot}
+                  onRefresh={handleForceSync}
+                />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "sec_score" && snapshot && (
-            <SecureScoreModule
-              snapshot={snapshot}
-              onOpenRemediation={handleOpenRemediation}
-            />
-          )}
+            <ErrorBoundary moduleName="Secure Score" key={`eb-secscore-${activeTenantId}`}>
+              {activeView === "sec_score" && snapshot && (
+                <SecureScoreModule
+                  snapshot={snapshot}
+                  onOpenRemediation={handleOpenRemediation}
+                />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "mfa_audit" && snapshot && (
-            <MfaAuditModule
-              snapshot={snapshot}
-              onOpenRemediation={handleOpenRemediation}
-            />
-          )}
+            <ErrorBoundary moduleName="MFA Audit" key={`eb-mfa-${activeTenantId}`}>
+              {activeView === "mfa_audit" && snapshot && (
+                <MfaAuditModule
+                  snapshot={snapshot}
+                  onOpenRemediation={handleOpenRemediation}
+                />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "user_class" && snapshot && (
-            <UserClassificationModule
-              snapshot={snapshot}
-              onOpenRemediation={handleOpenRemediation}
-            />
-          )}
+            <ErrorBoundary moduleName="User Classification" key={`eb-userclass-${activeTenantId}`}>
+              {activeView === "user_class" && snapshot && (
+                <UserClassificationModule
+                  snapshot={snapshot}
+                  onOpenRemediation={handleOpenRemediation}
+                />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "mailboxes" && snapshot && (
-            <MailboxPermissionsModule snapshot={snapshot} />
-          )}
+            <ErrorBoundary moduleName="Mailbox Permissions" key={`eb-mailbox-${activeTenantId}`}>
+              {activeView === "mailboxes" && snapshot && (
+                <MailboxPermissionsModule snapshot={snapshot} />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "forwarding" && snapshot && (
-            <EmailForwardingModule
-              snapshot={snapshot}
-              onOpenRemediation={handleOpenRemediation}
-            />
-          )}
+            <ErrorBoundary moduleName="Email Forwarding" key={`eb-fwd-${activeTenantId}`}>
+              {activeView === "forwarding" && snapshot && (
+                <EmailForwardingModule
+                  snapshot={snapshot}
+                  onOpenRemediation={handleOpenRemediation}
+                />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "mdo_tabl" && snapshot && (
-            <MdoPoliciesModule
-              snapshot={snapshot}
-              onRefresh={handleForceSync}
-            />
-          )}
+            <ErrorBoundary moduleName="MDO Policies & TABL" key={`eb-mdo-${activeTenantId}`}>
+              {activeView === "mdo_tabl" && snapshot && (
+                <MdoPoliciesModule
+                  snapshot={snapshot}
+                  onRefresh={handleForceSync}
+                />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "app_regs" && snapshot && (
-            <AppRegistrationsModule snapshot={snapshot} />
-          )}
+            <ErrorBoundary moduleName="App Registrations" key={`eb-appreg-${activeTenantId}`}>
+              {activeView === "app_regs" && snapshot && (
+                <AppRegistrationsModule snapshot={snapshot} />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "intune" && snapshot && (
-            <IntuneSecurityModule snapshot={snapshot} />
-          )}
+            <ErrorBoundary moduleName="Intune Security" key={`eb-intune-${activeTenantId}`}>
+              {activeView === "intune" && snapshot && (
+                <IntuneSecurityModule snapshot={snapshot} />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "groups" && snapshot && (
-            <GroupsManagementModule
-              snapshot={snapshot}
-              onRefresh={handleForceSync}
-            />
-          )}
+            <ErrorBoundary moduleName="Groups Management" key={`eb-groups-${activeTenantId}`}>
+              {activeView === "groups" && snapshot && (
+                <GroupsManagementModule
+                  snapshot={snapshot}
+                  onRefresh={handleForceSync}
+                />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "sharepoint" && snapshot && (
-            <SharePointStorageModule
-              snapshot={snapshot}
-              onRefresh={handleForceSync}
-            />
-          )}
+            <ErrorBoundary moduleName="SharePoint Storage" key={`eb-sp-${activeTenantId}`}>
+              {activeView === "sharepoint" && snapshot && (
+                <SharePointStorageModule
+                  snapshot={snapshot}
+                  onRefresh={handleForceSync}
+                />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "mcp" && snapshot && (
-            <McpPlaygroundModule snapshot={snapshot} />
-          )}
+            <ErrorBoundary moduleName="MCP Playground" key={`eb-mcp-${activeTenantId}`}>
+              {activeView === "mcp" && snapshot && (
+                <McpPlaygroundModule snapshot={snapshot} />
+              )}
+            </ErrorBoundary>
 
-          {activeView === "audit_log" && <AuditLogModule tenants={tenants} />}
+            <ErrorBoundary moduleName="Audit Log" key={`eb-audit-${activeTenantId}`}>
+              {activeView === "audit_log" && <AuditLogModule tenants={tenants} />}
+            </ErrorBoundary>
+          </Suspense>
         </main>
       </div>
 
