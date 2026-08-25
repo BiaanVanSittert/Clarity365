@@ -66,11 +66,15 @@ export async function getGraphAccessToken(credentials: Tenant["credentials"]): P
   body.append("grant_type", "client_credentials");
 
   try {
-    const res = await graphFetch(tokenEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-    });
+    const res = await graphFetch(
+      tokenEndpoint,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      },
+      { timeoutMs: 10_000 } // fail fast — the whole sync is worthless without a token
+    );
 
     const data = await res.json();
     if (!res.ok || !data.access_token) {

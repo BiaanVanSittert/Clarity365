@@ -10,6 +10,7 @@ interface AuditLogModuleProps {
 const CATEGORY_LABELS: Record<string, string> = {
   ca_policy_deploy: "CA Policy Deploy",
   mcp_tool_call: "MCP Tool Call",
+  tenant_sync_failure: "Tenant Sync Failure",
 };
 
 export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
@@ -138,6 +139,7 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
             <option value="all">All Categories</option>
             <option value="ca_policy_deploy">CA Policy Deploy</option>
             <option value="mcp_tool_call">MCP Tool Call</option>
+            <option value="tenant_sync_failure">Tenant Sync Failure</option>
           </select>
 
           <select

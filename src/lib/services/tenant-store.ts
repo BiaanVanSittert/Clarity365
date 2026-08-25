@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
-import { Tenant, TenantSecuritySnapshot, SystemSettings, AuditLogEntry } from "../types";
+import { Tenant, TenantSecuritySnapshot, SystemSettings, AuditLogEntry, SyncResult, SyncOutcome } from "../types";
 import { INITIAL_TENANTS, MOCK_TENANT_DATA } from "../data/mock-tenants";
 import { createBlankSnapshot } from "../data/default-snapshot";
 import { encryptSecret, decryptSecret, isEncrypted, SECRET_MASK } from "./crypto";
@@ -43,6 +43,13 @@ class TenantStore {
     this.initSchema();
     this.migrateFromLegacyJsonIfNeeded();
     this.migrateLegacyPlaintextSecrets();
+  }
+
+  // Flushes and closes the underlying SQLite connection. Called on graceful
+  // process shutdown (see instrumentation.ts) so WAL contents get a clean
+  // checkpoint instead of relying on the next open to replay them.
+  public close(): void {
+    this.db.close();
   }
 
   private initSchema() {
@@ -296,18 +303,42 @@ class TenantStore {
     return snapshot ? this.sanitizeSnapshot(snapshot) : undefined;
   }
 
-  public async syncTenant(tenantId: string): Promise<TenantSecuritySnapshot | undefined> {
+  public async syncTenant(
+    tenantId: string,
+    source: "manual" | "scheduled" = "manual"
+  ): Promise<SyncResult | undefined> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return undefined;
     const existing = this.getSnapshotRow(tenantId);
-    const { snapshot } = await fetchLiveTenantSnapshot(tenant, existing);
+    const { snapshot, error } = await fetchLiveTenantSnapshot(tenant, existing);
     if (snapshot) {
       // Never let a decrypted secret end up persisted in the snapshot's embedded tenant.
       snapshot.tenant = this.encryptTenantSecret(snapshot.tenant);
       this.putSnapshotRow(tenantId, snapshot);
-      return this.sanitizeSnapshot(snapshot);
+      return { snapshot: this.sanitizeSnapshot(snapshot), outcome: "synced" };
     }
-    return existing ? this.sanitizeSnapshot(existing) : undefined;
+
+    // Live fetch failed entirely (e.g. bad credentials) — don't let this look
+    // like a success just because a stale cached snapshot exists to fall back on.
+    const outcome: SyncOutcome = existing ? "stale_fallback" : "no_data";
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "tenant_sync_failure",
+      action: `${source === "scheduled" ? "Scheduled" : "Manual"} sync failed`,
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: false,
+      detail:
+        outcome === "stale_fallback"
+          ? `Live Graph sync failed; served cached data from ${existing!.tenant.lastSyncTimestamp}. ${error || ""}`.trim()
+          : `Live Graph sync failed; no cached data available. ${error || ""}`.trim(),
+    });
+
+    return {
+      snapshot: existing ? this.sanitizeSnapshot(existing) : undefined,
+      outcome,
+      error,
+    };
   }
 
   public async testPermissions(tenantId: string): Promise<TenantPermissionReport | null> {
@@ -341,11 +372,11 @@ class TenantStore {
     }
 
     // Resync immediately to update live snapshot
-    const updatedSnapshot = await this.syncTenant(tenantId);
+    const syncResult = await this.syncTenant(tenantId);
     return {
       success: true,
       policy: deployResult.policy,
-      snapshot: updatedSnapshot,
+      snapshot: syncResult?.snapshot,
     };
   }
 

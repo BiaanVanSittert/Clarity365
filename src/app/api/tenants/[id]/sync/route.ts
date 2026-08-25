@@ -14,15 +14,20 @@ export async function POST(
       return NextResponse.json({ success: false, error: "Tenant not found" }, { status: 404 });
     }
 
-    const updatedSnapshot = await tenantStore.syncTenant(id);
-    if (!updatedSnapshot) {
-      return NextResponse.json({ success: false, error: "Sync failed to generate snapshot" }, { status: 500 });
+    const result = await tenantStore.syncTenant(id, "manual");
+    if (!result || !result.snapshot) {
+      return NextResponse.json(
+        { success: false, error: result?.error || "Sync failed to generate snapshot" },
+        { status: 502 }
+      );
     }
 
     return NextResponse.json({
-      success: true,
+      success: result.outcome === "synced",
+      stale: result.outcome === "stale_fallback",
+      error: result.outcome === "stale_fallback" ? result.error : undefined,
       message: `Successfully synchronized live telemetry for '${tenant.displayName}'`,
-      snapshot: updatedSnapshot,
+      snapshot: result.snapshot,
     });
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message || "Failed to sync tenant" }, { status: 500 });

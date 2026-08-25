@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, Suspense, lazy } from "react";
+import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from "react";
 import { Tenant, TenantSecuritySnapshot } from "@/lib/types";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
@@ -60,6 +60,18 @@ export const AppShell: React.FC = () => {
   const [isRemediationOpen, setIsRemediationOpen] = useState(false);
   const [remediationPlans, setRemediationPlans] = useState<RemediationPlan[]>([]);
 
+  // Tracks the currently-selected tenant for in-flight fetchSnapshot requests,
+  // so a slow response for a tenant the user has since switched away from
+  // can't clobber the snapshot actually on screen.
+  const activeTenantIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeTenantIdRef.current = activeTenantId;
+  }, [activeTenantId]);
+
+  // Guards the 60s toast auto-dismiss timer so two syncs within that window
+  // can't let the first one's timer erase the second one's still-fresh toast.
+  const toastDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Fetch all tenants
   const fetchTenants = useCallback(async () => {
     try {
@@ -88,14 +100,18 @@ export const AppShell: React.FC = () => {
     try {
       const res = await fetch(`/api/tenants/${tenantId}`);
       const data = await res.json();
-      if (data.success && data.snapshot) {
+      // Only apply the result if the user hasn't switched to a different
+      // tenant while this request was in flight.
+      if (data.success && data.snapshot && activeTenantIdRef.current === tenantId) {
         setSnapshot(data.snapshot);
       }
     } catch (err) {
       console.error("Failed to load snapshot", err);
     } finally {
-      setIsRefreshing(false);
-      setIsLoading(false);
+      if (activeTenantIdRef.current === tenantId) {
+        setIsRefreshing(false);
+        setIsLoading(false);
+      }
     }
   }, []);
 
@@ -132,10 +148,20 @@ export const AppShell: React.FC = () => {
             type: "success",
           });
         }
+      } else if (data.stale && data.snapshot) {
+        // Live sync failed entirely (e.g. bad credentials) but a cached
+        // snapshot exists and is being shown — make that failure visible
+        // instead of silently rendering the stale data as if sync succeeded.
+        setSnapshot(data.snapshot);
+        setSyncToast({
+          show: true,
+          message: `Sync failed for ${tenantName}: ${data.error || "Could not reach Microsoft Graph"}. Showing last known data.`,
+          type: "error",
+        });
       } else {
         setSyncToast({
           show: true,
-          message: `Sync warning: ${data.error || "Could not complete live sync. Using cached snapshot."}`,
+          message: `Sync failed for ${tenantName}: ${data.error || "Could not complete live sync and no cached data is available."}`,
           type: "error",
         });
       }
@@ -147,8 +173,12 @@ export const AppShell: React.FC = () => {
       });
     } finally {
       setIsRefreshing(false);
-      setTimeout(() => {
+      if (toastDismissTimerRef.current) {
+        clearTimeout(toastDismissTimerRef.current);
+      }
+      toastDismissTimerRef.current = setTimeout(() => {
         setSyncToast((prev) => (prev?.type === "success" ? null : prev));
+        toastDismissTimerRef.current = null;
       }, 60000); // 60 seconds persistence or manual dismissal
     }
   };
@@ -193,6 +223,7 @@ export const AppShell: React.FC = () => {
   };
 
   return (
+    <ErrorBoundary moduleName="Application Shell">
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-white text-slate-900 font-sans">
       {/* Top Header with Tenant Switcher and Settings Gear Icon */}
       <Header
@@ -427,5 +458,6 @@ export const AppShell: React.FC = () => {
         tenantName={activeTenant?.displayName || "Organization"}
       />
     </div>
+    </ErrorBoundary>
   );
 };

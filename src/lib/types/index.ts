@@ -357,6 +357,19 @@ export interface SyncHealth {
   lastAttemptAt: string;
 }
 
+// Whole-sync outcome, distinct from SyncHealth's per-section granularity above.
+// "synced" = a fresh snapshot was obtained (it may still itself carry a partial
+// SyncHealth). "stale_fallback" = the live fetch failed entirely (e.g. bad
+// credentials) but a previously-cached snapshot exists and was served instead.
+// "no_data" = the live fetch failed and there was no cache to fall back to.
+export type SyncOutcome = "synced" | "stale_fallback" | "no_data";
+
+export interface SyncResult {
+  snapshot?: TenantSecuritySnapshot;
+  outcome: SyncOutcome;
+  error?: string;
+}
+
 // Full Tenant Aggregated Snapshot
 export interface TenantSecuritySnapshot {
   tenant: Tenant;
@@ -390,12 +403,12 @@ export interface TenantSecuritySnapshot {
 }
 
 // Audit Trail — records mutating/sensitive actions (CA policy deployments, MCP
-// tool executions) for after-the-fact review. Pruned on write according to
-// SystemSettings.auditLogRetentionDays.
+// tool executions, sync failures) for after-the-fact review. Pruned on write
+// according to SystemSettings.auditLogRetentionDays.
 export interface AuditLogEntry {
   id: number;
   timestamp: string;
-  category: "ca_policy_deploy" | "mcp_tool_call";
+  category: "ca_policy_deploy" | "mcp_tool_call" | "tenant_sync_failure";
   action: string;
   tenantId?: string;
   tenantName?: string;

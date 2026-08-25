@@ -39,10 +39,27 @@ export function startAutoSyncScheduler() {
     const liveTenants = tenantStore.getAllTenants().filter((t) => t.credentials.authMode !== "mock");
     for (const tenant of liveTenants) {
       try {
-        await tenantStore.syncTenant(tenant.id);
-        console.log(`[Clarity365 Scheduler] Auto-synced '${tenant.displayName}'.`);
+        const result = await tenantStore.syncTenant(tenant.id, "scheduled");
+        if (result?.outcome === "synced") {
+          console.log(`[Clarity365 Scheduler] Auto-synced '${tenant.displayName}'.`);
+        } else {
+          // syncTenant already wrote a "tenant_sync_failure" audit log entry for
+          // stale_fallback/no_data outcomes — just surface it to the console here.
+          console.error(`[Clarity365 Scheduler] Auto-sync failed for '${tenant.displayName}': ${result?.error}`);
+        }
       } catch (err) {
+        // syncTenant threw outright (e.g. a DB error) rather than returning a
+        // result — log it here since there was no return value to log from.
         console.error(`[Clarity365 Scheduler] Auto-sync failed for '${tenant.displayName}':`, err);
+        tenantStore.addAuditLogEntry({
+          timestamp: new Date().toISOString(),
+          category: "tenant_sync_failure",
+          action: "Scheduled sync failed",
+          tenantId: tenant.id,
+          tenantName: tenant.displayName,
+          success: false,
+          detail: `Unexpected exception: ${err instanceof Error ? err.message : String(err)}`,
+        });
       }
     }
   }, CHECK_INTERVAL_MS);

@@ -13,11 +13,15 @@ export interface GraphFetchOptions {
   // not process the request. GET calls are naturally safe to retry either way.
   retryOnNetworkError?: boolean;
   onRetry?: (attempt: number, delayMs: number, reason: string) => void;
+  // Per-attempt timeout. A hung request otherwise blocks forever, stalling the
+  // whole sync (and, for the scheduler, every subsequent tenant in its pass).
+  timeoutMs?: number;
 }
 
 const DEFAULT_MAX_RETRIES = 4;
 const BASE_DELAY_MS = 500;
 const MAX_DELAY_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -41,10 +45,13 @@ function parseRetryAfterMs(header: string | null): number | null {
 export async function graphFetch(url: string, init: RequestInit = {}, opts: GraphFetchOptions = {}): Promise<Response> {
   const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
   const retryOnNetworkError = opts.retryOnNetworkError ?? true;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   for (let attempt = 0; ; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(url, init);
+      const res = await fetch(url, { ...init, signal: controller.signal });
       const isThrottled = res.status === 429 || res.status === 503;
       if (isThrottled && attempt < maxRetries) {
         const retryAfterMs = parseRetryAfterMs(res.headers.get("Retry-After"));
@@ -55,10 +62,16 @@ export async function graphFetch(url: string, init: RequestInit = {}, opts: Grap
       }
       return res;
     } catch (err) {
-      if (!retryOnNetworkError || attempt >= maxRetries) throw err;
+      const isTimeout = err instanceof Error && err.name === "AbortError";
+      const reason = isTimeout ? `timeout after ${timeoutMs}ms` : err instanceof Error ? err.message : "network error";
+      if (!retryOnNetworkError || attempt >= maxRetries) {
+        throw isTimeout ? new Error(`Request timed out: ${reason}`) : err;
+      }
       const delayMs = computeBackoffDelay(attempt);
-      opts.onRetry?.(attempt + 1, delayMs, err instanceof Error ? err.message : "network error");
+      opts.onRetry?.(attempt + 1, delayMs, reason);
       await sleep(delayMs);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 }
