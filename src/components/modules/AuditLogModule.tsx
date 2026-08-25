@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AuditLogEntry, Tenant } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
+import { Pagination } from "../common/Pagination";
 import { History, Search, Filter, RefreshCw, ShieldCheck, Bot, XCircle, Download } from "lucide-react";
 
 interface AuditLogModuleProps {
@@ -49,6 +50,13 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
       (e.detail || "").toLowerCase().includes(q)
     );
   });
+
+  const AUDIT_PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, categoryFilter, tenantFilter]);
+  const paginatedEntries = filteredEntries.slice((page - 1) * AUDIT_PAGE_SIZE, page * AUDIT_PAGE_SIZE);
 
   const deployCount = entries.filter((e) => e.category === "ca_policy_deploy").length;
   const mcpCount = entries.filter((e) => e.category === "mcp_tool_call").length;
@@ -223,7 +231,7 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
                   </td>
                 </tr>
               ) : (
-                filteredEntries.map((entry) => (
+                paginatedEntries.map((entry) => (
                   <tr key={entry.id} className={!entry.success ? "bg-red-50/20" : ""}>
                     <td className="font-mono text-[11px] text-slate-600 whitespace-nowrap">
                       {new Date(entry.timestamp).toLocaleString()}
@@ -247,6 +255,12 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
             </tbody>
           </table>
         </div>
+        <Pagination
+          page={page}
+          pageSize={AUDIT_PAGE_SIZE}
+          totalItems={filteredEntries.length}
+          onPageChange={setPage}
+        />
       </div>
     </div>
   );

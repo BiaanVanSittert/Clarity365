@@ -19,10 +19,15 @@ export const RemediationDrawer: React.FC<RemediationDrawerProps> = ({
 }) => {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
-  const handleCopyScript = (script: string, idx: number) => {
-    navigator.clipboard.writeText(script);
-    setCopiedIndex(idx);
-    setTimeout(() => setCopiedIndex(null), 2000);
+  const handleCopyScript = async (script: string, idx: number) => {
+    try {
+      await navigator.clipboard.writeText(script);
+      setCopiedIndex(idx);
+      setTimeout(() => setCopiedIndex(null), 2000);
+    } catch {
+      // Clipboard write failed (e.g. permission denied) — don't show a
+      // false "Copied" success state.
+    }
   };
 
   return (

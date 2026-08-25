@@ -7,10 +7,10 @@ import { Users, Plus, Search, Filter, Shield, Mail, CheckCircle2, ChevronRight }
 
 interface GroupsManagementModuleProps {
   snapshot: TenantSecuritySnapshot;
-  onRefresh: () => void;
+  onLocalRefresh: () => void;
 }
 
-export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ snapshot, onRefresh }) => {
+export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ snapshot, onLocalRefresh }) => {
   const { groups, tenant } = snapshot;
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -53,7 +53,7 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
         setNewDisplayName("");
         setNewMailNickname("");
         setNewOwner("");
-        onRefresh();
+        onLocalRefresh();
       }
     } catch (err) {
       console.error("Failed to create group", err);
@@ -160,7 +160,10 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
                   <tr
                     key={grp.id}
                     onClick={() => setSelectedGroup(grp)}
-                    className="cursor-pointer hover:bg-slate-50 transition-colors"
+                    tabIndex={0}
+                    role="button"
+                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSelectedGroup(grp))}
+                    className="cursor-pointer hover:bg-slate-50 transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2"
                   >
                     <td>
                       <div className="font-semibold text-xs text-slate-900 flex items-center gap-1.5">
@@ -195,7 +198,14 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
                       <span className="text-xs font-mono text-slate-600">{grp.syncSource}</span>
                     </td>
                     <td className="text-right">
-                      <button className="p-1 text-slate-400 hover:text-slate-900 rounded-sm">
+                      <button
+                        aria-label="View group details"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedGroup(grp);
+                        }}
+                        className="p-1 text-slate-400 hover:text-slate-900 rounded-sm"
+                      >
                         <ChevronRight size={14} />
                       </button>
                     </td>

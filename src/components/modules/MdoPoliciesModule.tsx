@@ -6,10 +6,10 @@ import { Layers, ShieldCheck, ShieldAlert, Plus, Trash2, Search, Filter, CheckCi
 
 interface MdoPoliciesModuleProps {
   snapshot: TenantSecuritySnapshot;
-  onRefresh: () => void;
+  onLocalRefresh: () => void;
 }
 
-export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, onRefresh }) => {
+export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, onLocalRefresh }) => {
   const { mdoThreat, tenant } = snapshot;
   const [activeTab, setActiveTab] = useState<"policies" | "tabl">("policies");
   const [searchQuery, setSearchQuery] = useState("");
@@ -47,7 +47,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
         setIsAddModalOpen(false);
         setEntryValue("");
         setEntryNotes("");
-        onRefresh();
+        onLocalRefresh();
       }
     } catch (err) {
       console.error("Failed to add TABL entry", err);
@@ -63,7 +63,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
       });
       const data = await res.json();
       if (data.success) {
-        onRefresh();
+        onLocalRefresh();
       }
     } catch (err) {
       console.error("Failed to remove TABL entry", err);

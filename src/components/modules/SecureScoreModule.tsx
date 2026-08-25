@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { TenantSecuritySnapshot, SecureScoreControl } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
+import { EmptyStateRow } from "../common/EmptyStateRow";
 import {
   ShieldAlert,
   ShieldCheck,
@@ -188,7 +189,10 @@ export const SecureScoreModule: React.FC<SecureScoreModuleProps> = ({
               </tr>
             </thead>
             <tbody>
-              {filteredControls.map((ctrl) => (
+              {filteredControls.length === 0 ? (
+                <EmptyStateRow colSpan={6} entityLabel="controls" isFiltered={searchQuery.trim().length > 0} />
+              ) : (
+              filteredControls.map((ctrl) => (
                 <tr key={ctrl.id}>
                   <td className="font-mono font-bold text-xs text-slate-900">{ctrl.id}</td>
                   <td>
@@ -216,7 +220,8 @@ export const SecureScoreModule: React.FC<SecureScoreModuleProps> = ({
                     />
                   </td>
                 </tr>
-              ))}
+              ))
+              )}
             </tbody>
           </table>
         </div>

@@ -28,6 +28,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
   onSelectTenant,
 }) => {
   const [query, setQuery] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
   const staticNavItems: SearchItem[] = [
     { id: "nav-overview", title: "Security Overview Dashboard (Top 6 Priority)", category: "Navigation", view: "overview", icon: Shield },
@@ -44,6 +45,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
     { id: "nav-groups", title: "Microsoft Groups & Distribution Management", category: "Navigation", view: "groups", icon: Users },
     { id: "nav-sharepoint", title: "SharePoint Storage & External Sharing Tiers", category: "Navigation", view: "sharepoint", icon: FileSpreadsheet },
     { id: "nav-mcp", title: "Model Context Protocol (MCP) Tools & Settings", category: "Navigation", view: "mcp", icon: Server },
+    { id: "nav-audit", title: "System Audit Log", category: "Navigation", view: "audit_log", icon: Shield },
   ];
 
   const tenantItems: SearchItem[] = tenants.map((t) => ({
@@ -73,6 +75,25 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
     onClose();
   };
 
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [query, isOpen]);
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (filteredItems.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev + 1) % filteredItems.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev - 1 + filteredItems.length) % filteredItems.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const item = filteredItems[selectedIndex];
+      if (item) handleSelect(item);
+    }
+  };
+
   return (
     <Modal
       isOpen={isOpen}
@@ -90,6 +111,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
             placeholder="Type a module name or tenant (e.g., 'Conditional Access', 'Contoso', 'MFA')..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleInputKeyDown}
             className="w-full pl-9 pr-3 py-2 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
           />
         </div>
@@ -98,21 +120,25 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
           {filteredItems.length === 0 ? (
             <div className="p-4 text-center text-xs text-slate-500">No matching views or tenants found.</div>
           ) : (
-            filteredItems.map((item) => {
+            filteredItems.map((item, idx) => {
               const Icon = item.icon;
+              const isSelected = idx === selectedIndex;
               return (
                 <button
                   key={item.id}
                   onClick={() => handleSelect(item)}
-                  className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 rounded-sm text-xs text-slate-800 group transition-colors"
+                  onMouseEnter={() => setSelectedIndex(idx)}
+                  className={`w-full px-3 py-2 text-left flex items-center justify-between rounded-sm text-xs text-slate-800 group transition-colors ${
+                    isSelected ? "bg-slate-100" : "hover:bg-slate-50"
+                  }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <Icon size={14} className="text-slate-500 group-hover:text-slate-900" />
+                    <Icon size={14} className={isSelected ? "text-slate-900" : "text-slate-500 group-hover:text-slate-900"} />
                     <span>{item.title}</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
                     <span>{item.category}</span>
-                    <ArrowRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <ArrowRight size={12} className={`transition-opacity ${isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`} />
                   </div>
                 </button>
               );

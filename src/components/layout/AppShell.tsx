@@ -135,6 +135,18 @@ export const AppShell: React.FC = () => {
     }
   }, []);
 
+  // Lightweight refresh after a purely local write (creating a group, adding/
+  // removing a TABL entry, updating a SharePoint sharing setting) — re-reads
+  // the already-cached snapshot via a plain GET, with none of the "Connecting
+  // to Microsoft Graph API..." toast or external Graph resync that
+  // handleForceSync triggers. Those local edits don't need (and shouldn't
+  // pay the cost of) a full external tenant resync just to reflect on screen.
+  const handleLocalRefresh = useCallback(() => {
+    if (activeTenantId) {
+      fetchSnapshot(activeTenantId);
+    }
+  }, [activeTenantId, fetchSnapshot]);
+
   // Force Resync from Microsoft Graph with user notification
   const handleForceSync = async () => {
     if (!activeTenantId) return;
@@ -209,6 +221,11 @@ export const AppShell: React.FC = () => {
 
   useEffect(() => {
     if (activeTenantId) {
+      // Clear the previous tenant's snapshot immediately so modules (all
+      // gated on `snapshot &&`) don't keep rendering the last tenant's data
+      // under the newly-selected tenant's name while the new one loads.
+      setSnapshot(null);
+      setIsLoading(true);
       fetchSnapshot(activeTenantId);
     }
   }, [activeTenantId, fetchSnapshot]);
@@ -333,6 +350,7 @@ export const AppShell: React.FC = () => {
                   onNavigate={(view) => setActiveView(view)}
                 />
               )}
+              {activeView === "ca_baseline" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Sign-In Logs" key={`eb-signin-${activeTenantId}`}>
@@ -342,6 +360,7 @@ export const AppShell: React.FC = () => {
                   onRefresh={handleForceSync}
                 />
               )}
+              {activeView === "signin_logs" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Secure Score" key={`eb-secscore-${activeTenantId}`}>
@@ -351,6 +370,7 @@ export const AppShell: React.FC = () => {
                   onOpenRemediation={handleOpenRemediation}
                 />
               )}
+              {activeView === "sec_score" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="MFA Audit" key={`eb-mfa-${activeTenantId}`}>
@@ -360,6 +380,7 @@ export const AppShell: React.FC = () => {
                   onOpenRemediation={handleOpenRemediation}
                 />
               )}
+              {activeView === "mfa_audit" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="User Classification" key={`eb-userclass-${activeTenantId}`}>
@@ -369,12 +390,14 @@ export const AppShell: React.FC = () => {
                   onOpenRemediation={handleOpenRemediation}
                 />
               )}
+              {activeView === "user_class" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Mailbox Permissions" key={`eb-mailbox-${activeTenantId}`}>
               {activeView === "mailboxes" && snapshot && (
                 <MailboxPermissionsModule snapshot={snapshot} />
               )}
+              {activeView === "mailboxes" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Email Forwarding" key={`eb-fwd-${activeTenantId}`}>
@@ -384,51 +407,58 @@ export const AppShell: React.FC = () => {
                   onOpenRemediation={handleOpenRemediation}
                 />
               )}
+              {activeView === "forwarding" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="MDO Policies & TABL" key={`eb-mdo-${activeTenantId}`}>
               {activeView === "mdo_tabl" && snapshot && (
                 <MdoPoliciesModule
                   snapshot={snapshot}
-                  onRefresh={handleForceSync}
+                  onLocalRefresh={handleLocalRefresh}
                 />
               )}
+              {activeView === "mdo_tabl" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="App Registrations" key={`eb-appreg-${activeTenantId}`}>
               {activeView === "app_regs" && snapshot && (
                 <AppRegistrationsModule snapshot={snapshot} />
               )}
+              {activeView === "app_regs" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Intune Security" key={`eb-intune-${activeTenantId}`}>
               {activeView === "intune" && snapshot && (
                 <IntuneSecurityModule snapshot={snapshot} />
               )}
+              {activeView === "intune" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Groups Management" key={`eb-groups-${activeTenantId}`}>
               {activeView === "groups" && snapshot && (
                 <GroupsManagementModule
                   snapshot={snapshot}
-                  onRefresh={handleForceSync}
+                  onLocalRefresh={handleLocalRefresh}
                 />
               )}
+              {activeView === "groups" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="SharePoint Storage" key={`eb-sp-${activeTenantId}`}>
               {activeView === "sharepoint" && snapshot && (
                 <SharePointStorageModule
                   snapshot={snapshot}
-                  onRefresh={handleForceSync}
+                  onLocalRefresh={handleLocalRefresh}
                 />
               )}
+              {activeView === "sharepoint" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="MCP Playground" key={`eb-mcp-${activeTenantId}`}>
               {activeView === "mcp" && snapshot && (
                 <McpPlaygroundModule snapshot={snapshot} />
               )}
+              {activeView === "mcp" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Audit Log" key={`eb-audit-${activeTenantId}`}>

@@ -34,10 +34,15 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
 
   const script = policy.powershellTemplate(tenantDomain);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(script);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(script);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // Clipboard write failed (e.g. permission denied) — don't show a
+      // false "Copied" success state.
+    }
   };
 
   const handleExecuteAutoDeploy = async () => {

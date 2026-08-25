@@ -5,10 +5,10 @@ import { FileSpreadsheet, HardDrive, Share2, AlertTriangle, Search, Filter, Shie
 
 interface SharePointStorageModuleProps {
   snapshot: TenantSecuritySnapshot;
-  onRefresh: () => void;
+  onLocalRefresh: () => void;
 }
 
-export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = ({ snapshot, onRefresh }) => {
+export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = ({ snapshot, onLocalRefresh }) => {
   const { sharePoint, tenant } = snapshot;
   const [searchQuery, setSearchQuery] = useState("");
   const [sharingFilter, setSharingFilter] = useState<string>("all");
@@ -31,7 +31,7 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
       if (data.success) {
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 1500);
-        onRefresh();
+        onLocalRefresh();
       }
     } catch (err) {
       console.error("Failed to update SharePoint policy", err);

@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { TenantSecuritySnapshot, SignInEvent, TimeRangePreset } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Drawer } from "../common/Drawer";
+import { Modal } from "../common/Modal";
+import { Pagination } from "../common/Pagination";
 import {
   Key,
   Search,
@@ -30,7 +32,6 @@ import {
   RotateCcw,
   RefreshCw,
   SlidersHorizontal,
-  X,
 } from "lucide-react";
 
 interface SignInLogsModuleProps {
@@ -302,6 +303,18 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
       return true;
     });
   }, [timeFilteredSignIns, searchQuery, statusFilter, serviceFilter, errorCodeFilter]);
+
+  // Client-side pagination — a live tenant sync can pull thousands of
+  // sign-in rows, and rendering them all as literal <tr>s doesn't scale.
+  const SIGNIN_PAGE_SIZE = 50;
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, statusFilter, serviceFilter, errorCodeFilter, timePreset, customStartDate, customEndDate, specificDate]);
+  const paginatedSignIns = useMemo(
+    () => filteredSignIns.slice((page - 1) * SIGNIN_PAGE_SIZE, page * SIGNIN_PAGE_SIZE),
+    [filteredSignIns, page]
+  );
 
   const getStatusDisplay = (evt: SignInEvent) => {
     if (evt.status === "ca_blocked" || evt.errorCode === 53003) {
@@ -767,11 +780,14 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                   </td>
                 </tr>
               ) : (
-                filteredSignIns.map((evt) => (
+                paginatedSignIns.map((evt) => (
                   <tr
                     key={evt.id}
                     onClick={() => setSelectedEvent(evt)}
-                    className="cursor-pointer hover:bg-slate-50 transition-colors"
+                    tabIndex={0}
+                    role="button"
+                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSelectedEvent(evt))}
+                    className="cursor-pointer hover:bg-slate-50 transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2"
                   >
                     {/* Timestamp */}
                     <td className="font-mono text-[11px] text-slate-600 whitespace-nowrap">
@@ -848,7 +864,14 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
 
                     {/* Details Chevron */}
                     <td className="text-right">
-                      <button className="p-1 text-slate-400 hover:text-slate-900 rounded-sm">
+                      <button
+                        aria-label="View sign-in event details"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedEvent(evt);
+                        }}
+                        className="p-1 text-slate-400 hover:text-slate-900 rounded-sm"
+                      >
                         <ChevronRight size={14} />
                       </button>
                     </td>
@@ -858,6 +881,12 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
             </tbody>
           </table>
         </div>
+        <Pagination
+          page={page}
+          pageSize={SIGNIN_PAGE_SIZE}
+          totalItems={filteredSignIns.length}
+          onPageChange={setPage}
+        />
       </div>
 
       {/* Drill-down Diagnostic Drawer */}
@@ -1006,49 +1035,47 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
       )}
 
       {/* KQL Query Generator Modal */}
-      {kqlModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white border border-[#CBD5E1] shadow-xl rounded-sm max-w-2xl w-full p-4 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <Terminal size={16} className="text-slate-900" />
-                <h3 className="text-sm font-bold text-slate-900">Microsoft Sentinel / Defender KQL Query</h3>
-              </div>
-              <button onClick={() => setKqlModalOpen(false)} className="text-slate-400 hover:text-slate-800">
-                <X size={16} />
-              </button>
-            </div>
+      <Modal
+        isOpen={kqlModalOpen}
+        onClose={() => setKqlModalOpen(false)}
+        title="Microsoft Sentinel / Defender KQL Query"
+        maxWidth="2xl"
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-slate-600">
+            Copy and execute this KQL query in the Microsoft Defender XDR Advanced Hunting portal or Microsoft Sentinel workspace:
+          </p>
 
-            <p className="text-xs text-slate-600">
-              Copy and execute this KQL query in the Microsoft Defender XDR Advanced Hunting portal or Microsoft Sentinel workspace:
-            </p>
+          <pre className="p-3 bg-slate-950 text-emerald-400 font-mono text-xs rounded-sm overflow-x-auto select-all leading-relaxed">
+            {generateKqlQuery()}
+          </pre>
 
-            <pre className="p-3 bg-slate-950 text-emerald-400 font-mono text-xs rounded-sm overflow-x-auto select-all leading-relaxed">
-              {generateKqlQuery()}
-            </pre>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                onClick={() => setKqlModalOpen(false)}
-                className="px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 rounded-sm border border-slate-300"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(generateKqlQuery());
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <button
+              onClick={() => setKqlModalOpen(false)}
+              className="px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 rounded-sm border border-slate-300"
+            >
+              Close
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(generateKqlQuery());
                   setCopiedKey("kql");
                   setTimeout(() => setCopiedKey(null), 2000);
-                }}
-                className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm flex items-center gap-1.5"
-              >
-                {copiedKey === "kql" ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
-                <span>{copiedKey === "kql" ? "Copied to Clipboard!" : "Copy KQL Query"}</span>
-              </button>
-            </div>
+                } catch {
+                  // Clipboard write failed (e.g. permission denied) — don't
+                  // show a false "Copied" success state.
+                }
+              }}
+              className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm flex items-center gap-1.5"
+            >
+              {copiedKey === "kql" ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+              <span>{copiedKey === "kql" ? "Copied to Clipboard!" : "Copy KQL Query"}</span>
+            </button>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 };
