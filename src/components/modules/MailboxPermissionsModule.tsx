@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import { TenantSecuritySnapshot, MailboxItem } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
-import { Mail, Users, AlertTriangle, Search, Filter, HardDrive, DollarSign } from "lucide-react";
+import { Mail, Users, AlertTriangle, Search, Filter, HardDrive, DollarSign, Download } from "lucide-react";
+import { exportToCsv, csvFilename } from "@/lib/utils/csv";
+import { EmptyStateRow } from "../common/EmptyStateRow";
 
 interface MailboxPermissionsModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -27,6 +29,20 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
 
   const sharedCount = mailboxes.filter((m) => m.recipientType === "SharedMailbox").length;
   const licensedWasteCount = mailboxes.filter((m) => m.recipientType === "SharedMailbox" && m.hasDirectLicense).length;
+
+  const handleExportCSV = () => {
+    const headers = ["DisplayName", "UserPrincipalName", "RecipientType", "StorageUsedGB", "ArchiveStatus", "Delegations", "LicenseAdvisory"];
+    const rows = filteredMailboxes.map((mbx) => [
+      mbx.displayName,
+      mbx.userPrincipalName,
+      mbx.recipientType,
+      (mbx.totalItemSizeMB / 1024).toFixed(1),
+      mbx.archiveStatus,
+      mbx.delegations.map((d) => `${d.principalDisplayName}:${d.accessRight}`).join("; "),
+      mbx.recipientType === "SharedMailbox" && mbx.hasDirectLicense ? "Paid License Waste" : "Normal",
+    ]);
+    exportToCsv(csvFilename("MailboxPermissions", snapshot.tenant.defaultDomainName), headers, rows);
+  };
 
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
@@ -79,6 +95,15 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
             <option value="waste">Licensed Shared Mailboxes (Cost Waste)</option>
             <option value="user">User Mailboxes</option>
           </select>
+
+          <button
+            onClick={handleExportCSV}
+            title="Export filtered mailboxes to CSV"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <Download size={13} className="text-slate-500" />
+            <span>Export CSV</span>
+          </button>
         </div>
       </div>
 
@@ -105,11 +130,7 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
             </thead>
             <tbody>
               {filteredMailboxes.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="p-4 text-center text-xs text-slate-500">
-                    No mailboxes found matching active filter.
-                  </td>
-                </tr>
+                <EmptyStateRow colSpan={6} entityLabel="mailboxes" isFiltered={searchQuery.trim().length > 0 || filterType !== "all"} />
               ) : (
                 filteredMailboxes.map((mbx) => (
                   <tr key={mbx.id} className={mbx.hasDirectLicense && mbx.recipientType === "SharedMailbox" ? "bg-amber-50/30" : ""}>

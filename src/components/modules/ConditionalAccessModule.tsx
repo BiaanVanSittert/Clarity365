@@ -3,7 +3,8 @@ import { TenantSecuritySnapshot, CAPolicyRule } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { CA_BASELINE_STANDARDS, CABaselinePolicyDefinition } from "@/lib/data/baseline-definitions";
 import { DeployCaPolicyModal } from "../modals/DeployCaPolicyModal";
-import { ShieldCheck, Lock, Terminal, Search, Filter, ShieldAlert, Code2, CheckCheck, RotateCcw, Key } from "lucide-react";
+import { ShieldCheck, Lock, Terminal, Search, Filter, ShieldAlert, Code2, CheckCheck, RotateCcw, Key, Download } from "lucide-react";
+import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 
 interface ConditionalAccessModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -112,6 +113,36 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
     return matchesSearch;
   });
 
+  const customPolicies = deployedPolicies.filter((p) => !p.baselineCode);
+
+  const handleExportBaselineCSV = () => {
+    const headers = ["Code", "BaselineStandard", "TargetScope", "DeployedPolicyName", "DeployedState", "Status"];
+    const rows = filteredBaseline.map((baseline) => {
+      const policy = baselineMap.get(baseline.code);
+      const isEnabled = policy?.state === "enabled";
+      const isReportOnly = policy?.state === "enabledForReportingButNotEnforced";
+      return [
+        baseline.code,
+        baseline.name,
+        baseline.targetScope,
+        policy?.name || "",
+        policy?.state || "Not Deployed",
+        isEnabled ? "Pass" : isReportOnly ? "Report-Only" : "Missing",
+      ];
+    });
+    exportToCsv(csvFilename("CaBaseline", tenant.defaultDomainName), headers, rows);
+  };
+
+  const handleExportCustomPoliciesCSV = () => {
+    const headers = ["PolicyDisplayName", "GrantControls", "State"];
+    const rows = customPolicies.map((pol) => [
+      pol.name,
+      pol.grantControls.length > 0 ? pol.grantControls.join(", ") : "None / Block",
+      pol.state,
+    ]);
+    exportToCsv(csvFilename("CaCustomPolicies", tenant.defaultDomainName), headers, rows);
+  };
+
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Header & Coverage Summary */}
@@ -203,6 +234,15 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
             <option value="missing">Missing Baseline (Warnings)</option>
             <option value="report_only">Report-Only Mode</option>
           </select>
+
+          <button
+            onClick={handleExportBaselineCSV}
+            title="Export filtered baseline standards to CSV"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <Download size={13} className="text-slate-500" />
+            <span>Export CSV</span>
+          </button>
         </div>
       </div>
 
@@ -322,9 +362,19 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
             Tenant Custom / Legacy Conditional Access Policies
           </h3>
-          <span className="text-[11px] font-mono text-slate-500">
-            {deployedPolicies.filter((p) => !p.baselineCode).length} Policies Detected
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-mono text-slate-500">
+              {customPolicies.length} Policies Detected
+            </span>
+            <button
+              onClick={handleExportCustomPoliciesCSV}
+              title="Export custom policies to CSV"
+              className="px-2 py-1 text-[11px] font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1 transition-colors"
+            >
+              <Download size={12} className="text-slate-500" />
+              <span>Export CSV</span>
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -338,15 +388,14 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
               </tr>
             </thead>
             <tbody>
-              {deployedPolicies.filter((p) => !p.baselineCode).length === 0 ? (
+              {customPolicies.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="p-4 text-center text-xs text-slate-500">
                     All deployed Conditional Access policies strictly match the standard CA01 through CA10 naming baseline.
                   </td>
                 </tr>
               ) : (
-                deployedPolicies
-                  .filter((p) => !p.baselineCode)
+                customPolicies
                   .map((pol) => (
                     <tr key={pol.id}>
                       <td className="font-semibold text-xs text-slate-900">{pol.name}</td>

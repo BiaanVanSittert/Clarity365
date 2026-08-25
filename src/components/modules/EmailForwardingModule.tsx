@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { TenantSecuritySnapshot, EmailForwardingRule } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
-import { Share2, AlertTriangle, ShieldAlert, Search, Filter, Terminal, Shield, ArrowRight } from "lucide-react";
+import { Share2, AlertTriangle, ShieldAlert, Search, Filter, Terminal, Shield, ArrowRight, Download } from "lucide-react";
+import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 
 interface EmailForwardingModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -31,6 +32,21 @@ export const EmailForwardingModule: React.FC<EmailForwardingModuleProps> = ({
     if (filterScope === "inbox") return matchesSearch && r.scope === "inbox_rule";
     return matchesSearch;
   });
+
+  const handleExportCSV = () => {
+    const headers = ["Scope", "RuleName", "MailboxOwner", "RuleAction", "ForwardingAddress", "IsExternal", "State", "AlertLevel"];
+    const rows = filteredRules.map((rule) => [
+      rule.scope,
+      rule.name,
+      rule.mailboxOwner || "",
+      rule.ruleAction,
+      rule.forwardingAddress,
+      rule.isExternal ? "Yes" : "No",
+      rule.state,
+      rule.alertLevel,
+    ]);
+    exportToCsv(csvFilename("EmailForwarding", snapshot.tenant.defaultDomainName), headers, rows);
+  };
 
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
@@ -97,6 +113,15 @@ export const EmailForwardingModule: React.FC<EmailForwardingModuleProps> = ({
             <option value="transport">Exchange Transport / Mailflow Rules</option>
             <option value="inbox">User Inbox Rules</option>
           </select>
+
+          <button
+            onClick={handleExportCSV}
+            title="Export filtered rules to CSV"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <Download size={13} className="text-slate-500" />
+            <span>Export CSV</span>
+          </button>
         </div>
       </div>
 

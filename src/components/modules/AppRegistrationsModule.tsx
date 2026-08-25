@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { TenantSecuritySnapshot, AppRegistrationItem } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
-import { Server, AlertTriangle, Key, Search, Filter, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Server, AlertTriangle, Key, Search, Filter, ShieldAlert, ShieldCheck, Download } from "lucide-react";
+import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 
 interface AppRegistrationsModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -24,6 +25,21 @@ export const AppRegistrationsModule: React.FC<AppRegistrationsModuleProps> = ({ 
     if (riskFilter === "high_privilege") return matchesSearch && app.highPrivilegePermissions.length > 0;
     return matchesSearch;
   });
+
+  const handleExportCSV = () => {
+    const headers = ["DisplayName", "Publisher", "AppId", "HighPrivilegePermissions", "SecretsCount", "CertificatesCount", "ExpiringCredentialsCount", "RiskTier"];
+    const rows = filteredApps.map((app) => [
+      app.displayName,
+      app.publisher,
+      app.appId,
+      app.highPrivilegePermissions.join("; "),
+      app.secretsCount,
+      app.certificatesCount,
+      app.expiringCredentialsCount,
+      app.riskCategory,
+    ]);
+    exportToCsv(csvFilename("AppRegistrations", snapshot.tenant.defaultDomainName), headers, rows);
+  };
 
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
@@ -73,6 +89,15 @@ export const AppRegistrationsModule: React.FC<AppRegistrationsModuleProps> = ({ 
             <option value="critical">Critical Risk Only</option>
             <option value="high_privilege">High-Privilege Graph Permissions</option>
           </select>
+
+          <button
+            onClick={handleExportCSV}
+            title="Export filtered applications to CSV"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <Download size={13} className="text-slate-500" />
+            <span>Export CSV</span>
+          </button>
         </div>
       </div>
 

@@ -3,7 +3,8 @@ import { TenantSecuritySnapshot, TablEntry, MdoThreatPolicy } from "@/lib/types"
 import { StatusPill } from "../common/StatusPill";
 import { Modal } from "../common/Modal";
 import { LocalOnlyNotice } from "../common/LocalOnlyNotice";
-import { Layers, ShieldCheck, ShieldAlert, Plus, Trash2, Search, Filter, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Layers, ShieldCheck, ShieldAlert, Plus, Trash2, Search, Filter, CheckCircle2, AlertTriangle, Download } from "lucide-react";
+import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 
 interface MdoPoliciesModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -83,6 +84,32 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
     return matchesSearch;
   });
 
+  const handleExportPoliciesCSV = () => {
+    const headers = ["PolicyType", "DisplayName", "AssignedScope", "ImpersonationProtection", "SpoofIntelligence", "ZapEnabled", "ComplianceRating"];
+    const rows = policies.map((pol) => [
+      pol.policyType,
+      pol.displayName,
+      pol.assignedScope,
+      pol.impersonationProtection ? "Active" : "Off",
+      pol.spoofIntelligence ? "Active" : "Off",
+      pol.zapEnabled ? "Active" : "Off",
+      pol.complianceRating,
+    ]);
+    exportToCsv(csvFilename("MdoPolicies", tenant.defaultDomainName), headers, rows);
+  };
+
+  const handleExportTablCSV = () => {
+    const headers = ["Action", "Type", "Value", "Notes", "AddedBy"];
+    const rows = filteredTabl.map((entry) => [
+      entry.listType,
+      entry.entryType,
+      entry.value,
+      entry.notes,
+      entry.addedBy,
+    ]);
+    exportToCsv(csvFilename("TABL", tenant.defaultDomainName), headers, rows);
+  };
+
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Header */}
@@ -143,7 +170,17 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
               Configured Defender for Office 365 Threat Policies
             </h3>
-            <span className="text-[11px] font-mono text-slate-500">{policies.length} Policies Active</span>
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] font-mono text-slate-500">{policies.length} Policies Active</span>
+              <button
+                onClick={handleExportPoliciesCSV}
+                title="Export policies to CSV"
+                className="px-2 py-1 text-[11px] font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1 transition-colors"
+              >
+                <Download size={12} className="text-slate-500" />
+                <span>Export CSV</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -221,6 +258,15 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                 <option value="block">Block List Only ({tablEntries.filter((e) => e.listType === "block").length})</option>
                 <option value="allow">Allow List Only ({tablEntries.filter((e) => e.listType === "allow").length})</option>
               </select>
+
+              <button
+                onClick={handleExportTablCSV}
+                title="Export filtered TABL entries to CSV"
+                className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+              >
+                <Download size={13} className="text-slate-500" />
+                <span>Export CSV</span>
+              </button>
             </div>
           </div>
 

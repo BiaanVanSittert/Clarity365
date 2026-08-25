@@ -2,7 +2,9 @@ import React, { useState, useEffect, useCallback } from "react";
 import { AuditLogEntry, Tenant } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Pagination } from "../common/Pagination";
+import { EmptyStateRow } from "../common/EmptyStateRow";
 import { History, Search, Filter, RefreshCw, ShieldCheck, Bot, XCircle, Download } from "lucide-react";
+import { exportToCsv } from "@/lib/utils/csv";
 
 interface AuditLogModuleProps {
   tenants: Tenant[];
@@ -67,23 +69,15 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
     const headers = ["Timestamp", "Category", "Action", "Tenant", "Detail", "Outcome"];
 
     const rows = filteredEntries.map((e) => [
-      `"${e.timestamp}"`,
-      `"${CATEGORY_LABELS[e.category] || e.category}"`,
-      `"${e.action.replace(/"/g, '""')}"`,
-      `"${e.tenantName || ""}"`,
-      `"${(e.detail || "").replace(/"/g, '""')}"`,
+      e.timestamp,
+      CATEGORY_LABELS[e.category] || e.category,
+      e.action,
+      e.tenantName || "",
+      e.detail || "",
       e.success ? "Success" : "Failure",
     ]);
 
-    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Clarity365_AuditLog_${new Date().toISOString().split("T")[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportToCsv(`Clarity365_AuditLog_${new Date().toISOString().split("T")[0]}.csv`, headers, rows);
   };
 
   return (
@@ -225,11 +219,11 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
                   </td>
                 </tr>
               ) : filteredEntries.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="p-4 text-center text-xs text-slate-500">
-                    No audit entries match the active filter criteria.
-                  </td>
-                </tr>
+                <EmptyStateRow
+                  colSpan={6}
+                  entityLabel="audit entries"
+                  isFiltered={searchQuery.trim().length > 0 || categoryFilter !== "all" || tenantFilter !== "all"}
+                />
               ) : (
                 paginatedEntries.map((entry) => (
                   <tr key={entry.id} className={!entry.success ? "bg-red-50/20" : ""}>

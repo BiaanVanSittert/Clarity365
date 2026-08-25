@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { TenantSecuritySnapshot, UserMfaProfile, AuthMethodType } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { ShieldCheck, ShieldAlert, Key, Search, Filter, AlertTriangle, Smartphone, Mail, Hash, Shield, Download } from "lucide-react";
+import { exportToCsv, csvFilename } from "@/lib/utils/csv";
+import { EmptyStateRow } from "../common/EmptyStateRow";
 
 interface MfaAuditModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -60,25 +62,17 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
       const isWeak = user.isWeakAuth || !user.mfaRegistered;
       const posture = methodMeta.isPhishingResistant ? "Phishing-Resistant" : isWeak ? "Weak Auth / Fail" : "Strong Push";
       return [
-        `"${user.displayName}"`,
-        `"${user.userPrincipalName}"`,
-        `"${user.isAdmin ? user.adminRoles?.[0] || "Directory Admin" : user.department || "Standard User"}"`,
-        `"${methodMeta.name}"`,
-        `"${user.registeredMethods.map((m) => METHOD_LABELS[m]?.name || m).join("; ")}"`,
+        user.displayName,
+        user.userPrincipalName,
+        user.isAdmin ? user.adminRoles?.[0] || "Directory Admin" : user.department || "Standard User",
+        methodMeta.name,
+        user.registeredMethods.map((m) => METHOD_LABELS[m]?.name || m).join("; "),
         user.mfaEnforcedByPolicy ? "Yes" : "No",
-        `"${posture}"`,
+        posture,
       ];
     });
 
-    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Clarity365_MfaAudit_${snapshot.tenant.defaultDomainName}_${new Date().toISOString().split("T")[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportToCsv(csvFilename("MfaAudit", snapshot.tenant.defaultDomainName), headers, rows);
   };
 
   return (
@@ -205,11 +199,7 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
             </thead>
             <tbody>
               {filteredUsers.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="p-4 text-center text-xs text-slate-500">
-                    No users match the active filter criteria.
-                  </td>
-                </tr>
+                <EmptyStateRow colSpan={6} entityLabel="users" isFiltered={searchQuery.trim().length > 0 || filterType !== "all"} />
               ) : (
                 filteredUsers.map((user) => {
                   const methodMeta = METHOD_LABELS[user.defaultMethod];

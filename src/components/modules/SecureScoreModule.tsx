@@ -12,8 +12,10 @@ import {
   Terminal,
   Layers,
   Search,
+  Download,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 
 interface SecureScoreModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -37,6 +39,20 @@ export const SecureScoreModule: React.FC<SecureScoreModuleProps> = ({
       ctrl.remediationSummary.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
+
+  const handleExportCSV = () => {
+    const headers = ["ControlId", "Title", "Category", "ScoreCurrent", "ScoreMax", "UserImpact", "Status"];
+    const rows = filteredControls.map((ctrl) => [
+      ctrl.id,
+      ctrl.title,
+      ctrl.category,
+      ctrl.scoreCurrent,
+      ctrl.scoreMax,
+      ctrl.userImpact,
+      ctrl.status,
+    ]);
+    exportToCsv(csvFilename("SecureScore", tenant.defaultDomainName), headers, rows);
+  };
 
   const chartData = secureScore.history.map((h) => ({
     date: h.date,
@@ -174,6 +190,15 @@ export const SecureScoreModule: React.FC<SecureScoreModuleProps> = ({
               className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
             />
           </div>
+
+          <button
+            onClick={handleExportCSV}
+            title="Export filtered controls to CSV"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs shrink-0"
+          >
+            <Download size={13} className="text-slate-500" />
+            <span>Export CSV</span>
+          </button>
         </div>
 
         <div className="overflow-x-auto">

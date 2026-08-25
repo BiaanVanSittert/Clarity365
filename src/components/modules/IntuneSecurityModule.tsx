@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import { TenantSecuritySnapshot, IntuneDevice } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
-import { HardDrive, ShieldCheck, ShieldAlert, Laptop, Search, Filter, CheckCircle2, XCircle } from "lucide-react";
+import { HardDrive, ShieldCheck, ShieldAlert, Laptop, Search, Filter, CheckCircle2, XCircle, Download } from "lucide-react";
+import { exportToCsv, csvFilename } from "@/lib/utils/csv";
+import { EmptyStateRow } from "../common/EmptyStateRow";
 
 interface IntuneSecurityModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -23,6 +25,21 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
     if (osFilter === "all") return matchesSearch;
     return matchesSearch && dev.operatingSystem.toLowerCase() === osFilter.toLowerCase();
   });
+
+  const handleExportCSV = () => {
+    const headers = ["DeviceName", "UserPrincipalName", "OperatingSystem", "OsVersion", "Encrypted", "AntivirusStatus", "EdrOnboardingState", "ComplianceState"];
+    const rows = filteredDevices.map((dev) => [
+      dev.deviceName,
+      dev.userPrincipalName,
+      dev.operatingSystem,
+      dev.osVersion,
+      dev.isEncrypted ? "Yes" : "No",
+      dev.antivirusStatus,
+      dev.edrOnboardingState,
+      dev.complianceState,
+    ]);
+    exportToCsv(csvFilename("IntuneDevices", snapshot.tenant.defaultDomainName), headers, rows);
+  };
 
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
@@ -102,6 +119,15 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
             <option value="macos">macOS</option>
             <option value="linux">Linux</option>
           </select>
+
+          <button
+            onClick={handleExportCSV}
+            title="Export filtered devices to CSV"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <Download size={13} className="text-slate-500" />
+            <span>Export CSV</span>
+          </button>
         </div>
       </div>
 
@@ -129,11 +155,7 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
             </thead>
             <tbody>
               {filteredDevices.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="p-4 text-center text-xs text-slate-500">
-                    No endpoint devices found matching active filter.
-                  </td>
-                </tr>
+                <EmptyStateRow colSpan={7} entityLabel="endpoint devices" isFiltered={searchQuery.trim().length > 0 || osFilter !== "all"} />
               ) : (
                 filteredDevices.map((dev) => (
                   <tr key={dev.id} className={dev.complianceState === "noncompliant" ? "bg-red-50/20" : ""}>

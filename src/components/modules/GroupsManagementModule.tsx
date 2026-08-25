@@ -4,7 +4,9 @@ import { StatusPill } from "../common/StatusPill";
 import { Modal } from "../common/Modal";
 import { Drawer } from "../common/Drawer";
 import { LocalOnlyNotice } from "../common/LocalOnlyNotice";
-import { Users, Plus, Search, Filter, Shield, Mail, CheckCircle2, ChevronRight } from "lucide-react";
+import { EmptyStateRow } from "../common/EmptyStateRow";
+import { Users, Plus, Search, Filter, Shield, Mail, CheckCircle2, ChevronRight, Download } from "lucide-react";
+import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 
 interface GroupsManagementModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -73,6 +75,20 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
     return matchesSearch && g.groupType === typeFilter;
   });
 
+  const handleExportCSV = () => {
+    const headers = ["DisplayName", "MailNickname", "GroupType", "MembershipType", "OwnersCount", "MembersCount", "SyncSource"];
+    const rows = filteredGroups.map((g) => [
+      g.displayName,
+      g.mailNickname,
+      g.groupType,
+      g.membershipType,
+      g.ownersCount,
+      g.membersCount,
+      g.syncSource,
+    ]);
+    exportToCsv(csvFilename("Groups", tenant.defaultDomainName), headers, rows);
+  };
+
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Header */}
@@ -124,6 +140,15 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
             <option value="DistributionList">Distribution Lists (DL)</option>
             <option value="MailEnabledSecurity">Mail-Enabled Security Groups</option>
           </select>
+
+          <button
+            onClick={handleExportCSV}
+            title="Export filtered groups to CSV"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <Download size={13} className="text-slate-500" />
+            <span>Export CSV</span>
+          </button>
         </div>
       </div>
 
@@ -151,11 +176,7 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
             </thead>
             <tbody>
               {filteredGroups.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="p-4 text-center text-xs text-slate-500">
-                    No groups found matching active filter.
-                  </td>
-                </tr>
+                <EmptyStateRow colSpan={7} entityLabel="groups" isFiltered={searchQuery.trim().length > 0 || typeFilter !== "all"} />
               ) : (
                 filteredGroups.map((grp) => (
                   <tr

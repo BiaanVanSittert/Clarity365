@@ -2,7 +2,9 @@ import React, { useState } from "react";
 import { TenantSecuritySnapshot, SharePointSiteItem } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { LocalOnlyNotice } from "../common/LocalOnlyNotice";
-import { FileSpreadsheet, HardDrive, Share2, AlertTriangle, Search, Filter, ShieldCheck, Check } from "lucide-react";
+import { EmptyStateRow } from "../common/EmptyStateRow";
+import { FileSpreadsheet, HardDrive, Share2, AlertTriangle, Search, Filter, ShieldCheck, Check, Download } from "lucide-react";
+import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 
 interface SharePointStorageModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -50,6 +52,20 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
     if (sharingFilter === "all") return matchesSearch;
     return matchesSearch && site.sharingCapability === sharingFilter;
   });
+
+  const handleExportCSV = () => {
+    const headers = ["SiteName", "SiteUrl", "Template", "StorageUsedGB", "StorageAllocatedGB", "OwnerUPN", "SharingCapability"];
+    const rows = filteredSites.map((site) => [
+      site.siteName,
+      site.siteUrl,
+      site.template,
+      site.storageUsedGB,
+      site.storageAllocatedGB,
+      site.ownerUPN,
+      site.sharingCapability,
+    ]);
+    exportToCsv(csvFilename("SharePointSites", tenant.defaultDomainName), headers, rows);
+  };
 
   const getSharingPill = (tier: string) => {
     switch (tier) {
@@ -153,6 +169,15 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
             <option value="ExistingGuests">Existing Guests Only</option>
             <option value="OnlyPeopleInOrg">Internal Only</option>
           </select>
+
+          <button
+            onClick={handleExportCSV}
+            title="Export filtered sites to CSV"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <Download size={13} className="text-slate-500" />
+            <span>Export CSV</span>
+          </button>
         </div>
       </div>
 
@@ -178,11 +203,7 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
             </thead>
             <tbody>
               {filteredSites.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="p-4 text-center text-xs text-slate-500">
-                    No site collections found matching active filter.
-                  </td>
-                </tr>
+                <EmptyStateRow colSpan={5} entityLabel="site collections" isFiltered={searchQuery.trim().length > 0 || sharingFilter !== "all"} />
               ) : (
                 filteredSites.map((site) => {
                   const percentUsed = Math.round((site.storageUsedGB / site.storageAllocatedGB) * 100);

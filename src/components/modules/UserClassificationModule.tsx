@@ -1,7 +1,9 @@
 import React, { useState } from "react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
-import { Users, AlertTriangle, ShieldCheck, UserX, Search, Filter, Terminal, CheckCircle2 } from "lucide-react";
+import { Users, AlertTriangle, ShieldCheck, UserX, Search, Filter, Terminal, CheckCircle2, Download } from "lucide-react";
+import { exportToCsv, csvFilename } from "@/lib/utils/csv";
+import { EmptyStateRow } from "../common/EmptyStateRow";
 
 interface UserClassificationModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -27,6 +29,20 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
     if (activeTab === "all") return matchesSearch;
     return matchesSearch && u.classification === activeTab;
   });
+
+  const handleExportCSV = () => {
+    const headers = ["DisplayName", "UserPrincipalName", "Classification", "Licenses", "AccountEnabled", "Department", "RiskFlag"];
+    const rows = filteredUsers.map((user) => [
+      user.displayName,
+      user.userPrincipalName,
+      user.classification,
+      user.licenses.join(", "),
+      user.accountEnabled ? "Yes" : "No",
+      user.department,
+      user.riskFlag || "",
+    ]);
+    exportToCsv(csvFilename("UserClassification", snapshot.tenant.defaultDomainName), headers, rows);
+  };
 
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
@@ -156,6 +172,15 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
             Disabled
           </button>
         </div>
+
+        <button
+          onClick={handleExportCSV}
+          title="Export filtered accounts to CSV"
+          className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+        >
+          <Download size={13} className="text-slate-500" />
+          <span>Export CSV</span>
+        </button>
       </div>
 
       {/* Directory Table */}
@@ -181,11 +206,7 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
             </thead>
             <tbody>
               {filteredUsers.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="p-4 text-center text-xs text-slate-500">
-                    No accounts found in this category.
-                  </td>
-                </tr>
+                <EmptyStateRow colSpan={6} entityLabel="accounts" isFiltered={searchQuery.trim().length > 0 || activeTab !== "all"} />
               ) : (
                 filteredUsers.map((user) => (
                   <tr key={user.id} className={user.classification === "unlicensed_active" ? "bg-amber-50/40" : ""}>

@@ -4,6 +4,7 @@ import { StatusPill } from "../common/StatusPill";
 import { Drawer } from "../common/Drawer";
 import { Modal } from "../common/Modal";
 import { Pagination } from "../common/Pagination";
+import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import {
   Key,
   Search,
@@ -348,30 +349,22 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
     ];
 
     const rows = filteredSignIns.map((s) => [
-      `"${s.createdDateTime}"`,
-      `"${s.userPrincipalName}"`,
-      `"${s.userDisplayName || ""}"`,
-      `"${s.appDisplayName}"`,
-      `"${s.status}"`,
+      s.createdDateTime,
+      s.userPrincipalName,
+      s.userDisplayName || "",
+      s.appDisplayName,
+      s.status,
       s.errorCode,
-      `"${(s.failureReason || "").replace(/"/g, '""')}"`,
-      `"${s.ipAddress}"`,
-      `"${s.location.city || ""}"`,
-      `"${s.location.country || ""}"`,
-      `"${s.deviceDetail?.operatingSystem || ""}"`,
-      `"${s.deviceDetail?.browser || ""}"`,
-      `"${(s.reportOnlyFailedPolicies || []).join("; ")}"`,
+      s.failureReason || "",
+      s.ipAddress,
+      s.location.city || "",
+      s.location.country || "",
+      s.deviceDetail?.operatingSystem || "",
+      s.deviceDetail?.browser || "",
+      (s.reportOnlyFailedPolicies || []).join("; "),
     ]);
 
-    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Clarity365_SignInLogs_${tenant.defaultDomainName}_${new Date().toISOString().split("T")[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportToCsv(csvFilename("SignInLogs", tenant.defaultDomainName), headers, rows);
   };
 
   // Generate Sentinel / Defender KQL Query
