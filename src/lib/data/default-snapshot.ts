@@ -44,6 +44,7 @@ export function createBlankSnapshot(tenant: Tenant): TenantSecuritySnapshot {
     mdoThreat: {
       policies: [],
       tabl: [],
+      alerts: [],
     },
     appRegistrations: [],
     intune: {

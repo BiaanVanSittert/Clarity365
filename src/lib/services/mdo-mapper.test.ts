@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { mapMdoPolicy, mapTablEntry } from "./mdo-mapper";
+import { mapMdoPolicy, mapTablEntry, mapEntryTypeToListType } from "./mdo-mapper";
+
+describe("mapEntryTypeToListType", () => {
+  it("maps url and file_hash to their own EXO ListType", () => {
+    expect(mapEntryTypeToListType("url")).toBe("Url");
+    expect(mapEntryTypeToListType("file_hash")).toBe("FileHash");
+  });
+
+  it("maps both domain and sender to EXO's Sender ListType", () => {
+    expect(mapEntryTypeToListType("domain")).toBe("Sender");
+    expect(mapEntryTypeToListType("sender")).toBe("Sender");
+  });
+});
 
 describe("mapMdoPolicy", () => {
   it("maps an enabled anti-phish policy with impersonation and spoof protection active", () => {
@@ -23,6 +35,10 @@ describe("mapMdoPolicy", () => {
       spoofIntelligence: true,
       zapEnabled: false,
       complianceRating: "compliant",
+      realTimeScanning: false,
+      blockingAction: false,
+      commonAttachmentFilter: false,
+      outboundNotify: false,
     });
   });
 
@@ -54,6 +70,26 @@ describe("mapMdoPolicy", () => {
     const policy = mapMdoPolicy({}, "AntiMalware");
     expect(policy.id).toBe("AntiMalware");
     expect(policy.displayName).toBe("AntiMalware");
+  });
+
+  it("only counts Safe Links real-time scanning when both the email switch and URL scan are on", () => {
+    expect(mapMdoPolicy({ EnableSafeLinksForEmail: true, ScanUrls: true }, "SafeLinks").realTimeScanning).toBe(true);
+    expect(mapMdoPolicy({ EnableSafeLinksForEmail: true, ScanUrls: false }, "SafeLinks").realTimeScanning).toBe(false);
+    expect(mapMdoPolicy({ ScanUrls: true }, "SafeLinks").realTimeScanning).toBe(false);
+  });
+
+  it("treats Safe Attachments Block or DynamicDelivery as a real blocking action, but not Allow/Monitor", () => {
+    expect(mapMdoPolicy({ Action: "Block" }, "SafeAttachments").blockingAction).toBe(true);
+    expect(mapMdoPolicy({ Action: "DynamicDelivery" }, "SafeAttachments").blockingAction).toBe(true);
+    expect(mapMdoPolicy({ Action: "Allow" }, "SafeAttachments").blockingAction).toBe(false);
+    expect(mapMdoPolicy({ Action: "Monitor" }, "SafeAttachments").blockingAction).toBe(false);
+  });
+
+  it("maps the anti-malware common attachment filter and outbound spam notification flags", () => {
+    expect(mapMdoPolicy({ EnableFileFilter: true }, "AntiMalware").commonAttachmentFilter).toBe(true);
+    expect(mapMdoPolicy({}, "AntiMalware").commonAttachmentFilter).toBe(false);
+    expect(mapMdoPolicy({ NotifyOutboundSpam: true }, "AntiSpamOutbound").outboundNotify).toBe(true);
+    expect(mapMdoPolicy({}, "AntiSpamOutbound").outboundNotify).toBe(false);
   });
 });
 

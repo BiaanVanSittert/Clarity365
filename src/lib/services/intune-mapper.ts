@@ -53,6 +53,20 @@ export function deriveEdrOnboardingState(complianceState: IntuneDevice["complian
   return complianceState === "compliant" ? "onboarded" : "canBeOnboarded";
 }
 
+const OWNER_TYPE_MAP: Record<string, NonNullable<IntuneDevice["ownerType"]>> = {
+  company: "company",
+  personal: "personal",
+};
+
+function normalizeOwnerType(raw: string | undefined | null): IntuneDevice["ownerType"] {
+  if (!raw) return undefined;
+  return OWNER_TYPE_MAP[raw.toLowerCase()] || "unknown";
+}
+
+function numberOrUndefined(raw: any): number | undefined {
+  return typeof raw === "number" ? raw : undefined;
+}
+
 export function mapManagedDeviceToIntuneDevice(raw: any): IntuneDevice {
   const complianceState = normalizeComplianceState(raw.complianceState);
   return {
@@ -66,5 +80,20 @@ export function mapManagedDeviceToIntuneDevice(raw: any): IntuneDevice {
     antivirusStatus: deriveAntivirusStatus(complianceState),
     edrOnboardingState: deriveEdrOnboardingState(complianceState),
     lastSyncDateTime: raw.lastSyncDateTime || new Date().toISOString(),
+    model: raw.model || undefined,
+    manufacturer: raw.manufacturer || undefined,
+    serialNumber: raw.serialNumber || undefined,
+    imei: raw.imei || undefined,
+    enrolledDateTime: raw.enrolledDateTime || undefined,
+    managementAgent: raw.managementAgent || undefined,
+    ownerType: normalizeOwnerType(raw.ownerType),
+    deviceEnrollmentType: raw.deviceEnrollmentType || undefined,
+    totalStorageBytes: numberOrUndefined(raw.totalStorageSpaceInBytes),
+    freeStorageBytes: numberOrUndefined(raw.freeStorageSpaceInBytes),
+    deviceCategory: raw.deviceCategoryDisplayName || undefined,
+    azureADDeviceId: raw.azureADDeviceId || undefined,
+    jailBroken: raw.jailBroken || undefined,
+    complianceGracePeriodExpirationDateTime: raw.complianceGracePeriodExpirationDateTime || undefined,
+    wiFiMacAddress: raw.wiFiMacAddress || undefined,
   };
 }

@@ -30,6 +30,14 @@ export interface TenantCredentials {
   // with or without this connection also being set up.
   exoRefreshToken?: string;
   exoConnectedAt?: string;
+  // Off by default, even once Exchange Online is connected. EXO's delegated
+  // device-code auth can't be scoped to "read-only" the way Graph app
+  // permissions can — whatever Exchange role the connecting admin holds is
+  // what Clarity365 can do via EXO — so this flag is the explicit,
+  // admin-controlled substitute for the missing narrower consent: it gates
+  // whether TABL Add/Remove actually calls New-/Remove-TenantAllowBlockListItems
+  // against the live tenant, versus staying purely local-only tracking.
+  exoWriteEnabled?: boolean;
   authMode: "mock" | "secret" | "certificate";
   verifiedAt?: string;
   status: "connected" | "syncing" | "error" | "offline";
@@ -144,7 +152,7 @@ export interface SecureScoreHistoryPoint {
 export interface SecureScoreControl {
   id: string;
   title: string;
-  category: "Identity" | "Device" | "Apps" | "Data";
+  category: "Identity" | "Device" | "Apps" | "Data" | "Infrastructure";
   scoreCurrent: number;
   scoreMax: number;
   implementationCost: "Low" | "Moderate" | "High";
@@ -267,6 +275,12 @@ export interface MdoThreatPolicy {
   spoofIntelligence: boolean;
   zapEnabled: boolean; // Zero-hour auto purge
   complianceRating: "compliant" | "substandard" | "critical";
+  // Baseline-scoring fields (see mdo-baseline-definitions.ts) — each backs one
+  // specific MDO0x check rather than a generic "is it configured" boolean.
+  realTimeScanning: boolean; // SafeLinks: URLs are actually scanned in real time, not just rewritten
+  blockingAction: boolean; // SafeAttachments: action is Block/DynamicDelivery, not Allow/Monitor
+  commonAttachmentFilter: boolean; // AntiMalware: common attachment type filter enabled
+  outboundNotify: boolean; // AntiSpamOutbound: admin is notified of suspected outbound spam
 }
 
 export interface TablEntry {
@@ -278,6 +292,41 @@ export interface TablEntry {
   dateAdded: string;
   expirationDate: string | "Never";
   notes: string;
+}
+
+// Static definition of one MDO0x baseline check (mirrors CABaselineItem) —
+// see mdo-baseline-definitions.ts for the actual MDO_BASELINE_STANDARDS list.
+export interface MdoBaselineItem {
+  code: string;
+  name: string;
+  description: string;
+  policyType: MdoThreatPolicy["policyType"];
+  riskMitigated: string;
+}
+
+// Per-check result of scoring live MdoThreatPolicy data against
+// MDO_BASELINE_STANDARDS (mdo-baseline-definitions.ts) — the dynamic half of
+// the baseline pair; the static check definitions themselves aren't
+// duplicated onto the snapshot (unlike conditionalAccess.baselineDefinitions)
+// since nothing needs them decoupled from the data file that defines them.
+export interface MdoBaselineResult {
+  code: string;
+  met: boolean;
+  policyFound: boolean;
+  currentPolicyName?: string;
+}
+
+export interface MdoThreatAlert {
+  id: string;
+  title: string;
+  severity: "informational" | "low" | "medium" | "high";
+  status: "new" | "inProgress" | "resolved";
+  classification: "truePositive" | "falsePositive" | "benignPositive" | "unknown";
+  category: string;
+  createdDateTime: string;
+  description: string;
+  affectedUsers: string[];
+  webUrl?: string;
 }
 
 // Module 9: Connected Services & App Registrations
@@ -309,6 +358,25 @@ export interface IntuneDevice {
   antivirusStatus: "active" | "outOfDate" | "disabled" | "notInstalled";
   edrOnboardingState: "onboarded" | "canBeOnboarded" | "unsupported" | "error";
   lastSyncDateTime: string;
+  // Richer per-device detail, populated from the same managedDevices Graph
+  // call via an expanded $select (see graph-client.ts) — optional because
+  // demo/mock tenants don't set them and older cached snapshots predate them.
+  model?: string;
+  manufacturer?: string;
+  serialNumber?: string;
+  imei?: string;
+  enrolledDateTime?: string;
+  managementAgent?: string;
+  ownerType?: "company" | "personal" | "unknown";
+  deviceEnrollmentType?: string;
+  totalStorageBytes?: number;
+  freeStorageBytes?: number;
+  deviceCategory?: string;
+  azureADDeviceId?: string;
+  // Graph reports this as the string "true"/"false"/"unknown", not a boolean.
+  jailBroken?: string;
+  complianceGracePeriodExpirationDateTime?: string;
+  wiFiMacAddress?: string;
 }
 
 export interface IntunePolicySummary {
@@ -399,6 +467,7 @@ export interface TenantSecuritySnapshot {
   mdoThreat: {
     policies: MdoThreatPolicy[];
     tabl: TablEntry[];
+    alerts: MdoThreatAlert[];
   };
   appRegistrations: AppRegistrationItem[];
   intune: IntunePolicySummary;
@@ -418,7 +487,7 @@ export interface TenantSecuritySnapshot {
 export interface AuditLogEntry {
   id: number;
   timestamp: string;
-  category: "ca_policy_deploy" | "mcp_tool_call" | "tenant_sync_failure";
+  category: "ca_policy_deploy" | "mcp_tool_call" | "tenant_sync_failure" | "exo_write";
   action: string;
   tenantId?: string;
   tenantName?: string;

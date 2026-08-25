@@ -13,13 +13,13 @@ const CATEGORY_MAP: Record<string, SecureScoreControl["category"]> = {
   device: "Device",
   apps: "Apps",
   data: "Data",
+  infrastructure: "Infrastructure",
 };
 
 export function normalizeCategory(raw: string | undefined | null): SecureScoreControl["category"] {
   const lower = (raw || "").toLowerCase();
-  // Fallback bucket for any Graph category outside the current 4-value union
-  // (e.g. "Infrastructure") — exact real-world values should be confirmed
-  // against a live tenant.
+  // Fallback bucket for any Graph category outside the current 5-value union —
+  // exact real-world values should be confirmed against a live tenant.
   return CATEGORY_MAP[lower] || "Apps";
 }
 

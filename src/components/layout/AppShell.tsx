@@ -415,6 +415,7 @@ export const AppShell: React.FC = () => {
                 <MdoPoliciesModule
                   snapshot={snapshot}
                   onLocalRefresh={handleLocalRefresh}
+                  onOpenPermissions={() => setIsPermissionsOpen(true)}
                 />
               )}
               {activeView === "mdo_tabl" && !snapshot && <SkeletonLoader />}

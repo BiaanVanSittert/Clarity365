@@ -30,7 +30,7 @@ export const SecureScoreModule: React.FC<SecureScoreModuleProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const categories = ["all", "Identity", "Device", "Apps", "Data"];
+  const categories = ["all", "Identity", "Device", "Apps", "Data", "Infrastructure"];
 
   const filteredControls = secureScore.controls.filter((ctrl) => {
     const matchesCategory = selectedCategory === "all" || ctrl.category === selectedCategory;

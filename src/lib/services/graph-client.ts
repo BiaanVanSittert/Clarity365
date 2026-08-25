@@ -1,4 +1,4 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { matchCaBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
@@ -7,6 +7,7 @@ import { classifyUserAuthMethods } from "./mfa-classifier";
 import { mapManagedDeviceToIntuneDevice } from "./intune-mapper";
 import { mapSecureScoreControl, buildSecureScoreHistory, computeScoreDelta, extractIndustryBenchmark } from "./secure-score-mapper";
 import { fetchMdoPoliciesAndTabl } from "./exo-client";
+import { mapMdoAlert } from "./mdo-alert-mapper";
 import { graphFetch } from "./graph-fetch";
 
 interface CachedToken {
@@ -154,6 +155,13 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       description: "Read Microsoft Secure Score, control profiles, and improvement action recommendations.",
       endpoint: "https://graph.microsoft.com/v1.0/security/secureScores?$top=1",
       requiredFor: "Module 3: Defender Secure Score & Historical Timeline",
+    },
+    {
+      permission: "SecurityAlert.Read.All",
+      scope: "Application",
+      description: "Read Microsoft Defender for Office 365 threat detections (phishing, malware) from the Security Alerts API.",
+      endpoint: "https://graph.microsoft.com/v1.0/security/alerts_v2?$top=1",
+      requiredFor: "Module 8: MDO Threat Detections",
     },
   ];
 
@@ -751,7 +759,7 @@ export async function fetchLiveTenantSnapshot(
   let intuneDevices: IntuneDevice[] = [];
   try {
     const devicesResult = await fetchAllPages<any>(
-      "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=999&$select=id,deviceName,userPrincipalName,operatingSystem,osVersion,complianceState,isEncrypted,lastSyncDateTime",
+      "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=999&$select=id,deviceName,userPrincipalName,operatingSystem,osVersion,complianceState,isEncrypted,lastSyncDateTime,model,manufacturer,serialNumber,imei,enrolledDateTime,managementAgent,ownerType,deviceEnrollmentType,totalStorageSpaceInBytes,freeStorageSpaceInBytes,deviceCategoryDisplayName,azureADDeviceId,jailBroken,complianceGracePeriodExpirationDateTime,wiFiMacAddress",
       headers
     );
     if (devicesResult.error) syncErrors.push(`Intune devices: ${devicesResult.error}`);
@@ -853,6 +861,29 @@ export async function fetchLiveTenantSnapshot(
     }
   }
 
+  // 8.5. Fetch MDO-sourced threat detections via Microsoft Graph's Security
+  // Alerts API. Independent of the Exchange Online connection above (this is
+  // a plain Graph client-secret call, same as Secure Score/Intune) — useful
+  // even for a tenant that hasn't connected EXO at all. Scoped to the last 30
+  // days to match the "Threats Detected (30d)" framing in the UI. Exact OData
+  // filter syntax/field names below are based on the documented alerts_v2
+  // schema — worth confirming against a live tenant, same caveat as
+  // mdo-mapper.ts's other Exchange-shape assumptions.
+  let mdoAlerts: MdoThreatAlert[] | null = null;
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const filter = `serviceSource eq 'microsoftDefenderForOffice365' and createdDateTime ge ${thirtyDaysAgo}`;
+    const alertsResult = await fetchAllPages<any>(
+      `https://graph.microsoft.com/v1.0/security/alerts_v2?$filter=${encodeURIComponent(filter)}&$top=999`,
+      headers
+    );
+    if (alertsResult.error) syncErrors.push(`MDO Threat Alerts: ${alertsResult.error}`);
+    mdoAlerts = alertsResult.items.map(mapMdoAlert);
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching MDO threat alerts:", err);
+    syncErrors.push(`MDO Threat Alerts: ${err.message || "Unexpected error while processing threat alerts."}`);
+  }
+
   // 9. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = computeBaselineCoveragePercent(deployedBaselineCodes.size, CA_BASELINE_STANDARDS.length);
@@ -915,9 +946,15 @@ export async function fetchLiveTenantSnapshot(
     base.secureScore = secureScoreData;
   }
 
-  if (mdoPolicies !== null && mdoTabl !== null) {
-    base.mdoThreat = { policies: mdoPolicies, tabl: mdoTabl };
-  }
+  // Each of the three mdoThreat fields comes from an independent source (EXO
+  // for policies/tabl, Graph Security Alerts for alerts) and falls back to
+  // whatever the previous snapshot had whenever this sync's fetch for that
+  // field specifically didn't run or didn't return data.
+  base.mdoThreat = {
+    policies: mdoPolicies !== null ? mdoPolicies : base.mdoThreat.policies,
+    tabl: mdoTabl !== null ? mdoTabl : base.mdoThreat.tabl,
+    alerts: mdoAlerts !== null ? mdoAlerts : base.mdoThreat.alerts,
+  };
 
   return { snapshot: base };
 }

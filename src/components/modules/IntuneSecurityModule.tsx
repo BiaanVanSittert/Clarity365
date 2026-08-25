@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { TenantSecuritySnapshot, IntuneDevice } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
-import { HardDrive, ShieldCheck, ShieldAlert, Laptop, Search, Filter, CheckCircle2, XCircle, Download } from "lucide-react";
+import { Drawer } from "../common/Drawer";
+import { HardDrive, ShieldCheck, ShieldAlert, Laptop, Search, Filter, CheckCircle2, XCircle, Download, ChevronRight } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { EmptyStateRow } from "../common/EmptyStateRow";
 
@@ -9,10 +10,23 @@ interface IntuneSecurityModuleProps {
   snapshot: TenantSecuritySnapshot;
 }
 
+function formatBytes(bytes: number | undefined): string {
+  if (typeof bytes !== "number" || bytes <= 0) return "—";
+  const gb = bytes / 1_073_741_824;
+  return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1_048_576).toFixed(0)} MB`;
+}
+
+function formatDate(value: string | undefined): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? "—" : d.toLocaleString();
+}
+
 export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snapshot }) => {
   const { intune } = snapshot;
   const [searchQuery, setSearchQuery] = useState("");
   const [osFilter, setOsFilter] = useState<string>("all");
+  const [selectedDevice, setSelectedDevice] = useState<IntuneDevice | null>(null);
 
   const devices = intune.devices;
 
@@ -114,9 +128,11 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
             onChange={(e) => setOsFilter(e.target.value)}
             className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-medium"
           >
-            <option value="all">All Platforms (Windows, macOS, Linux)</option>
+            <option value="all">All Platforms (Windows, macOS, iOS, Android, Linux)</option>
             <option value="windows">Windows</option>
             <option value="macos">macOS</option>
+            <option value="ios">iOS</option>
+            <option value="android">Android</option>
             <option value="linux">Linux</option>
           </select>
 
@@ -151,14 +167,24 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
                 <th>Defender Antivirus</th>
                 <th>Defender EDR Status</th>
                 <th className="w-28 text-right">Compliance</th>
+                <th className="w-10"></th>
               </tr>
             </thead>
             <tbody>
               {filteredDevices.length === 0 ? (
-                <EmptyStateRow colSpan={7} entityLabel="endpoint devices" isFiltered={searchQuery.trim().length > 0 || osFilter !== "all"} />
+                <EmptyStateRow colSpan={8} entityLabel="endpoint devices" isFiltered={searchQuery.trim().length > 0 || osFilter !== "all"} />
               ) : (
                 filteredDevices.map((dev) => (
-                  <tr key={dev.id} className={dev.complianceState === "noncompliant" ? "bg-red-50/20" : ""}>
+                  <tr
+                    key={dev.id}
+                    onClick={() => setSelectedDevice(dev)}
+                    tabIndex={0}
+                    role="button"
+                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSelectedDevice(dev))}
+                    className={`cursor-pointer hover:bg-slate-50 transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2 ${
+                      dev.complianceState === "noncompliant" ? "bg-red-50/20" : ""
+                    }`}
+                  >
                     <td>
                       <div className="font-semibold text-xs text-slate-900 flex items-center gap-1.5">
                         <Laptop size={13} className="text-slate-500" />
@@ -197,6 +223,18 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
                         size="sm"
                       />
                     </td>
+                    <td className="text-right">
+                      <button
+                        aria-label="View device details"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedDevice(dev);
+                        }}
+                        className="p-1 text-slate-400 hover:text-slate-900 rounded-sm"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -204,6 +242,97 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
           </table>
         </div>
       </div>
+
+      {/* Device Detail Drawer */}
+      {selectedDevice && (
+        <Drawer
+          isOpen={!!selectedDevice}
+          onClose={() => setSelectedDevice(null)}
+          title={selectedDevice.deviceName}
+          subtitle={`${selectedDevice.userPrincipalName || "No assigned user"} • ${selectedDevice.operatingSystem} ${selectedDevice.osVersion}`}
+          width="lg"
+        >
+          <div className="space-y-4">
+            <div className="border border-[#CBD5E1] p-3 rounded-sm bg-[#F8FAFC] space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Compliance & Security</h4>
+              <div className="grid grid-cols-2 gap-2">
+                <StatusPill
+                  status={selectedDevice.complianceState === "compliant" ? "pass" : "fail"}
+                  label={`Compliance: ${selectedDevice.complianceState.toUpperCase()}`}
+                  size="sm"
+                />
+                <StatusPill
+                  status={selectedDevice.isEncrypted ? "pass" : "fail"}
+                  label={selectedDevice.isEncrypted ? "Encrypted" : "Unencrypted"}
+                  size="sm"
+                />
+                <StatusPill
+                  status={selectedDevice.antivirusStatus === "active" ? "pass" : "fail"}
+                  label={selectedDevice.antivirusStatus === "active" ? "AV Active" : "AV Out of Date"}
+                  size="sm"
+                />
+                <StatusPill
+                  status={selectedDevice.edrOnboardingState === "onboarded" ? "pass" : "warn"}
+                  label={selectedDevice.edrOnboardingState === "onboarded" ? "EDR Onboarded" : "EDR Not Onboarded"}
+                  size="sm"
+                />
+              </div>
+              {selectedDevice.jailBroken && selectedDevice.jailBroken.toLowerCase() === "true" && (
+                <div className="text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 p-1.5 rounded-sm">
+                  This device is reported as jailbroken/rooted.
+                </div>
+              )}
+              {selectedDevice.complianceState === "inGracePeriod" && (
+                <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 p-1.5 rounded-sm">
+                  Grace period expires: {formatDate(selectedDevice.complianceGracePeriodExpirationDateTime)}
+                </div>
+              )}
+            </div>
+
+            <div className="border border-[#CBD5E1] p-3 rounded-sm bg-white space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Hardware</h4>
+              <dl className="grid grid-cols-2 gap-y-1.5 text-xs">
+                <dt className="text-slate-500">Manufacturer</dt>
+                <dd className="text-slate-900 font-medium">{selectedDevice.manufacturer || "—"}</dd>
+                <dt className="text-slate-500">Model</dt>
+                <dd className="text-slate-900 font-medium">{selectedDevice.model || "—"}</dd>
+                <dt className="text-slate-500">Serial Number</dt>
+                <dd className="text-slate-900 font-mono">{selectedDevice.serialNumber || "—"}</dd>
+                <dt className="text-slate-500">IMEI</dt>
+                <dd className="text-slate-900 font-mono">{selectedDevice.imei || "—"}</dd>
+                <dt className="text-slate-500">Wi-Fi MAC</dt>
+                <dd className="text-slate-900 font-mono">{selectedDevice.wiFiMacAddress || "—"}</dd>
+                <dt className="text-slate-500">Storage</dt>
+                <dd className="text-slate-900 font-medium">
+                  {selectedDevice.freeStorageBytes !== undefined && selectedDevice.totalStorageBytes !== undefined
+                    ? `${formatBytes(selectedDevice.freeStorageBytes)} free of ${formatBytes(selectedDevice.totalStorageBytes)}`
+                    : "—"}
+                </dd>
+              </dl>
+            </div>
+
+            <div className="border border-[#CBD5E1] p-3 rounded-sm bg-[#F8FAFC] space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Management & Enrollment</h4>
+              <dl className="grid grid-cols-2 gap-y-1.5 text-xs">
+                <dt className="text-slate-500">Enrollment Type</dt>
+                <dd className="text-slate-900 font-medium">{selectedDevice.deviceEnrollmentType || "—"}</dd>
+                <dt className="text-slate-500">Management Agent</dt>
+                <dd className="text-slate-900 font-medium">{selectedDevice.managementAgent || "—"}</dd>
+                <dt className="text-slate-500">Owner Type</dt>
+                <dd className="text-slate-900 font-medium capitalize">{selectedDevice.ownerType || "—"}</dd>
+                <dt className="text-slate-500">Device Category</dt>
+                <dd className="text-slate-900 font-medium">{selectedDevice.deviceCategory || "—"}</dd>
+                <dt className="text-slate-500">Azure AD Device ID</dt>
+                <dd className="text-slate-900 font-mono text-[10px] break-all">{selectedDevice.azureADDeviceId || "—"}</dd>
+                <dt className="text-slate-500">Enrolled</dt>
+                <dd className="text-slate-900 font-medium">{formatDate(selectedDevice.enrolledDateTime)}</dd>
+                <dt className="text-slate-500">Last Sync</dt>
+                <dd className="text-slate-900 font-medium">{formatDate(selectedDevice.lastSyncDateTime)}</dd>
+              </dl>
+            </div>
+          </div>
+        </Drawer>
+      )}
     </div>
   );
 };

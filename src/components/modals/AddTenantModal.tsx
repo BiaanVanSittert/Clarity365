@@ -268,6 +268,7 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
                 "Organization.Read.All",
                 "DeviceManagementManagedDevices.Read.All",
                 "SecurityEvents.Read.All",
+                "SecurityAlert.Read.All",
               ].map((perm, i, arr) => (
                 <React.Fragment key={perm}>
                   <code className="bg-slate-200 px-1 py-0.5 rounded font-mono">{perm}</code>

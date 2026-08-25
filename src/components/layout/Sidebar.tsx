@@ -23,6 +23,7 @@ import {
   ChevronsRight,
 } from "lucide-react";
 import { TenantSecuritySnapshot } from "@/lib/types";
+import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
 
 interface SidebarProps {
   activeView: string;
@@ -115,6 +116,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       user_class: true,
       forwarding: true,
       groups: true,
+      mdo_tabl: true,
     });
     if (propOnClearAllAlerts) propOnClearAllAlerts();
   };
@@ -149,12 +151,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const groupsCount = snapshot ? snapshot.groups.length : 0;
 
+  const mdoBaselineGapCount = snapshot
+    ? evaluateMdoBaseline(snapshot.mdoThreat.policies).results.filter((r) => !r.met).length
+    : 0;
+  const mdoUnresolvedHighAlertCount = snapshot
+    ? snapshot.mdoThreat.alerts.filter((a) => a.status !== "resolved" && a.severity === "high").length
+    : 0;
+  const mdoIssueCount = mdoBaselineGapCount + mdoUnresolvedHighAlertCount;
+
   const totalRawAlertCount =
     (missingCABaselineCount > 0 ? missingCABaselineCount : 0) +
     (riskySignInsCount > 0 ? riskySignInsCount : 0) +
     (weakMfaCount > 0 ? weakMfaCount : 0) +
     (orphanedUsersCount > 0 ? orphanedUsersCount : 0) +
-    (externalForwardingCount > 0 ? externalForwardingCount : 0);
+    (externalForwardingCount > 0 ? externalForwardingCount : 0) +
+    (mdoIssueCount > 0 ? mdoIssueCount : 0);
 
   const navGroups: NavGroup[] = [
     {
@@ -217,6 +228,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: "mdo_tabl",
           label: "MDO Policies & TABL",
           icon: Layers,
+          badgeCount: mdoIssueCount > 0 ? mdoIssueCount : undefined,
+          badgeStatus: mdoUnresolvedHighAlertCount > 0 ? "fail" : "warn",
         },
       ],
     },

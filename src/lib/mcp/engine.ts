@@ -169,7 +169,7 @@ async function runMcpTool(name: string, args: Record<string, any>) {
         if (!args.entry || !args.entry.value || !args.entry.listType || !args.entry.entryType) {
           return { success: false, error: "Missing required entry parameters (value, listType, entryType)." };
         }
-        const created = tenantStore.addTablEntry(tenantId, {
+        const result = await tenantStore.addTablEntry(tenantId, {
           listType: args.entry.listType,
           entryType: args.entry.entryType,
           value: args.entry.value,
@@ -177,11 +177,15 @@ async function runMcpTool(name: string, args: Record<string, any>) {
           expirationDate: "Never",
           notes: args.entry.notes || "Added via MCP Agent Tool Call",
         });
-        return { success: true, message: `Added ${args.entry.value} to TABL (${args.entry.listType}).`, entry: created };
+        return result.success
+          ? { success: true, message: `Added ${args.entry.value} to TABL (${args.entry.listType}).`, entry: result.entry }
+          : { success: false, error: result.error || "Failed to add TABL entry." };
       } else if (args.action === "remove") {
         if (!args.entryId) return { success: false, error: "Missing entryId to remove." };
-        const removed = tenantStore.removeTablEntry(tenantId, args.entryId);
-        return { success: removed, message: removed ? `Removed TABL entry ${args.entryId}.` : `Entry ${args.entryId} not found.` };
+        const result = await tenantStore.removeTablEntry(tenantId, args.entryId);
+        return result.success
+          ? { success: true, message: `Removed TABL entry ${args.entryId}.` }
+          : { success: false, error: result.error || `Entry ${args.entryId} not found.` };
       }
       return { success: false, error: `Unknown action '${args.action}'.` };
     }

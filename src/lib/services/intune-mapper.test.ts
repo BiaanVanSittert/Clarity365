@@ -75,6 +75,21 @@ describe("mapManagedDeviceToIntuneDevice", () => {
       antivirusStatus: "active",
       edrOnboardingState: "onboarded",
       lastSyncDateTime: "2026-08-20T10:00:00Z",
+      model: undefined,
+      manufacturer: undefined,
+      serialNumber: undefined,
+      imei: undefined,
+      enrolledDateTime: undefined,
+      managementAgent: undefined,
+      ownerType: undefined,
+      deviceEnrollmentType: undefined,
+      totalStorageBytes: undefined,
+      freeStorageBytes: undefined,
+      deviceCategory: undefined,
+      azureADDeviceId: undefined,
+      jailBroken: undefined,
+      complianceGracePeriodExpirationDateTime: undefined,
+      wiFiMacAddress: undefined,
     });
   });
 
@@ -86,5 +101,50 @@ describe("mapManagedDeviceToIntuneDevice", () => {
     expect(mapped.antivirusStatus).toBe("outOfDate");
     expect(mapped.edrOnboardingState).toBe("canBeOnboarded");
     expect(typeof mapped.lastSyncDateTime).toBe("string");
+    expect(mapped.model).toBeUndefined();
+    expect(mapped.ownerType).toBeUndefined();
+    expect(mapped.totalStorageBytes).toBeUndefined();
+  });
+
+  it("maps the extended hardware/enrollment detail fields when present", () => {
+    const raw = {
+      id: "dev-3",
+      complianceState: "compliant",
+      model: "Surface Laptop 5",
+      manufacturer: "Microsoft",
+      serialNumber: "SN-12345",
+      imei: "490154203237518",
+      enrolledDateTime: "2025-01-15T09:00:00Z",
+      managementAgent: "mdm",
+      ownerType: "Company",
+      deviceEnrollmentType: "windowsAzureADJoin",
+      totalStorageSpaceInBytes: 512_000_000_000,
+      freeStorageSpaceInBytes: 128_000_000_000,
+      deviceCategoryDisplayName: "Executives",
+      azureADDeviceId: "aad-device-guid",
+      jailBroken: "False",
+      complianceGracePeriodExpirationDateTime: "2026-09-01T00:00:00Z",
+      wiFiMacAddress: "00:11:22:33:44:55",
+    };
+    const mapped = mapManagedDeviceToIntuneDevice(raw);
+    expect(mapped.model).toBe("Surface Laptop 5");
+    expect(mapped.manufacturer).toBe("Microsoft");
+    expect(mapped.serialNumber).toBe("SN-12345");
+    expect(mapped.imei).toBe("490154203237518");
+    expect(mapped.enrolledDateTime).toBe("2025-01-15T09:00:00Z");
+    expect(mapped.managementAgent).toBe("mdm");
+    expect(mapped.ownerType).toBe("company");
+    expect(mapped.deviceEnrollmentType).toBe("windowsAzureADJoin");
+    expect(mapped.totalStorageBytes).toBe(512_000_000_000);
+    expect(mapped.freeStorageBytes).toBe(128_000_000_000);
+    expect(mapped.deviceCategory).toBe("Executives");
+    expect(mapped.azureADDeviceId).toBe("aad-device-guid");
+    expect(mapped.jailBroken).toBe("False");
+    expect(mapped.complianceGracePeriodExpirationDateTime).toBe("2026-09-01T00:00:00Z");
+    expect(mapped.wiFiMacAddress).toBe("00:11:22:33:44:55");
+  });
+
+  it("falls back to 'unknown' ownerType for an unrecognized raw value", () => {
+    expect(mapManagedDeviceToIntuneDevice({ id: "dev-4", ownerType: "somethingElse" }).ownerType).toBe("unknown");
   });
 });

@@ -182,6 +182,62 @@ export async function fetchMdoPoliciesAndTabl(
   return { policies, tabl, errors };
 }
 
+// Real, live writes to the Tenant Allow/Block List — gated by
+// tenant.credentials.exoWriteEnabled at the tenant-store layer (see
+// addTablEntry/removeTablEntry there), never called unconditionally just
+// because a read-only EXO connection exists. Cmdlet parameter names below
+// follow the documented New-/Remove-TenantAllowBlockListItems shape as of
+// this writing — worth confirming against a live tenant during testing,
+// matching the same honesty-about-untested-assumptions pattern already used
+// for the read-side mapping in mdo-mapper.ts.
+export async function addTenantAllowBlockListItem(
+  tenant: Tenant,
+  params: { listType: TablListType; action: "Allow" | "Block"; value: string; notes?: string; expirationDate?: string },
+  onRefreshRotated?: ExoRefreshRotatedCallback
+): Promise<{ success: boolean; error?: string }> {
+  const parameters: Record<string, any> = {
+    ListType: params.listType,
+    Entries: [params.value],
+  };
+  if (params.expirationDate) {
+    parameters.ExpirationDate = params.expirationDate;
+  } else {
+    parameters.NoExpiration = true;
+  }
+  parameters[params.action] = true;
+  if (params.notes) parameters.Notes = params.notes;
+
+  const result = await invokeExoCommand(tenant, "New-TenantAllowBlockListItems", parameters, onRefreshRotated);
+  return result.error ? { success: false, error: result.error } : { success: true };
+}
+
+export async function removeTenantAllowBlockListItem(
+  tenant: Tenant,
+  params: { listType: TablListType; identity: string },
+  onRefreshRotated?: ExoRefreshRotatedCallback
+): Promise<{ success: boolean; error?: string }> {
+  const result = await invokeExoCommand(
+    tenant,
+    "Remove-TenantAllowBlockListItems",
+    { ListType: params.listType, Ids: [params.identity] },
+    onRefreshRotated
+  );
+  return result.error ? { success: false, error: result.error } : { success: true };
+}
+
+// Runs a single Set-*Policy remediation cmdlet for one MDO baseline gap (see
+// mdo-baseline-definitions.ts's MdoRemediationAction) — a thin wrapper over
+// invokeExoCommand, same shape/gating as the TABL write functions above.
+export async function applyMdoRemediation(
+  tenant: Tenant,
+  cmdlet: string,
+  parameters: Record<string, any>,
+  onRefreshRotated?: ExoRefreshRotatedCallback
+): Promise<{ success: boolean; error?: string }> {
+  const result = await invokeExoCommand(tenant, cmdlet, parameters, onRefreshRotated);
+  return result.error ? { success: false, error: result.error } : { success: true };
+}
+
 export interface ExoConnectivityResult {
   connected: boolean;
   error?: string;

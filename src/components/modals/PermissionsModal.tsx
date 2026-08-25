@@ -31,6 +31,11 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
   const [exoCodeCopied, setExoCodeCopied] = useState(false);
   const [exoTesting, setExoTesting] = useState(false);
   const [exoResult, setExoResult] = useState<{ connected: boolean; error?: string; testedAt: string } | null>(null);
+  // Off by default even when connected — see types/index.ts's TenantCredentials.exoWriteEnabled
+  // comment for why this needs to be an explicit, separately-persisted opt-in
+  // rather than something that turns on automatically once EXO is connected.
+  const [exoWriteEnabled, setExoWriteEnabled] = useState(!!tenant.credentials.exoWriteEnabled);
+  const [exoWriteSaving, setExoWriteSaving] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollDeadlineRef = useRef<number>(0);
 
@@ -145,10 +150,30 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
     }
   };
 
+  const toggleExoWrite = async (next: boolean) => {
+    setExoWriteSaving(true);
+    try {
+      const res = await fetch(`/api/tenants/${tenant.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credentials: { exoWriteEnabled: next } }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setExoWriteEnabled(next);
+      }
+    } catch {
+      // Leave the toggle in its previous state on failure.
+    } finally {
+      setExoWriteSaving(false);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       fetchPermissions();
       setExoConnected(!!tenant.credentials.exoRefreshToken);
+      setExoWriteEnabled(!!tenant.credentials.exoWriteEnabled);
       setExoDeviceInfo(null);
       setExoPollStatus("idle");
       setExoPollError(null);
@@ -224,35 +249,35 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
             </div>
 
             {/* Permission Table */}
-            <div className="border border-slate-200 overflow-hidden">
-              <table className="w-full text-left text-xs border-collapse">
+            <div className="border border-slate-200 overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse table-fixed">
                 <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-semibold uppercase text-[10px] tracking-wider">
                   <tr>
-                    <th className="p-2.5">Microsoft Graph Permission</th>
-                    <th className="p-2.5">Type</th>
-                    <th className="p-2.5">Required For</th>
-                    <th className="p-2.5 text-right">Status</th>
+                    <th className="p-2.5 w-[38%]">Microsoft Graph Permission</th>
+                    <th className="p-2.5 w-[12%]">Type</th>
+                    <th className="p-2.5 w-[30%]">Required For</th>
+                    <th className="p-2.5 w-[20%] text-right">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {report.permissions.map((p, idx) => (
                     <tr key={idx} className="hover:bg-slate-50">
-                      <td className="p-2.5">
-                        <div className="font-mono font-medium text-slate-900">{p.permission}</div>
-                        <div className="text-[11px] text-slate-500">{p.description}</div>
+                      <td className="p-2.5 align-top">
+                        <div className="font-mono font-medium text-slate-900 break-words">{p.permission}</div>
+                        <div className="text-[11px] text-slate-500 break-words">{p.description}</div>
                         {p.errorMessage && (
-                          <div className="text-[10px] font-mono text-rose-700 mt-1 bg-rose-50 p-1 border border-rose-200">
+                          <div className="text-[10px] font-mono text-rose-700 mt-1 bg-rose-50 p-1 border border-rose-200 break-words">
                             {p.errorMessage}
                           </div>
                         )}
                       </td>
-                      <td className="p-2.5">
+                      <td className="p-2.5 align-top">
                         <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 font-mono text-[10px]">
                           {p.scope}
                         </span>
                       </td>
-                      <td className="p-2.5 text-slate-600">{p.requiredFor}</td>
-                      <td className="p-2.5 text-right">
+                      <td className="p-2.5 text-slate-600 align-top break-words">{p.requiredFor}</td>
+                      <td className="p-2.5 text-right align-top">
                         {p.status === "granted" ? (
                           <span className="inline-flex items-center gap-1 text-emerald-700 font-medium bg-emerald-50 px-2 py-0.5 border border-emerald-200 text-[11px]">
                             <CheckCircle className="w-3.5 h-3.5" /> Granted
@@ -331,7 +356,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                 </button>
               </div>
             ) : (
-              <div>
+              <div className="space-y-3">
                 {exoResult ? (
                   exoResult.connected ? (
                     <StatusPill status="pass" label="Connected" />
@@ -348,6 +373,43 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                 ) : (
                   <span className="text-[11px] text-slate-400">Testing connection...</span>
                 )}
+
+                <div className="border-t border-[#E2E8F0] pt-3">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={exoWriteEnabled}
+                      disabled={exoWriteSaving}
+                      onChange={(e) => toggleExoWrite(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span className="text-xs font-medium text-slate-700">
+                      Allow Clarity365 to write changes to Exchange Online
+                    </span>
+                  </label>
+                  <div className="mt-2 p-2.5 bg-amber-50 border border-amber-300 text-amber-950 text-[11px] rounded-sm space-y-1">
+                    <div className="flex items-center gap-1.5 font-semibold text-amber-900">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>What enabling this means</span>
+                    </div>
+                    <p className="leading-relaxed">
+                      {exoWriteEnabled ? (
+                        <>
+                          Enabled — adding or removing a Tenant Allow/Block List entry from MDO Policies will create or
+                          delete it directly in Exchange Online, using the same permissions as the account you
+                          connected with. Changes take effect immediately, with no undo.
+                        </>
+                      ) : (
+                        <>
+                          Currently off (default). Add/Remove entries in MDO Policies are tracked in Clarity365 only —
+                          nothing is sent to Microsoft 365. Enabling this lets Clarity365 create/remove real Tenant
+                          Allow/Block List entries directly in Exchange Online, using the same permissions as the
+                          connected account. If you're not sure, leave this off.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
               </div>
             )
           ) : exoPollStatus === "starting" ? (

@@ -18,8 +18,13 @@ describe("normalizeCategory", () => {
     expect(normalizeCategory("Data")).toBe("Data");
   });
 
+  it("maps Infrastructure, a real Graph category, to its own bucket", () => {
+    expect(normalizeCategory("Infrastructure")).toBe("Infrastructure");
+    expect(normalizeCategory("INFRASTRUCTURE")).toBe("Infrastructure");
+  });
+
   it("falls back to Apps for categories outside the current taxonomy", () => {
-    expect(normalizeCategory("Infrastructure")).toBe("Apps");
+    expect(normalizeCategory("SomethingUnrecognized")).toBe("Apps");
     expect(normalizeCategory(undefined)).toBe("Apps");
   });
 });

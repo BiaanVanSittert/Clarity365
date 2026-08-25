@@ -42,6 +42,14 @@ export function mapMdoPolicy(raw: any, policyType: MdoThreatPolicy["policyType"]
   const protectionsActive =
     impersonationProtection || spoofIntelligence || zapEnabled || policyType === "SafeLinks" || policyType === "SafeAttachments";
 
+  // Baseline-scoring fields (see mdo-baseline-definitions.ts) — each backs one
+  // specific MDO0x check, so unlike the generic booleans above these are only
+  // meaningful for the policyType that actually carries them.
+  const realTimeScanning = !!(raw.EnableSafeLinksForEmail && raw.ScanUrls);
+  const blockingAction = raw.Action === "Block" || raw.Action === "DynamicDelivery";
+  const commonAttachmentFilter = !!raw.EnableFileFilter;
+  const outboundNotify = !!raw.NotifyOutboundSpam;
+
   return {
     id: raw.Guid || raw.Identity || raw.Name || policyType,
     policyType,
@@ -52,10 +60,23 @@ export function mapMdoPolicy(raw: any, policyType: MdoThreatPolicy["policyType"]
     spoofIntelligence,
     zapEnabled,
     complianceRating: deriveComplianceRating(enabled, protectionsActive),
+    realTimeScanning,
+    blockingAction,
+    commonAttachmentFilter,
+    outboundNotify,
   };
 }
 
 export type TablListType = "Sender" | "Url" | "FileHash";
+
+// Inverse of the entryType derivation in mapTablEntry below — used when
+// writing an entry back to EXO (New-/Remove-TenantAllowBlockListItems take a
+// -ListType, not Clarity365's finer-grained entryType).
+export function mapEntryTypeToListType(entryType: TablEntry["entryType"]): TablListType {
+  if (entryType === "url") return "Url";
+  if (entryType === "file_hash") return "FileHash";
+  return "Sender"; // domain and sender both live under EXO's "Sender" ListType.
+}
 
 export function mapTablEntry(raw: any, listType: TablListType): TablEntry {
   const value = raw.Value ?? raw.Entry ?? raw.SenderDomainIs ?? raw.Identity ?? "";

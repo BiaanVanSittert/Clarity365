@@ -18,7 +18,12 @@ import {
   pollExoDeviceCodeFlow,
   DeviceCodeStart,
   DeviceCodePollStatus,
+  addTenantAllowBlockListItem,
+  removeTenantAllowBlockListItem,
+  applyMdoRemediation,
 } from "./exo-client";
+import { mapEntryTypeToListType } from "./mdo-mapper";
+import { MDO_BASELINE_STANDARDS } from "../data/mdo-baseline-definitions";
 
 interface AuthConfigRow {
   passwordHash: string;
@@ -204,7 +209,28 @@ class TenantStore {
     const row = this.db.prepare("SELECT data FROM snapshots WHERE tenant_id = ?").get(tenantId) as
       | { data: string }
       | undefined;
-    return row ? JSON.parse(row.data) : undefined;
+    return row ? this.backfillSnapshot(JSON.parse(row.data)) : undefined;
+  }
+
+  // Snapshots are long-lived JSON blobs — a row written before a field existed
+  // in TenantSecuritySnapshot (e.g. mdoThreat.alerts) stays missing that field
+  // forever, since nothing else ever rewrites it wholesale. Every reader (UI
+  // components, this store) relies on the type's fields always being present,
+  // so backfill any gaps against createBlankSnapshot's defaults right where the
+  // row is deserialized, rather than defending against `undefined` everywhere
+  // the snapshot is consumed.
+  private backfillSnapshot(snapshot: TenantSecuritySnapshot): TenantSecuritySnapshot {
+    const blank = createBlankSnapshot(snapshot.tenant);
+    return {
+      ...blank,
+      ...snapshot,
+      conditionalAccess: { ...blank.conditionalAccess, ...snapshot.conditionalAccess },
+      accountClassification: { ...blank.accountClassification, ...snapshot.accountClassification },
+      mdoThreat: { ...blank.mdoThreat, ...snapshot.mdoThreat },
+      intune: { ...blank.intune, ...snapshot.intune },
+      sharePoint: { ...blank.sharePoint, ...snapshot.sharePoint },
+      highRiskThreatIndicators: { ...blank.highRiskThreatIndicators, ...snapshot.highRiskThreatIndicators },
+    };
   }
 
   private putSnapshotRow(tenantId: string, snapshot: TenantSecuritySnapshot) {
@@ -527,9 +553,53 @@ class TenantStore {
     return exists;
   }
 
-  public addTablEntry(tenantId: string, entry: Omit<TenantSecuritySnapshot["mdoThreat"]["tabl"][0], "id" | "dateAdded">) {
+  // Real Exchange Online writes only happen when BOTH exoRefreshToken and
+  // exoWriteEnabled are set — the latter is an explicit, off-by-default admin
+  // opt-in (see types/index.ts), since EXO's delegated device-code auth can't
+  // be scoped to read-only the way Graph app permissions can. Everything else
+  // (no EXO connection, or connected with writes left disabled) keeps the
+  // original local-only tracking behavior untouched, which is safe because
+  // syncTenant() never overwrites mdoThreat in that case (see graph-client.ts).
+  public async addTablEntry(
+    tenantId: string,
+    entry: Omit<TenantSecuritySnapshot["mdoThreat"]["tabl"][0], "id" | "dateAdded">
+  ): Promise<{ success: boolean; error?: string; entry?: TenantSecuritySnapshot["mdoThreat"]["tabl"][0] }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+
+    if (tenant.credentials.exoRefreshToken && tenant.credentials.exoWriteEnabled) {
+      const listType = mapEntryTypeToListType(entry.entryType);
+      const result = await addTenantAllowBlockListItem(
+        tenant,
+        {
+          listType,
+          action: entry.listType === "allow" ? "Allow" : "Block",
+          value: entry.value,
+          notes: entry.notes,
+          expirationDate: entry.expirationDate !== "Never" ? entry.expirationDate : undefined,
+        },
+        (newToken) => this.persistExoRefreshToken(tenantId, newToken)
+      );
+      this.addAuditLogEntry({
+        timestamp: new Date().toISOString(),
+        category: "exo_write",
+        action: `Add TABL entry (${entry.listType}/${entry.entryType})`,
+        tenantId: tenant.id,
+        tenantName: tenant.displayName,
+        success: result.success,
+        detail: result.success
+          ? `Added '${entry.value}' to the live Exchange Online Tenant Allow/Block List.`
+          : result.error,
+      });
+      if (!result.success) return { success: false, error: result.error };
+
+      const syncResult = await this.syncTenant(tenantId);
+      const created = syncResult?.snapshot?.mdoThreat.tabl.find((e) => e.value === entry.value);
+      return { success: true, entry: created };
+    }
+
     const snap = this.ensureSnapshot(tenantId);
-    if (!snap) return null;
+    if (!snap) return { success: false, error: "Tenant not found" };
     const newEntry = {
       ...entry,
       id: `tabl-${Date.now().toString(36)}`,
@@ -537,17 +607,92 @@ class TenantStore {
     };
     snap.mdoThreat.tabl.unshift(newEntry);
     this.putSnapshotRow(tenantId, snap);
-    return newEntry;
+    return { success: true, entry: newEntry };
   }
 
-  public removeTablEntry(tenantId: string, entryId: string): boolean {
+  public async removeTablEntry(tenantId: string, entryId: string): Promise<{ success: boolean; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+
+    if (tenant.credentials.exoRefreshToken && tenant.credentials.exoWriteEnabled) {
+      const snap = this.getSnapshotRow(tenantId);
+      const target = snap?.mdoThreat.tabl.find((e) => e.id === entryId);
+      if (!target) return { success: false, error: "Entry not found." };
+
+      const listType = mapEntryTypeToListType(target.entryType);
+      const result = await removeTenantAllowBlockListItem(
+        tenant,
+        { listType, identity: target.id },
+        (newToken) => this.persistExoRefreshToken(tenantId, newToken)
+      );
+      this.addAuditLogEntry({
+        timestamp: new Date().toISOString(),
+        category: "exo_write",
+        action: `Remove TABL entry (${target.entryType})`,
+        tenantId: tenant.id,
+        tenantName: tenant.displayName,
+        success: result.success,
+        detail: result.success
+          ? `Removed '${target.value}' from the live Exchange Online Tenant Allow/Block List.`
+          : result.error,
+      });
+      if (!result.success) return { success: false, error: result.error };
+
+      await this.syncTenant(tenantId);
+      return { success: true };
+    }
+
     const snap = this.ensureSnapshot(tenantId);
-    if (!snap) return false;
+    if (!snap) return { success: false, error: "Tenant not found" };
     const initialLen = snap.mdoThreat.tabl.length;
     snap.mdoThreat.tabl = snap.mdoThreat.tabl.filter((e) => e.id !== entryId);
     const removed = snap.mdoThreat.tabl.length < initialLen;
     if (removed) this.putSnapshotRow(tenantId, snap);
-    return removed;
+    return removed ? { success: true } : { success: false, error: "Entry not found." };
+  }
+
+  // Runs the one-setting EXO fix for a single MDO baseline gap (see
+  // MDO_BASELINE_STANDARDS' remediation descriptors) — same
+  // exoRefreshToken/exoWriteEnabled gate, audit logging, and post-write resync
+  // pattern as addTablEntry/removeTablEntry above, just targeting a Set-*Policy
+  // cmdlet instead of a TABL cmdlet.
+  public async applyMdoBaselineFix(tenantId: string, code: string): Promise<{ success: boolean; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+    if (!tenant.credentials.exoRefreshToken || !tenant.credentials.exoWriteEnabled) {
+      return { success: false, error: "Exchange Online writes are not enabled for this tenant." };
+    }
+
+    const standard = MDO_BASELINE_STANDARDS.find((s) => s.code === code);
+    if (!standard || !standard.remediation) {
+      return { success: false, error: "No automated fix is available for this check." };
+    }
+
+    const snap = this.getSnapshotRow(tenantId);
+    const policy = snap?.mdoThreat.policies.find((p) => p.policyType === standard.policyType);
+    if (!policy) {
+      return { success: false, error: `No ${standard.policyType} policy found to remediate.` };
+    }
+
+    const parameters = standard.remediation.buildParameters(policy);
+    const result = await applyMdoRemediation(tenant, standard.remediation.cmdlet, parameters, (newToken) =>
+      this.persistExoRefreshToken(tenantId, newToken)
+    );
+
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "exo_write",
+      action: `Apply MDO baseline fix ${code} (${standard.remediation.cmdlet})`,
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: result.success,
+      detail: result.success ? standard.remediation.summary : result.error,
+    });
+
+    if (!result.success) return { success: false, error: result.error };
+
+    await this.syncTenant(tenantId);
+    return { success: true };
   }
 
   public addGroup(tenantId: string, group: Omit<TenantSecuritySnapshot["groups"][0], "id" | "createdDateTime">) {
