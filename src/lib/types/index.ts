@@ -19,7 +19,13 @@ export interface TenantCredentials {
   tenantId: string;
   clientId?: string;
   clientSecret?: string;
+  // Optional Exchange Online / Security & Compliance certificate credential,
+  // used only for MDO policy & TABL sync (see exo-client.ts) — Exchange admin
+  // APIs don't accept the client-secret flow used for everything else in this
+  // app. Independent of authMode/clientSecret: a tenant can have Graph secret
+  // auth configured with or without this certificate also being set up.
   certificateThumbprint?: string;
+  certificatePrivateKeyPem?: string;
   authMode: "mock" | "secret" | "certificate";
   verifiedAt?: string;
   status: "connected" | "syncing" | "error" | "offline";

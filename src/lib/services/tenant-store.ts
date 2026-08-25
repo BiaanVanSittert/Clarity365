@@ -11,6 +11,7 @@ import {
   deployConditionalAccessPolicy,
   TenantPermissionReport,
 } from "./graph-client";
+import { testExoConnectivity, ExoConnectivityResult } from "./exo-client";
 
 interface AuthConfigRow {
   passwordHash: string;
@@ -239,15 +240,28 @@ class TenantStore {
   }
 
   // ---- Secret handling -----------------------------------------------------------
-  // Tenants are ALWAYS held on disk with clientSecret encrypted (or absent).
-  // Decryption only ever happens transiently, right before a Graph API call.
-  // Anything handed back to an API route/UI goes through sanitizeTenant/sanitizeSnapshot,
-  // which mask the secret entirely — it is a write-only field from the client's perspective.
+  // Tenants are ALWAYS held on disk with clientSecret and certificatePrivateKeyPem
+  // encrypted (or absent). Decryption only ever happens transiently, right before a
+  // Graph/Exchange Online API call. Anything handed back to an API route/UI goes
+  // through sanitizeTenant/sanitizeSnapshot, which mask both entirely — they are
+  // write-only fields from the client's perspective. certificatePrivateKeyPem is, if
+  // anything, more sensitive than clientSecret (a long-lived key rather than a
+  // rotatable secret), so it gets identical treatment, not lesser.
 
   private encryptTenantSecret(tenant: Tenant): Tenant {
     const secret = tenant.credentials.clientSecret;
-    if (!secret || isEncrypted(secret)) return tenant;
-    return { ...tenant, credentials: { ...tenant.credentials, clientSecret: encryptSecret(secret) } };
+    const privateKey = tenant.credentials.certificatePrivateKeyPem;
+    const needsSecretEncryption = secret && !isEncrypted(secret);
+    const needsKeyEncryption = privateKey && !isEncrypted(privateKey);
+    if (!needsSecretEncryption && !needsKeyEncryption) return tenant;
+    return {
+      ...tenant,
+      credentials: {
+        ...tenant.credentials,
+        clientSecret: needsSecretEncryption ? encryptSecret(secret!) : secret,
+        certificatePrivateKeyPem: needsKeyEncryption ? encryptSecret(privateKey!) : privateKey,
+      },
+    };
   }
 
   private sanitizeTenant(tenant: Tenant): Tenant {
@@ -256,6 +270,7 @@ class TenantStore {
       credentials: {
         ...tenant.credentials,
         clientSecret: tenant.credentials.clientSecret ? SECRET_MASK : undefined,
+        certificatePrivateKeyPem: tenant.credentials.certificatePrivateKeyPem ? SECRET_MASK : undefined,
       },
     };
   }
@@ -264,13 +279,20 @@ class TenantStore {
     return { ...snapshot, tenant: this.sanitizeTenant(snapshot.tenant) };
   }
 
-  /** @internal Raw lookup, used only right before a Microsoft Graph call. */
+  /** @internal Raw lookup, used only right before a Microsoft Graph/Exchange Online call. */
   private getTenantWithDecryptedSecret(id: string): Tenant | undefined {
     const tenant = this.getTenantRow(id);
     if (!tenant) return undefined;
     const secret = tenant.credentials.clientSecret;
-    if (!secret || !isEncrypted(secret)) return tenant;
-    return { ...tenant, credentials: { ...tenant.credentials, clientSecret: decryptSecret(secret) } };
+    const privateKey = tenant.credentials.certificatePrivateKeyPem;
+    return {
+      ...tenant,
+      credentials: {
+        ...tenant.credentials,
+        clientSecret: secret && isEncrypted(secret) ? decryptSecret(secret) : secret,
+        certificatePrivateKeyPem: privateKey && isEncrypted(privateKey) ? decryptSecret(privateKey) : privateKey,
+      },
+    };
   }
 
   /** @internal Raw (encrypted-secret) snapshot lookup/creation. */
@@ -342,6 +364,12 @@ class TenantStore {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return null;
     return await testAppRegistrationPermissions(tenant);
+  }
+
+  public async testExoConnectivity(tenantId: string): Promise<ExoConnectivityResult | null> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return null;
+    return await testExoConnectivity(tenant);
   }
 
   public async deployBaselinePolicy(
@@ -418,13 +446,18 @@ class TenantStore {
     let mergedCredentials = existing.credentials;
     if (updates.credentials) {
       const incomingSecret = updates.credentials.clientSecret;
+      const incomingPrivateKey = updates.credentials.certificatePrivateKeyPem;
       // A masked value coming back from the UI (or no value at all) means "leave the
       // existing secret alone" — the client never has the real value to send back.
       const keepExistingSecret = !incomingSecret || incomingSecret === SECRET_MASK;
+      const keepExistingPrivateKey = !incomingPrivateKey || incomingPrivateKey === SECRET_MASK;
       mergedCredentials = {
         ...existing.credentials,
         ...updates.credentials,
         clientSecret: keepExistingSecret ? existing.credentials.clientSecret : encryptSecret(incomingSecret!),
+        certificatePrivateKeyPem: keepExistingPrivateKey
+          ? existing.credentials.certificatePrivateKeyPem
+          : encryptSecret(incomingPrivateKey!),
       };
     }
 

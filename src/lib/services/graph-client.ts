@@ -1,4 +1,4 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { matchCaBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
@@ -6,6 +6,7 @@ import { createBlankSnapshot } from "../data/default-snapshot";
 import { classifyUserAuthMethods } from "./mfa-classifier";
 import { mapManagedDeviceToIntuneDevice } from "./intune-mapper";
 import { mapSecureScoreControl, buildSecureScoreHistory, computeScoreDelta, extractIndustryBenchmark } from "./secure-score-mapper";
+import { fetchMdoPoliciesAndTabl } from "./exo-client";
 import { graphFetch } from "./graph-fetch";
 
 interface CachedToken {
@@ -830,7 +831,28 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`Secure Score: ${err.message || "Unexpected error while processing secure score."}`);
   }
 
-  // 8. Compute baseline coverage
+  // 8. Fetch MDO Policies & TABL via Exchange Online (see exo-client.ts —
+  // Defender for Office 365 policies aren't reachable via standard Graph).
+  // Skipped silently (not pushed as a sync error) if no certificate is
+  // configured yet, since that's a separate, optional credential from the
+  // Graph client secret used everywhere else — its absence isn't a fault,
+  // just a not-yet-configured feature. If a certificate IS configured, a
+  // fetch failure IS surfaced as a real sync error.
+  let mdoPolicies: MdoThreatPolicy[] | null = null;
+  let mdoTabl: TablEntry[] | null = null;
+  if (tenant.credentials.certificateThumbprint && tenant.credentials.certificatePrivateKeyPem) {
+    try {
+      const { policies, tabl, errors } = await fetchMdoPoliciesAndTabl(tenant);
+      errors.forEach((e) => syncErrors.push(`MDO Policies: ${e}`));
+      mdoPolicies = policies;
+      mdoTabl = tabl;
+    } catch (err: any) {
+      console.error("[Graph Client] Error fetching MDO policies via Exchange Online:", err);
+      syncErrors.push(`MDO Policies: ${err.message || "Unexpected error while processing Exchange Online data."}`);
+    }
+  }
+
+  // 9. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = computeBaselineCoveragePercent(deployedBaselineCodes.size, CA_BASELINE_STANDARDS.length);
 
@@ -840,7 +862,7 @@ export async function fetchLiveTenantSnapshot(
     lastAttemptAt: new Date().toISOString(),
   };
 
-  // 9. Build or update snapshot. The fields below are all overwritten immediately
+  // 10. Build or update snapshot. The fields below are all overwritten immediately
   // after with the data just fetched — createBlankSnapshot only needs to supply a
   // structurally valid starting point for a tenant's first-ever sync.
   const base = existingSnapshot || createBlankSnapshot(tenant);
@@ -890,6 +912,10 @@ export async function fetchLiveTenantSnapshot(
 
   if (secureScoreData) {
     base.secureScore = secureScoreData;
+  }
+
+  if (mdoPolicies !== null && mdoTabl !== null) {
+    base.mdoThreat = { policies: mdoPolicies, tabl: mdoTabl };
   }
 
   return { snapshot: base };
