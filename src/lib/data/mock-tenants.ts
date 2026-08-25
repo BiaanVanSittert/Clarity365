@@ -112,7 +112,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Moderate",
           status: "Completed",
           actionType: "Policy",
-          remediationSummary: "Enforced via CA01 and CA03 Conditional Access policies.",
+          remediationSummary: "Enforced via CA02 and CA03 Conditional Access policies.",
         },
         {
           id: "SEC-ID-02",
@@ -149,7 +149,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           status: "Completed",
           actionType: "Configuration",
           remediationSummary: "Outbound anti-spam policy explicitly blocks automatic forwarding.",
-          powershellCommand: "Set-HostedOutboundSpamFilterPolicy -Identity Default -AutoForwardingMode On",
+          powershellCommand: "Set-HostedOutboundSpamFilterPolicy -Identity Default -AutoForwardingMode Off",
         },
         {
           id: "SEC-DATA-01",
@@ -184,8 +184,8 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       policies: [
         {
           id: "ca-pol-01",
-          name: "CA01: Require MFA for All Administrators",
-          baselineCode: "CA01",
+          name: "CA03: Require MFA for All Administrators",
+          baselineCode: "CA03",
           baselineTitle: "Require MFA for All Administrators",
           state: "enabled",
           modifiedDateTime: "2026-07-14T10:20:00Z",
@@ -200,8 +200,8 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         },
         {
           id: "ca-pol-02",
-          name: "CA02: Block Legacy Authentication Protocols",
-          baselineCode: "CA02",
+          name: "CA01: Block Legacy Authentication Protocols",
+          baselineCode: "CA01",
           baselineTitle: "Block Legacy Authentication Protocols",
           state: "enabled",
           modifiedDateTime: "2026-01-05T09:12:00Z",
@@ -216,8 +216,8 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         },
         {
           id: "ca-pol-03",
-          name: "CA03: Require MFA for All Standard Users",
-          baselineCode: "CA03",
+          name: "CA02: Require MFA for All Standard Users",
+          baselineCode: "CA02",
           baselineTitle: "Require MFA for All Standard Users",
           state: "enabled",
           modifiedDateTime: "2026-06-18T14:30:00Z",
@@ -423,12 +423,12 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         appDisplayName: "Exchange Online",
         status: "failed",
         errorCode: 50126,
-        failureReason: "Invalid username or password; basic authentication is blocked by tenant security defaults and CA02.",
+        failureReason: "Invalid username or password; basic authentication is blocked by tenant security defaults and CA01.",
         isRisky: true,
         riskLevel: "medium",
         deviceDetail: { operatingSystem: "Unknown", browser: "Legacy MAPI", isCompliant: false, isManaged: false },
         appliedConditionalAccessPolicies: [
-          { id: "ca-pol-02", displayName: "CA02: Block Legacy Authentication Protocols", result: "failure", enforcedGrantControls: ["block"] },
+          { id: "ca-pol-02", displayName: "CA01: Block Legacy Authentication Protocols", result: "failure", enforcedGrantControls: ["block"] },
         ],
       },
       {
@@ -447,7 +447,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         riskLevel: "none",
         deviceDetail: { deviceId: "dev-win-0001", displayName: "CP-PAW-0001", operatingSystem: "Windows 11 Enterprise (PAW)", browser: "Edge 127.0", isCompliant: true, isManaged: true, trustType: "Azure AD joined" },
         appliedConditionalAccessPolicies: [
-          { id: "ca-pol-01", displayName: "CA01: Require MFA for All Administrators", result: "success", enforcedGrantControls: ["mfa"] },
+          { id: "ca-pol-01", displayName: "CA03: Require MFA for All Administrators", result: "success", enforcedGrantControls: ["mfa"] },
           { id: "ca-pol-04", displayName: "CA04: Require Compliant Device", result: "success", enforcedGrantControls: ["compliantDevice"] },
         ],
       },
@@ -989,7 +989,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         },
         {
           id: "SEC-NH-02",
-          title: "Block Legacy Authentication Protocols (CA02)",
+          title: "Block Legacy Authentication Protocols (CA01)",
           category: "Identity",
           scoreCurrent: 0,
           scoreMax: 35,
@@ -997,8 +997,8 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Low",
           status: "Unresolved",
           actionType: "Policy",
-          remediationSummary: "CA02 is missing! Legacy POP3/IMAP accounts detected on lab equipment.",
-          powershellCommand: "New-MgIdentityConditionalAccessPolicy -DisplayName 'CA02: Block Legacy Authentication Protocols' ...",
+          remediationSummary: "CA01 is missing! Legacy POP3/IMAP accounts detected on lab equipment.",
+          powershellCommand: "New-MgIdentityConditionalAccessPolicy -DisplayName 'CA01: Block Legacy Authentication Protocols' ...",
         },
         {
           id: "SEC-NH-03",
@@ -1020,8 +1020,8 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       policies: [
         {
           id: "ca-pol-nh-01",
-          name: "CA01: Require MFA for All Administrators",
-          baselineCode: "CA01",
+          name: "CA03: Require MFA for All Administrators",
+          baselineCode: "CA03",
           baselineTitle: "Require MFA for All Administrators",
           state: "enabled",
           modifiedDateTime: "2026-03-12T10:00:00Z",
@@ -1036,8 +1036,8 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         },
         {
           id: "ca-pol-nh-03",
-          name: "CA03: Require MFA for All Standard Users",
-          baselineCode: "CA03",
+          name: "CA02: Require MFA for All Standard Users",
+          baselineCode: "CA02",
           baselineTitle: "Require MFA for All Standard Users",
           state: "enabledForReportingButNotEnforced",
           modifiedDateTime: "2026-07-01T09:00:00Z",
@@ -1082,7 +1082,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         appDisplayName: "Exchange Online",
         status: "success",
         errorCode: 0,
-        failureReason: "Legacy IMAP auth passed without MFA (CA02 baseline missing).",
+        failureReason: "Legacy IMAP auth passed without MFA (CA01 baseline missing).",
         isRisky: true,
         riskLevel: "medium",
         deviceDetail: { operatingSystem: "iOS 17.5", browser: "None", isCompliant: false, isManaged: false },
@@ -1357,7 +1357,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       controls: [
         {
           id: "SEC-FAB-01",
-          title: "Require MFA for administrative roles (CA01)",
+          title: "Require MFA for administrative roles (CA03)",
           category: "Identity",
           scoreCurrent: 20,
           scoreMax: 50,
@@ -1378,7 +1378,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           status: "Unresolved",
           actionType: "Configuration",
           remediationSummary: "Multiple active transport rules forward freight invoices to external emails.",
-          powershellCommand: "Set-HostedOutboundSpamFilterPolicy -Identity Default -AutoForwardingMode On",
+          powershellCommand: "Set-HostedOutboundSpamFilterPolicy -Identity Default -AutoForwardingMode Off",
         },
       ],
     },
@@ -1400,7 +1400,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
             clientAppTypes: ["browser"],
           },
           matchesBaseline: false,
-          recommendation: "Non-standard policy naming. Migrate to CA01 baseline standard.",
+          recommendation: "Non-standard policy naming. Migrate to CA03 baseline standard.",
         },
       ],
     },
@@ -1612,7 +1612,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Low",
           status: "Completed",
           actionType: "Policy",
-          remediationSummary: "CA02 enabled globally.",
+          remediationSummary: "CA01 enabled globally.",
         },
       ],
     },
@@ -1653,7 +1653,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         riskLevel: "none",
         deviceDetail: { deviceId: "dev-wg-paw-01", displayName: "WG-PAW-SEC01", operatingSystem: "Windows 11 Enterprise (PAW)", browser: "Edge 127.0", isCompliant: true, isManaged: true },
         appliedConditionalAccessPolicies: [
-          { id: "ca-wg-ca01", displayName: "CA01: Require MFA for All Administrators", result: "success", enforcedGrantControls: ["mfa"] },
+          { id: "ca-wg-ca03", displayName: "CA03: Require multifactor authentication for admins", result: "success", enforcedGrantControls: ["mfa"] },
         ],
       },
     ],
