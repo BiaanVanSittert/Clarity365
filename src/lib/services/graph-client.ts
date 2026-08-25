@@ -1,10 +1,11 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { matchCaBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
 import { createBlankSnapshot } from "../data/default-snapshot";
 import { classifyUserAuthMethods } from "./mfa-classifier";
 import { mapManagedDeviceToIntuneDevice } from "./intune-mapper";
+import { mapSecureScoreControl, buildSecureScoreHistory, computeScoreDelta, extractIndustryBenchmark } from "./secure-score-mapper";
 import { graphFetch } from "./graph-fetch";
 
 interface CachedToken {
@@ -780,7 +781,56 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`Intune Endpoint Security policies: ${err.message || "Unexpected error while processing policies."}`);
   }
 
-  // 7. Compute baseline coverage
+  // 7. Fetch Microsoft Secure Score & control profiles
+  let secureScoreData: TenantSecureScore | null = null;
+  try {
+    const scoresResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/v1.0/security/secureScores?$top=100",
+      headers
+    );
+    if (scoresResult.error) syncErrors.push(`Secure Score: ${scoresResult.error}`);
+
+    if (scoresResult.items.length > 0) {
+      const profilesResult = await fetchAllPages<any>(
+        "https://graph.microsoft.com/v1.0/security/secureScoreControlProfiles?$top=999",
+        headers
+      );
+      if (profilesResult.error) syncErrors.push(`Secure Score control profiles: ${profilesResult.error}`);
+
+      const profileMap = new Map<string, any>();
+      profilesResult.items.forEach((p: any) => profileMap.set(p.id, p));
+
+      const historyEntries = scoresResult.items.map((s: any) => ({
+        createdDateTime: s.createdDateTime,
+        currentScore: s.currentScore || 0,
+        maxScore: s.maxScore || 0,
+      }));
+
+      const latest = [...scoresResult.items].sort(
+        (a: any, b: any) => new Date(b.createdDateTime).getTime() - new Date(a.createdDateTime).getTime()
+      )[0];
+
+      const controls = (latest.controlScores || []).map((cs: any) =>
+        mapSecureScoreControl(cs, profileMap.get(cs.controlName))
+      );
+
+      secureScoreData = {
+        currentScore: latest.currentScore || 0,
+        maxScore: latest.maxScore || 0,
+        percentage: latest.maxScore > 0 ? Math.round((latest.currentScore / latest.maxScore) * 1000) / 10 : 0,
+        delta30Days: computeScoreDelta(historyEntries, 30),
+        delta90Days: computeScoreDelta(historyEntries, 90),
+        industryBenchmark: extractIndustryBenchmark(latest.averageComparativeScores),
+        history: buildSecureScoreHistory(historyEntries),
+        controls,
+      };
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching Secure Score:", err);
+    syncErrors.push(`Secure Score: ${err.message || "Unexpected error while processing secure score."}`);
+  }
+
+  // 8. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = computeBaselineCoveragePercent(deployedBaselineCodes.size, CA_BASELINE_STANDARDS.length);
 
@@ -790,7 +840,7 @@ export async function fetchLiveTenantSnapshot(
     lastAttemptAt: new Date().toISOString(),
   };
 
-  // 8. Build or update snapshot. The fields below are all overwritten immediately
+  // 9. Build or update snapshot. The fields below are all overwritten immediately
   // after with the data just fetched — createBlankSnapshot only needs to supply a
   // structurally valid starting point for a tenant's first-ever sync.
   const base = existingSnapshot || createBlankSnapshot(tenant);
@@ -836,6 +886,10 @@ export async function fetchLiveTenantSnapshot(
       edrPoliciesCount,
       devices: intuneDevices,
     };
+  }
+
+  if (secureScoreData) {
+    base.secureScore = secureScoreData;
   }
 
   return { snapshot: base };
