@@ -257,7 +257,24 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
             </div>
 
             <p className="text-[11px] text-slate-500">
-              Required Graph Permissions: <code className="bg-slate-200 px-1 py-0.5 rounded font-mono">Policy.Read.All</code>, <code className="bg-slate-200 px-1 py-0.5 rounded font-mono">AuditLog.Read.All</code>, <code className="bg-slate-200 px-1 py-0.5 rounded font-mono">User.Read.All</code>.
+              Required Graph Application Permissions:{" "}
+              {[
+                "Policy.Read.All",
+                "Policy.ReadWrite.ConditionalAccess",
+                "User.Read.All",
+                "AuditLog.Read.All",
+                "Reports.Read.All",
+                "UserAuthenticationMethod.Read.All",
+                "Organization.Read.All",
+                "DeviceManagementManagedDevices.Read.All",
+                "SecurityEvents.Read.All",
+              ].map((perm, i, arr) => (
+                <React.Fragment key={perm}>
+                  <code className="bg-slate-200 px-1 py-0.5 rounded font-mono">{perm}</code>
+                  {i < arr.length - 1 ? ", " : "."}
+                </React.Fragment>
+              ))}
+              {" "}Use the Permissions check after adding this tenant to confirm every scope is granted.
             </p>
           </div>
         )}

@@ -1,9 +1,10 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { matchCaBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
 import { createBlankSnapshot } from "../data/default-snapshot";
 import { classifyUserAuthMethods } from "./mfa-classifier";
+import { mapManagedDeviceToIntuneDevice } from "./intune-mapper";
 import { graphFetch } from "./graph-fetch";
 
 interface CachedToken {
@@ -137,6 +138,20 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       description: "Read tenant SKU subscriptions, license tiers (e.g. Entra ID P2), and verified domains.",
       endpoint: "https://graph.microsoft.com/v1.0/organization",
       requiredFor: "Tenant Capability Detection & License SKU Matrix",
+    },
+    {
+      permission: "DeviceManagementManagedDevices.Read.All",
+      scope: "Application",
+      description: "Read Intune-managed device inventory, compliance state, and encryption status.",
+      endpoint: "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=1",
+      requiredFor: "Module 10: Intune Endpoint Security",
+    },
+    {
+      permission: "SecurityEvents.Read.All",
+      scope: "Application",
+      description: "Read Microsoft Secure Score, control profiles, and improvement action recommendations.",
+      endpoint: "https://graph.microsoft.com/v1.0/security/secureScores?$top=1",
+      requiredFor: "Module 3: Defender Secure Score & Historical Timeline",
     },
   ];
 
@@ -729,7 +744,43 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`MFA registration details: ${err.message || "Unexpected error while processing MFA data."}`);
   }
 
-  // 5. Compute baseline coverage
+  // 5. Fetch Intune Managed Devices
+  let intuneDevices: IntuneDevice[] = [];
+  try {
+    const devicesResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=999&$select=id,deviceName,userPrincipalName,operatingSystem,osVersion,complianceState,isEncrypted,lastSyncDateTime",
+      headers
+    );
+    if (devicesResult.error) syncErrors.push(`Intune devices: ${devicesResult.error}`);
+    intuneDevices = devicesResult.items.map(mapManagedDeviceToIntuneDevice);
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching Intune devices:", err);
+    syncErrors.push(`Intune devices: ${err.message || "Unexpected error while processing devices."}`);
+  }
+
+  // 6. Fetch Intune Endpoint Security policy counts (tenant-wide aggregates,
+  // not per-device). Endpoint Security "Intents" is a Graph beta surface —
+  // category matching here is best-effort and worth confirming against a
+  // real tenant; a failure here doesn't block the device inventory above.
+  let antivirusPoliciesCount = 0;
+  let edrPoliciesCount = 0;
+  try {
+    const intentsResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/beta/deviceManagement/intents?$expand=categories",
+      headers
+    );
+    if (intentsResult.error) syncErrors.push(`Intune Endpoint Security policies: ${intentsResult.error}`);
+    intentsResult.items.forEach((intent: any) => {
+      const categoryNames: string[] = (intent.categories || []).map((c: any) => (c.displayName || "").toLowerCase());
+      if (categoryNames.some((c) => c.includes("antivirus"))) antivirusPoliciesCount++;
+      if (categoryNames.some((c) => c.includes("detection and response") || c.includes("edr"))) edrPoliciesCount++;
+    });
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching Intune Endpoint Security policies:", err);
+    syncErrors.push(`Intune Endpoint Security policies: ${err.message || "Unexpected error while processing policies."}`);
+  }
+
+  // 7. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = computeBaselineCoveragePercent(deployedBaselineCodes.size, CA_BASELINE_STANDARDS.length);
 
@@ -739,7 +790,7 @@ export async function fetchLiveTenantSnapshot(
     lastAttemptAt: new Date().toISOString(),
   };
 
-  // 6. Build or update snapshot. The fields below are all overwritten immediately
+  // 8. Build or update snapshot. The fields below are all overwritten immediately
   // after with the data just fetched — createBlankSnapshot only needs to supply a
   // structurally valid starting point for a tenant's first-ever sync.
   const base = existingSnapshot || createBlankSnapshot(tenant);
@@ -772,6 +823,18 @@ export async function fetchLiveTenantSnapshot(
       disabledAccountsCount: usersList.filter((u) => u.classification === "disabled").length,
       guestAccountsCount: 0,
       users: usersList,
+    };
+  }
+
+  if (intuneDevices.length > 0) {
+    const compliantCount = intuneDevices.filter((d) => d.complianceState === "compliant").length;
+    base.intune = {
+      totalDevices: intuneDevices.length,
+      compliantDevices: compliantCount,
+      nonCompliantDevices: intuneDevices.length - compliantCount,
+      antivirusPoliciesCount,
+      edrPoliciesCount,
+      devices: intuneDevices,
     };
   }
 
