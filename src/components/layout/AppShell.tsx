@@ -41,6 +41,26 @@ export const AppShell: React.FC = () => {
   const [activeView, setActiveView] = useState<string>("overview");
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem("clarity365_sidebar_collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleSidebarCollapsed = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("clarity365_sidebar_collapsed", next ? "1" : "0");
+      } catch {
+        // Ignore — collapse state just won't persist across reloads.
+      }
+      return next;
+    });
+  };
 
   // Modals state
   const [isAddTenantOpen, setIsAddTenantOpen] = useState(false);
@@ -224,7 +244,7 @@ export const AppShell: React.FC = () => {
 
   return (
     <ErrorBoundary moduleName="Application Shell">
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-white text-slate-900 font-sans">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans">
       {/* Top Header with Tenant Switcher and Settings Gear Icon */}
       <Header
         tenants={tenants}
@@ -246,12 +266,12 @@ export const AppShell: React.FC = () => {
         <div
           className={`px-4 py-2 text-xs flex items-center justify-between border-b transition-all select-none ${
             syncToast.type === "info"
-              ? "bg-slate-900 text-white border-slate-800"
+              ? "bg-slate-900 dark:bg-slate-800 text-white border-slate-800 dark:border-slate-700"
               : syncToast.type === "success"
-              ? "bg-emerald-50 text-emerald-900 border-emerald-300"
+              ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800"
               : syncToast.type === "warning"
-              ? "bg-amber-50 text-amber-900 border-amber-300"
-              : "bg-rose-50 text-rose-900 border-rose-300"
+              ? "bg-amber-50 dark:bg-amber-950 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-800"
+              : "bg-rose-50 dark:bg-rose-950 text-rose-900 dark:text-rose-300 border-rose-300 dark:border-rose-800"
           }`}
         >
           <div className="flex items-center gap-2 font-medium">
@@ -286,6 +306,8 @@ export const AppShell: React.FC = () => {
           activeView={activeView}
           onSelectView={(view) => setActiveView(view)}
           snapshot={snapshot}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={toggleSidebarCollapsed}
         />
 
         {/* Dynamic Main Workspace Container */}

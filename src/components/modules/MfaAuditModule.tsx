@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { TenantSecuritySnapshot, UserMfaProfile, AuthMethodType } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
-import { ShieldCheck, ShieldAlert, Key, Search, Filter, AlertTriangle, Smartphone, Mail, Hash, Shield } from "lucide-react";
+import { ShieldCheck, ShieldAlert, Key, Search, Filter, AlertTriangle, Smartphone, Mail, Hash, Shield, Download } from "lucide-react";
 
 interface MfaAuditModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -42,6 +42,44 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
     if (filterType === "phishing_resistant") return matchesSearch && u.defaultMethod === "passkey_fido2";
     return matchesSearch;
   });
+
+  // Export to CSV
+  const handleExportCSV = () => {
+    const headers = [
+      "DisplayName",
+      "UserPrincipalName",
+      "PrivilegeLevel",
+      "DefaultAuthMethod",
+      "RegisteredMethods",
+      "MfaEnforcedByPolicy",
+      "SecurityPosture",
+    ];
+
+    const rows = filteredUsers.map((user) => {
+      const methodMeta = METHOD_LABELS[user.defaultMethod];
+      const isWeak = user.isWeakAuth || !user.mfaRegistered;
+      const posture = methodMeta.isPhishingResistant ? "Phishing-Resistant" : isWeak ? "Weak Auth / Fail" : "Strong Push";
+      return [
+        `"${user.displayName}"`,
+        `"${user.userPrincipalName}"`,
+        `"${user.isAdmin ? user.adminRoles?.[0] || "Directory Admin" : user.department || "Standard User"}"`,
+        `"${methodMeta.name}"`,
+        `"${user.registeredMethods.map((m) => METHOD_LABELS[m]?.name || m).join("; ")}"`,
+        user.mfaEnforcedByPolicy ? "Yes" : "No",
+        `"${posture}"`,
+      ];
+    });
+
+    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Clarity365_MfaAudit_${snapshot.tenant.defaultDomainName}_${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
@@ -132,6 +170,15 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
             <option value="admins">Privileged Administrators</option>
             <option value="phishing_resistant">Phishing-Resistant (FIDO2)</option>
           </select>
+
+          <button
+            onClick={handleExportCSV}
+            title="Export filtered users to CSV"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <Download size={13} className="text-slate-500" />
+            <span>Export CSV</span>
+          </button>
         </div>
       </div>
 

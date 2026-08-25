@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { AuditLogEntry, Tenant } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
-import { History, Search, Filter, RefreshCw, ShieldCheck, Bot, XCircle } from "lucide-react";
+import { History, Search, Filter, RefreshCw, ShieldCheck, Bot, XCircle, Download } from "lucide-react";
 
 interface AuditLogModuleProps {
   tenants: Tenant[];
@@ -53,6 +53,30 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
   const deployCount = entries.filter((e) => e.category === "ca_policy_deploy").length;
   const mcpCount = entries.filter((e) => e.category === "mcp_tool_call").length;
   const failureCount = entries.filter((e) => !e.success).length;
+
+  // Export to CSV
+  const handleExportCSV = () => {
+    const headers = ["Timestamp", "Category", "Action", "Tenant", "Detail", "Outcome"];
+
+    const rows = filteredEntries.map((e) => [
+      `"${e.timestamp}"`,
+      `"${CATEGORY_LABELS[e.category] || e.category}"`,
+      `"${e.action.replace(/"/g, '""')}"`,
+      `"${e.tenantName || ""}"`,
+      `"${(e.detail || "").replace(/"/g, '""')}"`,
+      e.success ? "Success" : "Failure",
+    ]);
+
+    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Clarity365_AuditLog_${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
@@ -154,6 +178,15 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
               </option>
             ))}
           </select>
+
+          <button
+            onClick={handleExportCSV}
+            title="Export filtered entries to CSV"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <Download size={13} className="text-slate-500" />
+            <span>Export CSV</span>
+          </button>
         </div>
       </div>
 

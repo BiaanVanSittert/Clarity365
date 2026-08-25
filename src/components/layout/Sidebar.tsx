@@ -19,6 +19,8 @@ import {
   CheckCheck,
   RotateCcw,
   History,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 
@@ -30,6 +32,8 @@ interface SidebarProps {
   onClearAllAlerts?: () => void;
   onRestoreAlerts?: () => void;
   onDismissModuleAlert?: (moduleId: string) => void;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 interface NavGroup {
@@ -53,6 +57,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClearAllAlerts: propOnClearAllAlerts,
   onRestoreAlerts: propOnRestoreAlerts,
   onDismissModuleAlert: propOnDismissModuleAlert,
+  isCollapsed,
+  onToggleCollapse,
 }) => {
   const tenantId = snapshot?.tenant?.id || "global";
 
@@ -260,17 +266,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-64 border-r border-[#CBD5E1] bg-[#F8FAFC] flex flex-col h-[calc(100vh-3rem)] select-none shrink-0 overflow-y-auto">
-      {/* Alert Clearance Status Bar */}
-      <div className="px-3 pt-3 pb-1 border-b border-[#E2E8F0] bg-white/70">
+    <aside
+      className={`${
+        isCollapsed ? "w-14" : "w-64"
+      } border-r border-[#CBD5E1] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-800 flex flex-col h-[calc(100vh-3rem)] select-none shrink-0 overflow-y-auto overflow-x-hidden transition-[width] duration-150`}
+    >
+      {/* Alert Clearance Status Bar — hidden when collapsed; it's inherently
+          text-heavy with no meaningful icon-only equivalent at rail width. */}
+      {!isCollapsed && (
+      <div className="px-3 pt-3 pb-1 border-b border-[#E2E8F0] dark:border-slate-700 bg-white/70 dark:bg-slate-900/40">
         <div className="flex items-center justify-between text-[11px]">
-          <div className="flex items-center gap-1.5 font-medium text-slate-700">
+          <div className="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
             {allCleared ? (
               <BellOff size={13} className="text-slate-400" />
             ) : totalRawAlertCount > 0 ? (
-              <BellRing size={13} className="text-amber-600 animate-pulse" />
+              <BellRing size={13} className="text-amber-600 dark:text-amber-400 animate-pulse" />
             ) : (
-              <CheckCheck size={13} className="text-emerald-600" />
+              <CheckCheck size={13} className="text-emerald-600 dark:text-emerald-400" />
             )}
             <span>{allCleared ? "Alerts Muted" : `${totalRawAlertCount} Active Alerts`}</span>
           </div>
@@ -280,7 +292,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 onClick={handleRestoreAll}
                 title="Restore sidebar alert badges"
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 transition-colors"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded border border-slate-300 dark:border-slate-600 transition-colors"
               >
                 <RotateCcw size={10} />
                 <span>Restore</span>
@@ -289,7 +301,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 onClick={handleClearAll}
                 title="Clear and mute all sidebar alert number badges"
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 hover:text-slate-950 bg-slate-100 hover:bg-slate-200/80 rounded border border-slate-300 transition-colors"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-slate-100 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200/80 dark:hover:bg-slate-600 rounded border border-slate-300 dark:border-slate-600 transition-colors"
               >
                 <CheckCheck size={11} className="text-slate-500" />
                 <span>Clear Badges</span>
@@ -298,13 +310,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       </div>
+      )}
 
-      <div className="p-3 space-y-4">
+      <div className={isCollapsed ? "p-2 space-y-3" : "p-3 space-y-4"}>
         {navGroups.map((group, gIdx) => (
           <div key={gIdx} className="space-y-1">
-            <div className="px-2 text-[10px] font-mono uppercase tracking-wider text-slate-500 font-semibold">
-              {group.label}
-            </div>
+            {isCollapsed ? (
+              gIdx > 0 && <div className="mx-1 border-t border-[#E2E8F0] dark:border-slate-700" />
+            ) : (
+              <div className="px-2 text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400 font-semibold">
+                {group.label}
+              </div>
+            )}
             <div className="space-y-0.5">
               {group.items.map((item) => {
                 const Icon = item.icon;
@@ -316,18 +333,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <button
                     key={item.id}
                     onClick={() => onSelectView(item.id)}
-                    className={`w-full text-left px-2.5 py-1.5 text-xs flex items-center justify-between rounded-sm transition-colors ${
+                    title={isCollapsed ? item.label : undefined}
+                    className={`w-full text-left px-2.5 py-1.5 text-xs flex items-center rounded-sm transition-colors ${
+                      isCollapsed ? "justify-center" : "justify-between"
+                    } ${
                       isActive
-                        ? "bg-white border border-[#CBD5E1] font-semibold text-slate-900 shadow-sm"
-                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                        ? "bg-white dark:bg-slate-700 border border-[#CBD5E1] dark:border-slate-600 font-semibold text-slate-900 dark:text-slate-100 shadow-sm"
+                        : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/60 dark:hover:bg-slate-700/60"
                     }`}
                   >
-                    <div className="flex items-center gap-2 truncate">
-                      <Icon size={14} className={isActive ? "text-slate-900" : "text-slate-500"} />
-                      <span className="truncate">{item.label}</span>
+                    <div className={`flex items-center gap-2 truncate ${isCollapsed ? "relative" : ""}`}>
+                      <Icon size={14} className={isActive ? "text-slate-900 dark:text-slate-100" : "text-slate-500 dark:text-slate-400"} />
+                      {!isCollapsed && <span className="truncate">{item.label}</span>}
+                      {isCollapsed && hasBadge && !isDismissed && (
+                        <span
+                          className={`absolute -top-1.5 -right-1.5 min-w-[13px] h-[13px] px-0.5 rounded-full text-[8px] font-mono font-bold flex items-center justify-center tabular-nums ${
+                            item.badgeStatus === "fail"
+                              ? "bg-red-500 text-white"
+                              : item.badgeStatus === "warn"
+                              ? "bg-amber-500 text-white"
+                              : item.badgeStatus === "pass"
+                              ? "bg-emerald-500 text-white"
+                              : "bg-slate-400 text-white"
+                          }`}
+                        >
+                          {item.badgeCount! > 99 ? "99+" : item.badgeCount}
+                        </span>
+                      )}
                     </div>
 
-                    {hasBadge && (
+                    {!isCollapsed && hasBadge && (
                       isDismissed ? (
                         <span
                           title="Alert badge acknowledged/cleared"
@@ -339,12 +374,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <span
                           className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-sm border tabular-nums ${
                             item.badgeStatus === "fail"
-                              ? "bg-red-50 text-red-700 border-red-200"
+                              ? "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800"
                               : item.badgeStatus === "warn"
-                              ? "bg-amber-50 text-amber-800 border-amber-200"
+                              ? "bg-amber-50 dark:bg-amber-950 text-amber-800 dark:text-amber-400 border-amber-200 dark:border-amber-800"
                               : item.badgeStatus === "pass"
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                              : "bg-slate-100 text-slate-700 border-slate-200"
+                              ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
+                              : "bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600"
                           }`}
                         >
                           {item.badgeCount}
@@ -358,6 +393,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         ))}
       </div>
+
+      <button
+        onClick={onToggleCollapse}
+        title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        className="mt-auto mx-2 mb-2 p-2 flex items-center justify-center text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 rounded-sm transition-colors border border-transparent hover:border-[#CBD5E1] dark:hover:border-slate-600"
+      >
+        {isCollapsed ? <ChevronsRight size={14} /> : <ChevronsLeft size={14} />}
+      </button>
     </aside>
   );
 };
