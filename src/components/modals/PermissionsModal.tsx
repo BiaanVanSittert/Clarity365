@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Modal } from "../common/Modal";
 import { StatusPill } from "../common/StatusPill";
 import { Tenant } from "@/lib/types";
 import { TenantPermissionReport } from "@/lib/services/graph-client";
-import { ShieldCheck, RefreshCw, AlertTriangle, CheckCircle, ExternalLink, Key, Mail, Pencil } from "lucide-react";
+import { DeviceCodeStart } from "@/lib/services/exo-client";
+import { ShieldCheck, RefreshCw, AlertTriangle, CheckCircle, ExternalLink, Key, Mail, Copy, Check } from "lucide-react";
 
 interface PermissionsModalProps {
   isOpen: boolean;
@@ -20,17 +21,25 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
   const [report, setReport] = useState<TenantPermissionReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Exchange Online (MDO Policies) — separate credential/auth flow from the
-  // Graph client secret above, so it gets its own connectivity check and
-  // configuration form rather than living in the permissions table.
-  const [exoConfigured, setExoConfigured] = useState(!!tenant.credentials.certificateThumbprint);
-  const [exoEditing, setExoEditing] = useState(false);
-  const [exoThumbprint, setExoThumbprint] = useState(tenant.credentials.certificateThumbprint || "");
-  const [exoPrivateKey, setExoPrivateKey] = useState("");
-  const [exoSaving, setExoSaving] = useState(false);
+  // Exchange Online (MDO Policies) — separate delegated device-code auth flow
+  // from the Graph client secret above, so it gets its own connectivity
+  // check and connect flow rather than living in the permissions table.
+  const [exoConnected, setExoConnected] = useState(!!tenant.credentials.exoRefreshToken);
+  const [exoDeviceInfo, setExoDeviceInfo] = useState<DeviceCodeStart | null>(null);
+  const [exoPollStatus, setExoPollStatus] = useState<"idle" | "starting" | "pending" | "error" | "expired" | "declined">("idle");
+  const [exoPollError, setExoPollError] = useState<string | null>(null);
+  const [exoCodeCopied, setExoCodeCopied] = useState(false);
   const [exoTesting, setExoTesting] = useState(false);
   const [exoResult, setExoResult] = useState<{ connected: boolean; error?: string; testedAt: string } | null>(null);
-  const [exoSaveError, setExoSaveError] = useState<string | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollDeadlineRef = useRef<number>(0);
+
+  const stopPolling = () => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+  };
 
   const fetchPermissions = async () => {
     setLoading(true);
@@ -67,51 +76,94 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
     }
   };
 
-  const saveExoCertificate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setExoSaveError(null);
-    setExoSaving(true);
+  const pollExoConnect = async (deviceCode: string) => {
+    if (Date.now() > pollDeadlineRef.current) {
+      stopPolling();
+      setExoPollStatus("expired");
+      setExoPollError("The sign-in code expired before it was used.");
+      return;
+    }
     try {
-      const res = await fetch(`/api/tenants/${tenant.id}`, {
-        method: "PUT",
+      const res = await fetch(`/api/tenants/${tenant.id}/exo-connect/poll`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          credentials: {
-            certificateThumbprint: exoThumbprint.trim(),
-            certificatePrivateKeyPem: exoPrivateKey.trim(),
-          },
-        }),
+        body: JSON.stringify({ deviceCode }),
       });
       const data = await res.json();
-      if (!data.success) {
-        throw new Error(data.error || "Failed to save Exchange Online certificate");
+      const status = data.success ? data.result?.status : "error";
+
+      if (status === "success") {
+        stopPolling();
+        setExoPollStatus("idle");
+        setExoDeviceInfo(null);
+        setExoConnected(true);
+        await testExoConnectivity();
+      } else if (status === "pending") {
+        setExoPollStatus("pending");
+      } else {
+        stopPolling();
+        setExoPollStatus(status === "expired" || status === "declined" ? status : "error");
+        setExoPollError(data.result?.error || data.error || "Exchange Online sign-in failed.");
       }
-      setExoConfigured(true);
-      setExoEditing(false);
-      setExoPrivateKey("");
-      await testExoConnectivity();
     } catch (err: any) {
-      setExoSaveError(err.message || "An unexpected error occurred.");
-    } finally {
-      setExoSaving(false);
+      stopPolling();
+      setExoPollStatus("error");
+      setExoPollError(err.message || "Network error while checking sign-in status.");
+    }
+  };
+
+  const startExoConnect = async () => {
+    stopPolling();
+    setExoPollStatus("starting");
+    setExoPollError(null);
+    setExoDeviceInfo(null);
+    try {
+      const res = await fetch(`/api/tenants/${tenant.id}/exo-connect/start`, { method: "POST" });
+      const data = await res.json();
+      if (!data.success || !data.result) {
+        throw new Error(data.error || "Failed to start Exchange Online sign-in.");
+      }
+      const info: DeviceCodeStart = data.result;
+      setExoDeviceInfo(info);
+      setExoPollStatus("pending");
+      pollDeadlineRef.current = Date.now() + info.expiresIn * 1000;
+      pollTimerRef.current = setInterval(() => pollExoConnect(info.deviceCode), Math.max(info.interval, 5) * 1000);
+    } catch (err: any) {
+      setExoPollStatus("error");
+      setExoPollError(err.message || "An unexpected error occurred.");
+    }
+  };
+
+  const copyExoCode = async () => {
+    if (!exoDeviceInfo) return;
+    try {
+      await navigator.clipboard.writeText(exoDeviceInfo.userCode);
+      setExoCodeCopied(true);
+      setTimeout(() => setExoCodeCopied(false), 2000);
+    } catch {
+      // Clipboard write failed — don't show a false "Copied" success state.
     }
   };
 
   useEffect(() => {
     if (isOpen) {
       fetchPermissions();
-      setExoConfigured(!!tenant.credentials.certificateThumbprint);
-      setExoThumbprint(tenant.credentials.certificateThumbprint || "");
-      setExoEditing(false);
-      setExoPrivateKey("");
+      setExoConnected(!!tenant.credentials.exoRefreshToken);
+      setExoDeviceInfo(null);
+      setExoPollStatus("idle");
+      setExoPollError(null);
       setExoResult(null);
-      setExoSaveError(null);
-      if (tenant.credentials.certificateThumbprint) {
+      if (tenant.credentials.exoRefreshToken) {
         testExoConnectivity();
       }
+    } else {
+      stopPolling();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, tenant.id]);
+
+  // Stop any in-flight polling if the modal unmounts entirely.
+  useEffect(() => () => stopPolling(), []);
 
   return (
     <Modal
@@ -234,14 +286,14 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
           </div>
         )}
 
-        {/* Exchange Online (MDO Policies) — separate certificate-based auth flow */}
+        {/* Exchange Online (MDO Policies) — delegated device-code auth flow */}
         <div className="border border-slate-200 p-3 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
               <Mail className="w-4 h-4 text-slate-600" />
               <span>Exchange Online (MDO Policies)</span>
             </div>
-            {exoConfigured && !exoEditing && (
+            {exoConnected && exoPollStatus === "idle" && (
               <div className="flex items-center gap-2">
                 <button
                   onClick={testExoConnectivity}
@@ -252,87 +304,96 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                   {exoTesting ? "Testing..." : "Test Connection"}
                 </button>
                 <button
-                  onClick={() => setExoEditing(true)}
-                  title="Replace certificate"
+                  onClick={startExoConnect}
                   className="flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-sm"
                 >
-                  <Pencil className="w-3.5 h-3.5" />
+                  Reconnect
                 </button>
               </div>
             )}
           </div>
 
-          {!exoConfigured || exoEditing ? (
-            <form onSubmit={saveExoCertificate} className="space-y-2.5">
-              <p className="text-[11px] text-slate-500">
-                Optional — required only to sync Defender for Office 365 policies (anti-phish, anti-spam, Safe Links,
-                Safe Attachments) and the Tenant Allow/Block List. Exchange admin APIs require a certificate; the
-                client secret above cannot be used for this.
-              </p>
-              {exoSaveError && (
-                <div className="p-2 bg-rose-50 border border-rose-200 text-rose-800 text-[11px]">{exoSaveError}</div>
-              )}
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">Certificate Thumbprint</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="A1B2C3D4E5F6...(40 hex characters)"
-                  value={exoThumbprint}
-                  onChange={(e) => setExoThumbprint(e.target.value)}
-                  className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                  Certificate Private Key (PEM) <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  required
-                  rows={4}
-                  placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
-                  value={exoPrivateKey}
-                  onChange={(e) => setExoPrivateKey(e.target.value)}
-                  className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-mono"
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                {exoEditing && (
-                  <button
-                    type="button"
-                    onClick={() => setExoEditing(false)}
-                    className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 border border-[#CBD5E1] bg-white rounded-sm hover:bg-slate-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                )}
+          {exoPollStatus === "idle" ? (
+            !exoConnected ? (
+              <div className="space-y-2.5">
+                <p className="text-[11px] text-slate-500">
+                  Optional — required only to sync Defender for Office 365 policies (anti-phish, anti-spam, Safe
+                  Links, Safe Attachments) and the Tenant Allow/Block List. Exchange admin APIs don't accept the
+                  client secret above, so this uses a one-time sign-in instead — no certificate or app registration
+                  changes needed.
+                </p>
                 <button
-                  type="submit"
-                  disabled={exoSaving}
-                  className="px-3.5 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-sm disabled:opacity-50"
+                  onClick={startExoConnect}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-sm"
                 >
-                  {exoSaving ? "Saving..." : "Save & Test Connection"}
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Connect Exchange Online
                 </button>
               </div>
-            </form>
-          ) : (
-            <div>
-              {exoResult ? (
-                exoResult.connected ? (
-                  <StatusPill status="pass" label="Connected" />
+            ) : (
+              <div>
+                {exoResult ? (
+                  exoResult.connected ? (
+                    <StatusPill status="pass" label="Connected" />
+                  ) : (
+                    <div className="space-y-1">
+                      <StatusPill status="fail" label="Connection Failed" />
+                      {exoResult.error && (
+                        <div className="text-[10px] font-mono text-rose-700 bg-rose-50 p-1.5 border border-rose-200">
+                          {exoResult.error}
+                        </div>
+                      )}
+                    </div>
+                  )
                 ) : (
-                  <div className="space-y-1">
-                    <StatusPill status="fail" label="Connection Failed" />
-                    {exoResult.error && (
-                      <div className="text-[10px] font-mono text-rose-700 bg-rose-50 p-1.5 border border-rose-200">
-                        {exoResult.error}
-                      </div>
-                    )}
-                  </div>
-                )
-              ) : (
-                <span className="text-[11px] text-slate-400">Testing connection...</span>
-              )}
+                  <span className="text-[11px] text-slate-400">Testing connection...</span>
+                )}
+              </div>
+            )
+          ) : exoPollStatus === "starting" ? (
+            <span className="text-[11px] text-slate-400">Starting sign-in...</span>
+          ) : exoPollStatus === "pending" && exoDeviceInfo ? (
+            <div className="space-y-2.5">
+              <p className="text-[11px] text-slate-500">
+                Go to{" "}
+                <a
+                  href={exoDeviceInfo.verificationUri}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-800 underline font-medium"
+                >
+                  {exoDeviceInfo.verificationUri}
+                </a>{" "}
+                and enter this code, signed in as an account with Exchange admin / Security admin rights:
+              </p>
+              <div className="flex items-center gap-2">
+                <span className="px-3 py-1.5 bg-slate-100 border border-slate-300 rounded-sm text-sm font-mono font-semibold tracking-widest text-slate-900">
+                  {exoDeviceInfo.userCode}
+                </span>
+                <button
+                  onClick={copyExoCode}
+                  title="Copy code"
+                  className="flex items-center gap-1 px-2 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-sm"
+                >
+                  {exoCodeCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                <RefreshCw className="w-3 h-3 animate-spin" />
+                Waiting for you to approve access...
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="p-2 bg-rose-50 border border-rose-200 text-rose-800 text-[11px]">
+                {exoPollError || "Exchange Online sign-in failed."}
+              </div>
+              <button
+                onClick={startExoConnect}
+                className="px-3.5 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-sm"
+              >
+                Try Again
+              </button>
             </div>
           )}
         </div>

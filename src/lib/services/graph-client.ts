@@ -428,7 +428,8 @@ export async function deployConditionalAccessPolicy(
 
 export async function fetchLiveTenantSnapshot(
   tenant: Tenant,
-  existingSnapshot?: TenantSecuritySnapshot
+  existingSnapshot?: TenantSecuritySnapshot,
+  onExoRefreshRotated?: (newRefreshToken: string) => void
 ): Promise<{ snapshot?: TenantSecuritySnapshot; error?: string }> {
   if (tenant.credentials.authMode === "mock") {
     return { snapshot: existingSnapshot };
@@ -833,16 +834,16 @@ export async function fetchLiveTenantSnapshot(
 
   // 8. Fetch MDO Policies & TABL via Exchange Online (see exo-client.ts —
   // Defender for Office 365 policies aren't reachable via standard Graph).
-  // Skipped silently (not pushed as a sync error) if no certificate is
-  // configured yet, since that's a separate, optional credential from the
-  // Graph client secret used everywhere else — its absence isn't a fault,
-  // just a not-yet-configured feature. If a certificate IS configured, a
-  // fetch failure IS surfaced as a real sync error.
+  // Skipped silently (not pushed as a sync error) if Exchange Online hasn't
+  // been connected yet, since that's a separate, optional credential from
+  // the Graph client secret used everywhere else — its absence isn't a
+  // fault, just a not-yet-configured feature. If it IS connected, a fetch
+  // failure IS surfaced as a real sync error.
   let mdoPolicies: MdoThreatPolicy[] | null = null;
   let mdoTabl: TablEntry[] | null = null;
-  if (tenant.credentials.certificateThumbprint && tenant.credentials.certificatePrivateKeyPem) {
+  if (tenant.credentials.exoRefreshToken) {
     try {
-      const { policies, tabl, errors } = await fetchMdoPoliciesAndTabl(tenant);
+      const { policies, tabl, errors } = await fetchMdoPoliciesAndTabl(tenant, onExoRefreshRotated);
       errors.forEach((e) => syncErrors.push(`MDO Policies: ${e}`));
       mdoPolicies = policies;
       mdoTabl = tabl;

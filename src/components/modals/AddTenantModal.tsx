@@ -277,8 +277,8 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
               {" "}Use the Permissions check after adding this tenant to confirm every scope is granted.
             </p>
             <p className="text-[11px] text-slate-500">
-              Defender for Office 365 policy sync (MDO Policies) needs a separate Exchange Online certificate, not a
-              Graph permission — configure it from the Permissions check after adding this tenant.
+              Defender for Office 365 policy sync (MDO Policies) needs a separate one-time Exchange Online sign-in, not a
+              Graph permission — connect it from the Permissions check after adding this tenant.
             </p>
           </div>
         )}

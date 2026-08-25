@@ -11,7 +11,14 @@ import {
   deployConditionalAccessPolicy,
   TenantPermissionReport,
 } from "./graph-client";
-import { testExoConnectivity, ExoConnectivityResult } from "./exo-client";
+import {
+  testExoConnectivity,
+  ExoConnectivityResult,
+  startExoDeviceCodeFlow,
+  pollExoDeviceCodeFlow,
+  DeviceCodeStart,
+  DeviceCodePollStatus,
+} from "./exo-client";
 
 interface AuthConfigRow {
   passwordHash: string;
@@ -240,26 +247,24 @@ class TenantStore {
   }
 
   // ---- Secret handling -----------------------------------------------------------
-  // Tenants are ALWAYS held on disk with clientSecret and certificatePrivateKeyPem
+  // Tenants are ALWAYS held on disk with clientSecret and exoRefreshToken
   // encrypted (or absent). Decryption only ever happens transiently, right before a
   // Graph/Exchange Online API call. Anything handed back to an API route/UI goes
   // through sanitizeTenant/sanitizeSnapshot, which mask both entirely — they are
-  // write-only fields from the client's perspective. certificatePrivateKeyPem is, if
-  // anything, more sensitive than clientSecret (a long-lived key rather than a
-  // rotatable secret), so it gets identical treatment, not lesser.
+  // write-only fields from the client's perspective.
 
   private encryptTenantSecret(tenant: Tenant): Tenant {
     const secret = tenant.credentials.clientSecret;
-    const privateKey = tenant.credentials.certificatePrivateKeyPem;
+    const refreshToken = tenant.credentials.exoRefreshToken;
     const needsSecretEncryption = secret && !isEncrypted(secret);
-    const needsKeyEncryption = privateKey && !isEncrypted(privateKey);
-    if (!needsSecretEncryption && !needsKeyEncryption) return tenant;
+    const needsTokenEncryption = refreshToken && !isEncrypted(refreshToken);
+    if (!needsSecretEncryption && !needsTokenEncryption) return tenant;
     return {
       ...tenant,
       credentials: {
         ...tenant.credentials,
         clientSecret: needsSecretEncryption ? encryptSecret(secret!) : secret,
-        certificatePrivateKeyPem: needsKeyEncryption ? encryptSecret(privateKey!) : privateKey,
+        exoRefreshToken: needsTokenEncryption ? encryptSecret(refreshToken!) : refreshToken,
       },
     };
   }
@@ -270,7 +275,7 @@ class TenantStore {
       credentials: {
         ...tenant.credentials,
         clientSecret: tenant.credentials.clientSecret ? SECRET_MASK : undefined,
-        certificatePrivateKeyPem: tenant.credentials.certificatePrivateKeyPem ? SECRET_MASK : undefined,
+        exoRefreshToken: tenant.credentials.exoRefreshToken ? SECRET_MASK : undefined,
       },
     };
   }
@@ -284,15 +289,28 @@ class TenantStore {
     const tenant = this.getTenantRow(id);
     if (!tenant) return undefined;
     const secret = tenant.credentials.clientSecret;
-    const privateKey = tenant.credentials.certificatePrivateKeyPem;
+    const refreshToken = tenant.credentials.exoRefreshToken;
     return {
       ...tenant,
       credentials: {
         ...tenant.credentials,
         clientSecret: secret && isEncrypted(secret) ? decryptSecret(secret) : secret,
-        certificatePrivateKeyPem: privateKey && isEncrypted(privateKey) ? decryptSecret(privateKey) : privateKey,
+        exoRefreshToken: refreshToken && isEncrypted(refreshToken) ? decryptSecret(refreshToken) : refreshToken,
       },
     };
+  }
+
+  // Exchange Online refresh tokens rotate on every use (single-use, public-
+  // client tokens) — this is called as the rotation callback threaded through
+  // exo-client.ts's calls so the new token is saved immediately, not just
+  // whatever token was current when the sync started.
+  private persistExoRefreshToken(tenantId: string, newRefreshToken: string): void {
+    const row = this.getTenantRow(tenantId);
+    if (!row) return;
+    this.putTenantRow({
+      ...row,
+      credentials: { ...row.credentials, exoRefreshToken: encryptSecret(newRefreshToken) },
+    });
   }
 
   /** @internal Raw (encrypted-secret) snapshot lookup/creation. */
@@ -329,7 +347,9 @@ class TenantStore {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return undefined;
     const existing = this.getSnapshotRow(tenantId);
-    const { snapshot, error } = await fetchLiveTenantSnapshot(tenant, existing);
+    const { snapshot, error } = await fetchLiveTenantSnapshot(tenant, existing, (newToken) =>
+      this.persistExoRefreshToken(tenantId, newToken)
+    );
     if (snapshot) {
       // Never let a decrypted secret end up persisted in the snapshot's embedded tenant.
       snapshot.tenant = this.encryptTenantSecret(snapshot.tenant);
@@ -369,7 +389,23 @@ class TenantStore {
   public async testExoConnectivity(tenantId: string): Promise<ExoConnectivityResult | null> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return null;
-    return await testExoConnectivity(tenant);
+    return await testExoConnectivity(tenant, (newToken) => this.persistExoRefreshToken(tenantId, newToken));
+  }
+
+  public async startExoConnect(tenantId: string): Promise<{ result?: DeviceCodeStart; error?: string } | null> {
+    const tenant = this.getTenantRow(tenantId);
+    if (!tenant) return null;
+    return await startExoDeviceCodeFlow(tenant.credentials.tenantId);
+  }
+
+  public async pollExoConnect(tenantId: string, deviceCode: string): Promise<{ status: DeviceCodePollStatus; error?: string } | null> {
+    const tenant = this.getTenantRow(tenantId);
+    if (!tenant) return null;
+    const result = await pollExoDeviceCodeFlow(tenant.credentials.tenantId, deviceCode);
+    if (result.status === "success" && result.refreshToken) {
+      this.persistExoRefreshToken(tenantId, result.refreshToken);
+    }
+    return { status: result.status, error: result.error };
   }
 
   public async deployBaselinePolicy(
@@ -446,18 +482,17 @@ class TenantStore {
     let mergedCredentials = existing.credentials;
     if (updates.credentials) {
       const incomingSecret = updates.credentials.clientSecret;
-      const incomingPrivateKey = updates.credentials.certificatePrivateKeyPem;
       // A masked value coming back from the UI (or no value at all) means "leave the
       // existing secret alone" — the client never has the real value to send back.
+      // exoRefreshToken is deliberately NOT handled here — it's exclusively written by
+      // persistExoRefreshToken() as part of the device-code connect/rotation flow, never
+      // through this generic update path, so the spread below naturally leaves it alone
+      // whenever a caller's update payload doesn't mention it.
       const keepExistingSecret = !incomingSecret || incomingSecret === SECRET_MASK;
-      const keepExistingPrivateKey = !incomingPrivateKey || incomingPrivateKey === SECRET_MASK;
       mergedCredentials = {
         ...existing.credentials,
         ...updates.credentials,
         clientSecret: keepExistingSecret ? existing.credentials.clientSecret : encryptSecret(incomingSecret!),
-        certificatePrivateKeyPem: keepExistingPrivateKey
-          ? existing.credentials.certificatePrivateKeyPem
-          : encryptSecret(incomingPrivateKey!),
       };
     }
 

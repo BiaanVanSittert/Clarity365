@@ -19,13 +19,17 @@ export interface TenantCredentials {
   tenantId: string;
   clientId?: string;
   clientSecret?: string;
-  // Optional Exchange Online / Security & Compliance certificate credential,
-  // used only for MDO policy & TABL sync (see exo-client.ts) — Exchange admin
-  // APIs don't accept the client-secret flow used for everything else in this
-  // app. Independent of authMode/clientSecret: a tenant can have Graph secret
-  // auth configured with or without this certificate also being set up.
-  certificateThumbprint?: string;
-  certificatePrivateKeyPem?: string;
+  // Optional Exchange Online delegated-auth connection, used only for MDO
+  // policy & TABL sync (see exo-client.ts) — Exchange admin APIs don't accept
+  // the client-secret flow used for everything else in this app. Established
+  // via a one-time device-code sign-in (Microsoft's own first-party EXO
+  // PowerShell client, no custom app registration changes needed) rather than
+  // a certificate; the refresh token rotates on every use and is re-persisted
+  // each time, encrypted, exactly like clientSecret. Independent of
+  // authMode/clientSecret: a tenant can have Graph secret auth configured
+  // with or without this connection also being set up.
+  exoRefreshToken?: string;
+  exoConnectedAt?: string;
   authMode: "mock" | "secret" | "certificate";
   verifiedAt?: string;
   status: "connected" | "syncing" | "error" | "offline";
