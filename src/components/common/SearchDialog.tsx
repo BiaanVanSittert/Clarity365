@@ -112,11 +112,11 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleInputKeyDown}
-            className="w-full pl-9 pr-3 py-2 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+            className="w-full pl-9 pr-3 py-2 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
           />
         </div>
 
-        <div className="max-h-64 overflow-y-auto space-y-1 divide-y divide-slate-100">
+        <div className="max-h-64 overflow-y-auto space-y-1 divide-y divide-slate-100 dark:divide-slate-700">
           {filteredItems.length === 0 ? (
             <div className="p-4 text-center text-xs text-slate-500">No matching views or tenants found.</div>
           ) : (
@@ -128,12 +128,12 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
                   key={item.id}
                   onClick={() => handleSelect(item)}
                   onMouseEnter={() => setSelectedIndex(idx)}
-                  className={`w-full px-3 py-2 text-left flex items-center justify-between rounded-sm text-xs text-slate-800 group transition-colors ${
-                    isSelected ? "bg-slate-100" : "hover:bg-slate-50"
+                  className={`w-full px-3 py-2 text-left flex items-center justify-between rounded-sm text-xs text-slate-800 dark:text-slate-200 group transition-colors ${
+                    isSelected ? "bg-slate-100 dark:bg-slate-700" : "hover:bg-slate-50 dark:hover:bg-slate-700/60"
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <Icon size={14} className={isSelected ? "text-slate-900" : "text-slate-500 group-hover:text-slate-900"} />
+                    <Icon size={14} className={isSelected ? "text-slate-900 dark:text-slate-100" : "text-slate-500 group-hover:text-slate-900 dark:group-hover:text-slate-100"} />
                     <span>{item.title}</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">

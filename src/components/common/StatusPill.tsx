@@ -85,10 +85,10 @@ export const StatusPill: React.FC<StatusPillProps> = ({
   }
 
   const styles = {
-    pass: "bg-[#ECFDF5] border-[#10B981] text-[#065F46]",
-    warn: "bg-[#FFFBEB] border-[#F59E0B] text-[#92400E]",
-    fail: "bg-[#FEF2F2] border-[#EF4444] text-[#991B1B]",
-    info: "bg-[#F1F5F9] border-[#CBD5E1] text-[#334155]",
+    pass: "bg-[#ECFDF5] border-[#10B981] text-[#065F46] dark:bg-emerald-950 dark:border-emerald-800 dark:text-emerald-400",
+    warn: "bg-[#FFFBEB] border-[#F59E0B] text-[#92400E] dark:bg-amber-950 dark:border-amber-800 dark:text-amber-400",
+    fail: "bg-[#FEF2F2] border-[#EF4444] text-[#991B1B] dark:bg-red-950 dark:border-red-800 dark:text-red-400",
+    info: "bg-[#F1F5F9] border-[#CBD5E1] text-[#334155] dark:bg-slate-800 dark:border-slate-600 dark:text-slate-300",
   };
 
   const sizeClasses = size === "sm" ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs";
