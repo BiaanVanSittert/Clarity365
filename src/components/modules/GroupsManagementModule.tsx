@@ -3,6 +3,7 @@ import { TenantSecuritySnapshot, TenantGroup } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Modal } from "../common/Modal";
 import { Drawer } from "../common/Drawer";
+import { LocalOnlyNotice } from "../common/LocalOnlyNotice";
 import { Users, Plus, Search, Filter, Shield, Mail, CheckCircle2, ChevronRight } from "lucide-react";
 
 interface GroupsManagementModuleProps {
@@ -327,6 +328,8 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
               className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
             />
           </div>
+
+          <LocalOnlyNotice />
 
           <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0]">
             <button

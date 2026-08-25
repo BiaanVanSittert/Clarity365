@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { TenantSecuritySnapshot, TablEntry, MdoThreatPolicy } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Modal } from "../common/Modal";
+import { LocalOnlyNotice } from "../common/LocalOnlyNotice";
 import { Layers, ShieldCheck, ShieldAlert, Plus, Trash2, Search, Filter, CheckCircle2, AlertTriangle } from "lucide-react";
 
 interface MdoPoliciesModuleProps {
@@ -358,6 +359,8 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
               className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
             />
           </div>
+
+          <LocalOnlyNotice />
 
           <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0]">
             <button

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { TenantSecuritySnapshot, SharePointSiteItem } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
+import { LocalOnlyNotice } from "../common/LocalOnlyNotice";
 import { FileSpreadsheet, HardDrive, Share2, AlertTriangle, Search, Filter, ShieldCheck, Check } from "lucide-react";
 
 interface SharePointStorageModuleProps {
@@ -123,6 +124,7 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
             <span>{isSavingPolicy ? "Updating..." : saveSuccess ? "Policy Applied" : "Update Tenant Policy"}</span>
           </button>
         </form>
+        <LocalOnlyNotice />
       </div>
 
       {/* Site Filter & Search */}
