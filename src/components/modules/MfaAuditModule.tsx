@@ -39,6 +39,7 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
 
     if (filterType === "all") return matchesSearch;
     if (filterType === "weak") return matchesSearch && (u.isWeakAuth || !u.mfaRegistered);
+    if (filterType === "weak_only") return matchesSearch && u.isWeakAuth && u.mfaRegistered;
     if (filterType === "missing") return matchesSearch && !u.mfaRegistered;
     if (filterType === "admins") return matchesSearch && u.isAdmin;
     if (filterType === "phishing_resistant") return matchesSearch && u.defaultMethod === "passkey_fido2";
@@ -100,15 +101,31 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
         </button>
       </div>
 
-      {/* Summary Matrix Cards */}
+      {/* Summary Matrix Cards — click any card to filter the table below */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-        <div className="p-3 bg-white border border-[#CBD5E1] rounded-sm">
+        <div
+          onClick={() => setFilterType("all")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setFilterType("all"))}
+          className={`p-3 bg-white border rounded-sm cursor-pointer transition-colors hover:bg-slate-50 ${
+            filterType === "all" ? "border-slate-900 ring-1 ring-slate-900" : "border-[#CBD5E1]"
+          }`}
+        >
           <div className="text-[10px] uppercase font-mono text-slate-500 font-semibold">Total Audited Users</div>
           <div className="text-xl font-bold font-mono text-slate-900 tabular-nums mt-0.5">{totalUsers}</div>
           <div className="text-[11px] text-slate-500 mt-0.5">Directory accounts</div>
         </div>
 
-        <div className="p-3 bg-[#ECFDF5] border border-[#10B981] rounded-sm">
+        <div
+          onClick={() => setFilterType("phishing_resistant")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setFilterType("phishing_resistant"))}
+          className={`p-3 bg-[#ECFDF5] border rounded-sm cursor-pointer transition-colors hover:bg-emerald-100/60 ${
+            filterType === "phishing_resistant" ? "border-[#10B981] ring-1 ring-[#10B981]" : "border-[#10B981]"
+          }`}
+        >
           <div className="text-[10px] uppercase font-mono text-[#065F46] font-semibold">Phishing-Resistant (FIDO2)</div>
           <div className="text-xl font-bold font-mono text-[#065F46] tabular-nums mt-0.5">
             {phishingResistantUsers.length}
@@ -116,7 +133,15 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
           <div className="text-[11px] text-[#065F46] mt-0.5">FIDO2 / Security Keys</div>
         </div>
 
-        <div className="p-3 bg-[#FEF2F2] border border-[#EF4444] rounded-sm">
+        <div
+          onClick={() => setFilterType("weak_only")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setFilterType("weak_only"))}
+          className={`p-3 bg-[#FEF2F2] border rounded-sm cursor-pointer transition-colors hover:bg-red-100/50 ${
+            filterType === "weak_only" ? "border-[#EF4444] ring-1 ring-[#EF4444]" : "border-[#EF4444]"
+          }`}
+        >
           <div className="text-[10px] uppercase font-mono text-[#991B1B] font-semibold flex items-center gap-1">
             <AlertTriangle size={11} />
             <span>Weak Authentication (SMS/OTP)</span>
@@ -127,7 +152,15 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
           <div className="text-[11px] text-[#991B1B] mt-0.5">Susceptible to SIM Swap</div>
         </div>
 
-        <div className="p-3 bg-[#FEF2F2] border border-[#EF4444] rounded-sm">
+        <div
+          onClick={() => setFilterType("missing")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setFilterType("missing"))}
+          className={`p-3 bg-[#FEF2F2] border rounded-sm cursor-pointer transition-colors hover:bg-red-100/50 ${
+            filterType === "missing" ? "border-[#EF4444] ring-1 ring-[#EF4444]" : "border-[#EF4444]"
+          }`}
+        >
           <div className="text-[10px] uppercase font-mono text-[#991B1B] font-semibold flex items-center gap-1">
             <AlertTriangle size={11} />
             <span>Missing MFA Registration</span>
@@ -161,6 +194,8 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
           >
             <option value="all">All Users ({mfaAudit.length})</option>
             <option value="weak">Weak / Missing MFA Flags</option>
+            <option value="weak_only">Weak Authentication (SMS/OTP)</option>
+            <option value="missing">Missing MFA Registration</option>
             <option value="admins">Privileged Administrators</option>
             <option value="phishing_resistant">Phishing-Resistant (FIDO2)</option>
           </select>
