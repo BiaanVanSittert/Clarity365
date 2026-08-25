@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Modal } from "../common/Modal";
 import { Trash2, AlertTriangle } from "lucide-react";
 import { Tenant } from "@/lib/types";
@@ -18,10 +18,25 @@ export const DeleteTenantModal: React.FC<DeleteTenantModalProps> = ({
 }) => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmText, setConfirmText] = useState("");
+
+  // Reset confirmation state whenever the modal is (re)opened — otherwise a
+  // previous failed attempt's error banner (or a typed confirmation for a
+  // different tenant) could linger into the next open.
+  useEffect(() => {
+    if (isOpen) {
+      setIsDeleting(false);
+      setError(null);
+      setConfirmText("");
+    }
+  }, [isOpen]);
 
   if (!tenant) return null;
 
+  const isConfirmed = confirmText.trim() === tenant.displayName;
+
   const handleDelete = async () => {
+    if (!isConfirmed) return;
     setIsDeleting(true);
     setError(null);
     try {
@@ -60,9 +75,23 @@ export const DeleteTenantModal: React.FC<DeleteTenantModalProps> = ({
           <div className="text-xs text-amber-800 space-y-1">
             <p className="font-semibold">Are you sure you want to disconnect this tenant?</p>
             <p>
-              This will remove <strong>{tenant.displayName}</strong> (<code className="font-mono text-[11px]">{tenant.defaultDomainName}</code>) and clear all cached telemetry and snapshots from Clarity365.
+              This will remove <strong>{tenant.displayName}</strong> (<code className="font-mono text-[11px]">{tenant.defaultDomainName}</code>) and clear all cached telemetry and snapshots from Clarity365. This action cannot be undone.
             </p>
           </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 mb-1">
+            Type <span className="font-mono text-slate-900">{tenant.displayName}</span> to confirm
+          </label>
+          <input
+            type="text"
+            autoFocus
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={tenant.displayName}
+            className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-red-500 bg-white"
+          />
         </div>
 
         <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0]">
@@ -76,8 +105,9 @@ export const DeleteTenantModal: React.FC<DeleteTenantModalProps> = ({
           <button
             type="button"
             onClick={handleDelete}
-            disabled={isDeleting}
-            className="px-3.5 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-sm flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            disabled={isDeleting || !isConfirmed}
+            title={!isConfirmed ? "Type the tenant name exactly to enable removal" : undefined}
+            className="px-3.5 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-sm flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Trash2 size={14} />
             <span>{isDeleting ? "Removing..." : "Confirm Removal"}</span>

@@ -19,12 +19,9 @@ interface AuthConfigRow {
 
 const DEFAULT_SETTINGS: SystemSettings = {
   enableMcpServer: true,
-  mcpServerPort: 8365,
   allowToolExecution: true,
   autoSyncIntervalMinutes: 30,
   auditLogRetentionDays: 90,
-  defaultTheme: "light",
-  tableDensity: "compact",
 };
 
 // SQLite-backed store for multi-tenant configurations and snapshots. Each entity is
@@ -391,7 +388,12 @@ class TenantStore {
       tier: tenantData.tier || "M365_E5",
       createdDate: new Date().toISOString(),
       lastSyncTimestamp: new Date().toISOString(),
-      connectionStatus: "healthy",
+      // Demo tenants have nothing to validate, so they're immediately "healthy".
+      // A newly-added live tenant hasn't had its credentials verified against
+      // Microsoft Graph yet — show it as disconnected until the first sync
+      // (or permissions check) actually succeeds, rather than a misleading
+      // green "healthy" badge for credentials that were never tested.
+      connectionStatus: tenantData.isDemo ? "healthy" : "disconnected",
       credentials: tenantData.credentials || {
         tenantId: tenantData.organizationId || crypto.randomUUID(),
         authMode: "mock",

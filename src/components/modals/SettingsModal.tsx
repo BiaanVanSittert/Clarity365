@@ -12,16 +12,14 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [settings, setSettings] = useState<SystemSettings>({
     enableMcpServer: true,
-    mcpServerPort: 8365,
     allowToolExecution: true,
     autoSyncIntervalMinutes: 30,
     auditLogRetentionDays: 90,
-    defaultTheme: "light",
-    tableDensity: "compact",
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // Change Password
   const [currentPassword, setCurrentPassword] = useState("");
@@ -39,6 +37,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       setConfirmNewPassword("");
       setPasswordError(null);
       setPasswordSuccess(false);
+      setSettingsError(null);
+      setSavedSuccess(false);
     }
   }, [isOpen]);
 
@@ -72,14 +72,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const fetchSettings = async () => {
     setIsLoading(true);
+    setSettingsError(null);
     try {
       const res = await fetch("/api/settings");
       const data = await res.json();
       if (data.success && data.settings) {
         setSettings(data.settings);
+      } else {
+        setSettingsError(data.error || "Failed to load current settings — showing defaults, which may not reflect what's actually saved.");
       }
     } catch (err) {
       console.error("Failed to fetch settings", err);
+      setSettingsError("Failed to load current settings — showing defaults, which may not reflect what's actually saved.");
     } finally {
       setIsLoading(false);
     }
@@ -89,6 +93,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     e.preventDefault();
     setIsSaving(true);
     setSavedSuccess(false);
+    setSettingsError(null);
 
     try {
       const res = await fetch("/api/settings", {
@@ -103,9 +108,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           setSavedSuccess(false);
           onClose();
         }, 800);
+      } else {
+        setSettingsError(data.error || "Failed to save settings.");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to save settings", err);
+      setSettingsError(err.message || "Failed to reach the server while saving settings.");
     } finally {
       setIsSaving(false);
     }
@@ -121,6 +129,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     >
       <div className="space-y-4">
       <form onSubmit={handleSave} className="space-y-4">
+        {settingsError && (
+          <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-sm">
+            {settingsError}
+          </div>
+        )}
+
         {/* Localhost Security Notice */}
         <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm flex items-start gap-2.5">
           <Shield size={16} className="text-slate-700 shrink-0 mt-0.5" />
@@ -170,18 +184,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <span>Allow Autonomous Tool Execution</span>
             </label>
           </div>
-
-          <div>
-            <label className="block text-[11px] font-medium text-slate-600 mb-1">
-              Internal MCP Standalone Port (Localhost)
-            </label>
-            <input
-              type="number"
-              value={settings.mcpServerPort}
-              onChange={(e) => setSettings({ ...settings, mcpServerPort: parseInt(e.target.value) || 8365 })}
-              className="w-40 px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-mono"
-            />
-          </div>
+          <p className="text-[11px] text-slate-500">
+            When disabled, MCP agents can still read tenant data but cannot modify the Tenant Allow/Block List.
+          </p>
         </div>
 
         {/* Sync & Retention */}

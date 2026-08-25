@@ -66,7 +66,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [localDismissed, setLocalDismissed] = useState<Record<string, boolean>>({});
   const [allCleared, setAllCleared] = useState<boolean>(false);
 
-  useEffect(() => {
+  const readDismissedState = () => {
     try {
       const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tenantId}`);
       if (stored) {
@@ -80,6 +80,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     } catch {
       // Fallback
     }
+  };
+
+  useEffect(() => {
+    readDismissedState();
+    // Modules dispatch a synthetic "storage" event after they write an
+    // alert-clearance change to localStorage (see e.g. ConditionalAccessModule's
+    // handleClearAlerts) so the sidebar badge updates immediately instead of
+    // only on the next tenant switch/reload.
+    window.addEventListener("storage", readDismissedState);
+    return () => window.removeEventListener("storage", readDismissedState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
   const saveDismissedState = (newAllCleared: boolean, newModules: Record<string, boolean>) => {

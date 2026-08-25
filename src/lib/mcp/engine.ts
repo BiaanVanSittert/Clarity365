@@ -152,7 +152,20 @@ async function runMcpTool(name: string, args: Record<string, any>) {
 
       if (args.action === "list") {
         return { success: true, tenant: snap.tenant.displayName, entries: snap.mdoThreat.tabl };
-      } else if (args.action === "add") {
+      }
+
+      // "add"/"remove" mutate tenant data — respect the "Allow Autonomous Tool
+      // Execution" setting, unlike the read-only actions above/below.
+      if (args.action === "add" || args.action === "remove") {
+        if (!tenantStore.getSettings().allowToolExecution) {
+          return {
+            success: false,
+            error: "Autonomous tool execution is disabled in Settings — enable 'Allow Autonomous Tool Execution' to let MCP agents modify tenant data.",
+          };
+        }
+      }
+
+      if (args.action === "add") {
         if (!args.entry || !args.entry.value || !args.entry.listType || !args.entry.entryType) {
           return { success: false, error: "Missing required entry parameters (value, listType, entryType)." };
         }

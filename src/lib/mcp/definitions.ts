@@ -154,7 +154,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
         },
         findingType: {
           type: "string",
-          enum: ["all", "conditional_access", "email_forwarding", "mfa_audit", "user_classification"],
+          enum: ["all", "conditional_access", "email_forwarding", "mfa_audit", "user_classification", "sharepoint_sharing", "unprotected_admins"],
           description: "Scope of remediation plan",
         },
       },

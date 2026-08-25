@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Modal } from "../common/Modal";
 import { TenantLicenseType } from "@/lib/types";
 import { ShieldCheck, Plus, Key, Globe, Server, Check } from "lucide-react";
@@ -9,21 +9,67 @@ interface AddTenantModalProps {
   onTenantAdded: () => void;
 }
 
+const GUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const INITIAL_STATE = {
+  mode: "live" as "demo" | "live",
+  displayName: "",
+  defaultDomainName: "",
+  organizationId: "",
+  primaryContact: "",
+  tier: "M365_E5" as TenantLicenseType,
+  clientId: "",
+  clientSecret: "",
+};
+
 export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose, onTenantAdded }) => {
-  const [mode, setMode] = useState<"demo" | "live">("live");
-  const [displayName, setDisplayName] = useState("");
-  const [defaultDomainName, setDefaultDomainName] = useState("");
-  const [organizationId, setOrganizationId] = useState("");
-  const [primaryContact, setPrimaryContact] = useState("");
-  const [tier, setTier] = useState<TenantLicenseType>("M365_E5");
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
+  const [mode, setMode] = useState(INITIAL_STATE.mode);
+  const [displayName, setDisplayName] = useState(INITIAL_STATE.displayName);
+  const [defaultDomainName, setDefaultDomainName] = useState(INITIAL_STATE.defaultDomainName);
+  const [organizationId, setOrganizationId] = useState(INITIAL_STATE.organizationId);
+  const [primaryContact, setPrimaryContact] = useState(INITIAL_STATE.primaryContact);
+  const [tier, setTier] = useState<TenantLicenseType>(INITIAL_STATE.tier);
+  const [clientId, setClientId] = useState(INITIAL_STATE.clientId);
+  const [clientSecret, setClientSecret] = useState(INITIAL_STATE.clientSecret);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Reset all form state whenever the modal is (re)opened, so a previous
+  // failed attempt's error banner and typed values don't linger.
+  useEffect(() => {
+    if (isOpen) {
+      setMode(INITIAL_STATE.mode);
+      setDisplayName(INITIAL_STATE.displayName);
+      setDefaultDomainName(INITIAL_STATE.defaultDomainName);
+      setOrganizationId(INITIAL_STATE.organizationId);
+      setPrimaryContact(INITIAL_STATE.primaryContact);
+      setTier(INITIAL_STATE.tier);
+      setClientId(INITIAL_STATE.clientId);
+      setClientSecret(INITIAL_STATE.clientSecret);
+      setIsSubmitting(false);
+      setError(null);
+    }
+  }, [isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (mode === "live") {
+      if (!organizationId.trim() || !clientId.trim() || !clientSecret.trim()) {
+        setError("Directory (Tenant) ID, Application (Client) ID, and Client Secret are all required to connect a live tenant.");
+        return;
+      }
+      if (!GUID_REGEX.test(organizationId.trim())) {
+        setError("Directory (Tenant) ID must be a valid GUID (e.g. 00000000-0000-0000-0000-000000000000).");
+        return;
+      }
+      if (!GUID_REGEX.test(clientId.trim())) {
+        setError("Application (Client) ID must be a valid GUID.");
+        return;
+      }
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -35,10 +81,10 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
         tier,
         isDemo: mode === "demo",
         credentials: {
-          tenantId: organizationId.trim() || crypto.randomUUID(),
+          tenantId: mode === "live" ? organizationId.trim() : organizationId.trim() || crypto.randomUUID(),
           clientId: clientId.trim() || undefined,
           clientSecret: clientSecret.trim() || undefined,
-          authMode: mode === "live" && clientId ? "secret" : "mock",
+          authMode: mode === "live" ? "secret" : "mock",
           status: "connected",
         },
       };
@@ -56,13 +102,6 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
 
       onTenantAdded();
       onClose();
-      // Reset form
-      setDisplayName("");
-      setDefaultDomainName("");
-      setOrganizationId("");
-      setPrimaryContact("");
-      setClientId("");
-      setClientSecret("");
     } catch (err: any) {
       setError(err.message || "An unexpected error occurred.");
     } finally {
@@ -175,10 +214,11 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
 
             <div>
               <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                Directory (Tenant) ID
+                Directory (Tenant) ID <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
+                required={mode === "live"}
                 placeholder="00000000-0000-0000-0000-000000000000"
                 value={organizationId}
                 onChange={(e) => setOrganizationId(e.target.value)}
@@ -189,10 +229,11 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                  Application (Client) ID
+                  Application (Client) ID <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
+                  required={mode === "live"}
                   placeholder="Application ID"
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
@@ -202,10 +243,11 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
 
               <div>
                 <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                  Client Secret Value
+                  Client Secret Value <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="password"
+                  required={mode === "live"}
                   placeholder="Secret Value"
                   value={clientSecret}
                   onChange={(e) => setClientSecret(e.target.value)}

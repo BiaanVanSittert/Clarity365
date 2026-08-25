@@ -419,13 +419,12 @@ export interface AuditLogEntry {
 // System Settings & MCP Config
 export interface SystemSettings {
   enableMcpServer: boolean;
-  mcpServerPort: number;
   mcpAuthToken?: string;
+  // Gates manage_tabl's mutating add/remove actions (see src/lib/mcp/engine.ts) —
+  // read-only MCP tools always run regardless of this setting.
   allowToolExecution: boolean;
   autoSyncIntervalMinutes: number;
   auditLogRetentionDays: number;
-  defaultTheme: "light" | "system";
-  tableDensity: "compact" | "normal";
 }
 
 // Time Range & Date Filter Types

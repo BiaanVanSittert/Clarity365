@@ -151,5 +151,72 @@ Write-Host "Orphaned accounts blocked and sessions revoked." -ForegroundColor Gr
     });
   }
 
+  // Check 5: Open SharePoint/OneDrive Sharing Links ("Anyone" links)
+  const openSharingSites = snapshot.sharePoint.sites.filter((s) => s.sharingCapability === "Anyone");
+  if (
+    (openSharingSites.length > 0 || snapshot.highRiskThreatIndicators.openSharePointSitesCount > 0) &&
+    (!findingType || findingType === "sharepoint_sharing")
+  ) {
+    const siteList = openSharingSites.map((s) => s.siteName).join(", ") || "one or more sites";
+    plans.push({
+      title: `Restrict "Anyone" External Sharing Links (${openSharingSites.length || snapshot.highRiskThreatIndicators.openSharePointSitesCount} site(s) affected)`,
+      category: "Collaboration & Governance",
+      severity: "high",
+      summary: `${siteList} allow anonymous "Anyone" sharing links, which require no sign-in and can be forwarded indefinitely — a common data exfiltration and unauthorized-access vector.`,
+      steps: [
+        "Review each flagged site's active sharing links and revoke any that are no longer needed.",
+        "Lower the site-level sharing capability from 'Anyone' to 'New and existing guests' or 'Only people in your organization'.",
+        "Set a tenant-wide anonymous link expiration policy so any future 'Anyone' links auto-expire.",
+        "Re-audit sharing links quarterly via the SharePoint admin center or Microsoft Purview.",
+      ],
+      powershellScript: `# Connect to SharePoint Online
+Connect-SPOService -Url "https://${snapshot.tenant.defaultDomainName.split(".")[0]}-admin.sharepoint.com"
+
+${openSharingSites
+  .map(
+    (s) => `# Restrict sharing on ${s.siteName}
+Set-SPOSite -Identity "${s.siteUrl}" -SharingCapability ExistingExternalUserSharingOnly`
+  )
+  .join("\n\n") || "# Restrict sharing on the affected site(s) identified in the SharePoint admin center\nSet-SPOSite -Identity \"<SiteUrl>\" -SharingCapability ExistingExternalUserSharingOnly"}
+
+Write-Host "External 'Anyone' sharing links restricted." -ForegroundColor Green`,
+      rollbackPlan: "Restore the site's prior sharing capability with `Set-SPOSite -Identity <SiteUrl> -SharingCapability Anyone` if a legitimate business need is approved.",
+    });
+  }
+
+  // Check 6: Unprotected Global/Privileged Admin Accounts (no MFA or weak MFA)
+  const unprotectedAdmins = snapshot.mfaAudit.filter((u) => u.isAdmin && (!u.mfaRegistered || u.isWeakAuth));
+  if (
+    (unprotectedAdmins.length > 0 || snapshot.highRiskThreatIndicators.unprotectedAdminsCount > 0) &&
+    (!findingType || findingType === "unprotected_admins")
+  ) {
+    const adminList = unprotectedAdmins.map((u) => u.userPrincipalName).join(", ") || "one or more privileged accounts";
+    plans.push({
+      title: `Secure Unprotected Administrative Accounts (${unprotectedAdmins.length || snapshot.highRiskThreatIndicators.unprotectedAdminsCount} admin(s) affected)`,
+      category: "Identity & Authentication",
+      severity: "critical",
+      summary: `${adminList} hold administrative directory roles but have no MFA registered or rely on a weak authentication method (SMS/Voice/Email OTP). A compromised admin credential without strong MFA is a direct path to full tenant takeover.`,
+      steps: [
+        "Require immediate MFA registration for every flagged admin account before their next sign-in.",
+        "Enforce CA03 (Require MFA for admins) and, where licensed, CA10 (phishing-resistant MFA) for all privileged directory roles.",
+        "Issue FIDO2 hardware keys or configure Windows Hello for Business for Global/Privileged Role Administrators.",
+        "Audit recent sign-in activity for these accounts for signs of prior compromise.",
+      ],
+      powershellScript: `# Connect to Microsoft Graph
+Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess","UserAuthenticationMethod.ReadWrite.All"
+
+${unprotectedAdmins
+  .map(
+    (u) => `# Flag ${u.userPrincipalName} for mandatory MFA registration
+Write-Host "ACTION REQUIRED: Register MFA for admin account ${u.userPrincipalName}" -ForegroundColor Red`
+  )
+  .join("\n") || "# Identify unprotected admin accounts via the Entra ID admin center and register MFA for each"}
+
+# Deploy/confirm CA03: Require MFA for admins is enabled and enforced (not report-only)
+Write-Host "Review CA03 baseline policy state and transition to 'enabled' once verified." -ForegroundColor Yellow`,
+      rollbackPlan: "No rollback needed — this hardens an existing gap rather than changing current tenant behavior. If a CA policy is deployed as part of remediation, it can be set back to 'disabled' if it causes unexpected lockouts.",
+    });
+  }
+
   return plans;
 }
