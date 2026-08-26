@@ -8,7 +8,7 @@ interface PaginationProps {
   onPageChange: (page: number) => void;
 }
 
-// Purely client-side pagination — the caller is expected to already have the
+// Purely client-side pagination - the caller is expected to already have the
 // full (filtered) array in memory and slice it using `page`/`pageSize`; this
 // component only renders the Prev/Next controls and a "X-Y of N" indicator.
 export const Pagination: React.FC<PaginationProps> = ({ page, pageSize, totalItems, onPageChange }) => {
