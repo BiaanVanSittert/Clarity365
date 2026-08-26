@@ -18,7 +18,7 @@ const DEFAULT_MAX_PAGES = 50;
  *
  * `initialUrls` may be a single URL or an ordered list of candidate URLs for the
  * *first* request only (e.g. Graph rejecting a large $top with 400 on some tenant
- * configurations — retry the first page at a smaller size, then paginate normally
+ * configurations - retry the first page at a smaller size, then paginate normally
  * via @odata.nextLink from whichever candidate succeeded).
  */
 export async function fetchAllPages<T = any>(
@@ -59,7 +59,7 @@ export async function fetchAllPages<T = any>(
       return {
         items,
         isPartial: true,
-        error: `Stopped after ${maxPages} pages (safety cap) — more records may exist.`,
+        error: `Stopped after ${maxPages} pages (safety cap) - more records may exist.`,
       };
     }
     try {
