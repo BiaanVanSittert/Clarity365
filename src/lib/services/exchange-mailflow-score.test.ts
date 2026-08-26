@@ -19,7 +19,7 @@ describe("computeExchangeMailflowScore", () => {
     // MDO's checks all report "no policy found" (not met) with an empty
     // policy list, but the Mail Flow Rules "does anything violate this"
     // checks (MF01/02/03/05/06) are vacuously met when there are no rules or
-    // connectors at all to violate them — so a blank snapshot doesn't score
+    // connectors at all to violate them - so a blank snapshot doesn't score
     // literal 0%, it reflects that mix.
     expect(result.totalCount).toBeGreaterThan(0);
     expect(result.percent).toBeGreaterThanOrEqual(0);
