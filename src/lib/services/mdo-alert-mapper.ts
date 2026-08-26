@@ -4,7 +4,7 @@ import { MdoThreatAlert } from "../types";
 // filtered to serviceSource 'microsoftDefenderForOffice365') into Clarity365's
 // MdoThreatAlert shape. Field names below (severity/status/classification
 // enum casing, evidence[].userAccount, alertWebUrl) follow the documented
-// Graph Security alerts_v2 schema as of this writing — worth confirming
+// Graph Security alerts_v2 schema as of this writing - worth confirming
 // against a live tenant, the same honesty caveat used throughout this
 // codebase's other external-API mappers (see mdo-mapper.ts's header).
 
@@ -40,7 +40,7 @@ export function normalizeAlertClassification(raw: string | undefined | null): Md
 }
 
 // Alert evidence is a heterogeneous array (userEvidence, mailboxEvidence,
-// etc.) — only entries that carry a userAccount are relevant to "who was
+// etc.) - only entries that carry a userAccount are relevant to "who was
 // affected," and duplicates across multiple evidence entries are collapsed.
 export function extractAffectedUsers(evidence: any[] | undefined | null): string[] {
   if (!Array.isArray(evidence)) return [];
