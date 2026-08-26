@@ -1,4 +1,4 @@
-// Best-effort, process-memory rate limiter. Single-operator tool, single instance —
+// Best-effort, process-memory rate limiter. Single-operator tool, single instance -
 // this is not a substitute for a real rate limiter behind a multi-instance deployment.
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
