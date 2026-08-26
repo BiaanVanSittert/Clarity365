@@ -286,7 +286,7 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
                           {site.siteName}
                           {site.isSensitiveDataPresent && (
                             <span
-                              title={compoundRisk ? "Likely contains sensitive data AND allows open sharing — compound risk" : "Likely contains sensitive data (name/URL heuristic, not a Purview signal)"}
+                              title={compoundRisk ? "Likely contains sensitive data AND allows open sharing - compound risk" : "Likely contains sensitive data (name/URL heuristic, not a Purview signal)"}
                               className={`text-[9px] font-mono uppercase px-1 rounded-sm font-bold border ${compoundRisk ? "bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400 border-red-300 dark:border-red-800" : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600"}`}
                             >
                               Sensitive
