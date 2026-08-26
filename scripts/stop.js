@@ -9,7 +9,7 @@
  * connection, see src/instrumentation.ts) get a chance to run, then falls
  * back to a force-kill after a short grace period for anything still alive.
  * Windows doesn't have real POSIX signal delivery, so the graceful step there
- * is best-effort insurance, not a guarantee — worst case it's identical to
+ * is best-effort insurance, not a guarantee - worst case it's identical to
  * the previous always-force behavior, plus a ~1.5s wait.
  */
 
