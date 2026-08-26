@@ -2,14 +2,14 @@ import { TenantGroup } from "../types";
 
 // Maps raw Microsoft Graph `group` resources (GET /v1.0/groups) into
 // Clarity365's TenantGroup shape. Field names below are based on the
-// documented Graph group resource as of this writing — worth confirming
+// documented Graph group resource as of this writing - worth confirming
 // against a live tenant's actual JSON shape during real testing, the same
 // honesty caveat used throughout this codebase's other external-API mappers
 // (see mdo-mapper.ts's header).
 //
 // membersCount/guestMemberCount are derived from a capped member-list fetch
 // (see graph-client.ts) rather than an exact server-side count, to avoid a
-// second per-group round trip just for a number — large groups (>100
+// second per-group round trip just for a number - large groups (>100
 // members) will show a lower-bound count, not the true total.
 
 export function mapGroupType(raw: any): TenantGroup["groupType"] {
@@ -42,7 +42,7 @@ export function mapGroup(
     members: memberSample.map((m) => m.userPrincipalName || "").filter(Boolean),
     // isAssignableToRole is the precise Graph signal; isPrivileged mirrors it
     // for live data (mock fixtures used isPrivileged as a hand-set flag
-    // before this field existed — see mock-tenants.ts).
+    // before this field existed - see mock-tenants.ts).
     isPrivileged: !!raw.isAssignableToRole,
     isAssignableToRole: !!raw.isAssignableToRole,
     syncSource: raw.onPremisesSyncEnabled ? "WindowsServerAD" : "Cloud",
@@ -52,10 +52,10 @@ export function mapGroup(
   };
 }
 
-// GET /groupSettings — tenant-wide Entra ID group settings (expiration,
+// GET /groupSettings - tenant-wide Entra ID group settings (expiration,
 // self-service creation, naming policy). Returns a `value` array of
 // directorySetting objects, each with a `values` array of {name, value}
-// pairs keyed to that setting template's definitions — worth confirming the
+// pairs keyed to that setting template's definitions - worth confirming the
 // exact template/value names against a live tenant.
 export function mapGroupExpirationPolicyEnabled(settingsValue: any[]): boolean {
   const groupSetting = settingsValue.find((s) => s.displayName === "Group.Unified");
@@ -68,7 +68,7 @@ export function mapGroupExpirationPolicyEnabled(settingsValue: any[]): boolean {
 export function mapGroupSelfServiceCreationRestricted(settingsValue: any[]): boolean {
   const groupSetting = settingsValue.find((s) => s.displayName === "Group.Unified");
   const entry = groupSetting?.values?.find((v: any) => v.name === "EnableGroupCreation");
-  // EnableGroupCreation: "true" means ANYONE can create groups — restricted
+  // EnableGroupCreation: "true" means ANYONE can create groups - restricted
   // means this is explicitly "false".
   return entry?.value === "false";
 }
