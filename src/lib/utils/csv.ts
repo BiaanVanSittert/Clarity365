@@ -12,7 +12,7 @@ const FORMULA_TRIGGER_RE = /^[=+\-@\t\r]/;
 function escapeCsvField(value: string | number): string {
   let str = String(value);
   if (FORMULA_TRIGGER_RE.test(str)) str = `'${str}`;
-  // Always quote — simplest way to safely handle commas, quotes, and
+  // Always quote - simplest way to safely handle commas, quotes, and
   // newlines in free-text fields (detail messages, display names, etc.).
   return `"${str.replace(/"/g, '""')}"`;
 }
