@@ -36,7 +36,7 @@ describe("encryptSecret / decryptSecret", () => {
   it("throws when the auth tag has been tampered with", () => {
     const encrypted = encryptSecret("tamper-test");
     const parts = encrypted.split(":");
-    // parts: ["enc", "v1", iv, authTag, ciphertext] — corrupt the auth tag.
+    // parts: ["enc", "v1", iv, authTag, ciphertext] - corrupt the auth tag.
     parts[3] = parts[3].replace(/./, (c) => (c === "0" ? "1" : "0"));
     const tampered = parts.join(":");
     expect(() => decryptSecret(tampered)).toThrow();
