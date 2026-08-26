@@ -15,7 +15,7 @@ import { SearchDialog } from "../common/SearchDialog";
 import { generateRemediationPlanForTenant, RemediationPlan } from "@/lib/services/remediation-generator";
 import { RefreshCw, CheckCircle, AlertTriangle, X } from "lucide-react";
 
-// Lazy-loaded module components — only fetched when the user navigates to them.
+// Lazy-loaded module components - only fetched when the user navigates to them.
 // Cuts initial bundle size significantly since each module is 8-48KB.
 const OverviewDashboard = lazy(() => import("../dashboard/OverviewDashboard").then(m => ({ default: m.OverviewDashboard })));
 const ConditionalAccessModule = lazy(() => import("../modules/ConditionalAccessModule").then(m => ({ default: m.ConditionalAccessModule })));
@@ -58,7 +58,7 @@ export const AppShell: React.FC = () => {
       try {
         localStorage.setItem("clarity365_sidebar_collapsed", next ? "1" : "0");
       } catch {
-        // Ignore — collapse state just won't persist across reloads.
+        // Ignore - collapse state just won't persist across reloads.
       }
       return next;
     });
@@ -138,7 +138,7 @@ export const AppShell: React.FC = () => {
   }, []);
 
   // Lightweight refresh after a purely local write (creating a group, adding/
-  // removing a TABL entry, updating a SharePoint sharing setting) — re-reads
+  // removing a TABL entry, updating a SharePoint sharing setting) - re-reads
   // the already-cached snapshot via a plain GET, with none of the "Connecting
   // to Microsoft Graph API..." toast or external Graph resync that
   // handleForceSync triggers. Those local edits don't need (and shouldn't
@@ -184,7 +184,7 @@ export const AppShell: React.FC = () => {
         }
       } else if (data.stale && data.snapshot) {
         // Live sync failed entirely (e.g. bad credentials) but a cached
-        // snapshot exists and is being shown — make that failure visible
+        // snapshot exists and is being shown - make that failure visible
         // instead of silently rendering the stale data as if sync succeeded.
         setSnapshot(data.snapshot);
         setSyncToast({
