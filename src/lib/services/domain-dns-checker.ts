@@ -1,11 +1,11 @@
 import { promises as dns } from "dns";
 import { DomainAuthCheck } from "../types";
 
-// SPF/DMARC live in public DNS, not Exchange Online config — this is the one
+// SPF/DMARC live in public DNS, not Exchange Online config - this is the one
 // data source in the whole app that isn't a Graph or Exchange Online call.
 // The actual DNS resolution (checkSpfRecord/checkDmarcRecord) is a thin I/O
 // wrapper around the pure, independently-testable evaluate* functions below,
-// which take already-fetched TXT record strings and decide pass/warn/fail —
+// which take already-fetched TXT record strings and decide pass/warn/fail -
 // same separation of concerns as mailflow-mapper.ts's raw-to-typed mappers.
 
 export function evaluateSpfTxtRecords(records: string[]): DomainAuthCheck {
@@ -74,7 +74,7 @@ export function evaluateDmarcTxtRecords(records: string[]): DomainAuthCheck {
   if (policy === "none") {
     return {
       status: "warn",
-      detail: `DMARC record found but set to monitoring-only (p=none) — spoofed mail is reported on, not blocked or quarantined: "${dmarcRecord}"`,
+      detail: `DMARC record found but set to monitoring-only (p=none) - spoofed mail is reported on, not blocked or quarantined: "${dmarcRecord}"`,
       recommendation: "Move to 'p=quarantine' once reporting shows no legitimate mail would be affected, then to 'p=reject'.",
     };
   }
