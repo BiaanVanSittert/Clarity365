@@ -1,7 +1,7 @@
 import { Tenant, TenantSecuritySnapshot } from "../types";
 import { CA_BASELINE_STANDARDS } from "./baseline-definitions";
 
-// Single source of truth for "a tenant with no live data yet" — used both when a
+// Single source of truth for "a tenant with no live data yet" - used both when a
 // brand-new tenant is added and as the seed a live Graph sync starts from before
 // overwriting the sections it actually fetches. Previously duplicated (with drifting
 // placeholder numbers) between tenant-store.ts and graph-client.ts.
