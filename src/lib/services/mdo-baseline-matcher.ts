@@ -5,7 +5,7 @@ import { computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 // Scores live MdoThreatPolicy rows against MDO_BASELINE_STANDARDS. Unlike CA's
 // matcher (which has to infer which baseline a policy structurally matches),
 // each MDO check already names the exact policyType and field it inspects, so
-// this is a direct per-code lookup rather than a cascade — reuses
+// this is a direct per-code lookup rather than a cascade - reuses
 // computeBaselineCoveragePercent from ca-baseline-matcher.ts rather than
 // re-deriving the same pure percentage calculation.
 
@@ -16,11 +16,11 @@ function findPolicies(policies: MdoThreatPolicy[], type: MdoThreatPolicy["policy
 }
 
 function evaluateCode(code: string, policies: MdoThreatPolicy[]): MdoBaselineResult {
-  // MDO09 is the one aggregate check — it spans every core policy type rather
+  // MDO09 is the one aggregate check - it spans every core policy type rather
   // than a single one, so it's handled separately from the direct 1:1 lookups below.
   // A tenant can legitimately run several policies of one core type (a preset
   // plus custom scoped ones); org-wide coverage only needs at least one of
-  // them to apply to everyone, not all of them — computing whether several
+  // them to apply to everyone, not all of them - computing whether several
   // scoped policies' union actually covers 100% of mailboxes is a much
   // larger problem this check doesn't attempt.
   if (code === "MDO09") {
@@ -48,7 +48,7 @@ function evaluateCode(code: string, policies: MdoThreatPolicy[]): MdoBaselineRes
   const matchingPolicies = findPolicies(policies, check.type);
   if (matchingPolicies.length === 0) return { code, met: false, policyFound: false, policyCount: 0 };
 
-  // A tenant can have more than one policy of the same type — the check is
+  // A tenant can have more than one policy of the same type - the check is
   // only "met" if every one of them satisfies it, since a single compliant
   // policy alongside a misconfigured one still leaves a real gap.
   const unmetPolicies = matchingPolicies.filter((p) => !p[check.field]);
