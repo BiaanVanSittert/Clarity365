@@ -20,7 +20,7 @@ export const DeleteTenantModal: React.FC<DeleteTenantModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [confirmText, setConfirmText] = useState("");
 
-  // Reset confirmation state whenever the modal is (re)opened — otherwise a
+  // Reset confirmation state whenever the modal is (re)opened - otherwise a
   // previous failed attempt's error banner (or a typed confirmation for a
   // different tenant) could linger into the next open.
   useEffect(() => {
