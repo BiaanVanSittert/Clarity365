@@ -41,7 +41,7 @@ function defaultExpirationInput(): string {
   return defaultTablExpirationIso().slice(0, 10);
 }
 
-// Each policyType has its own baseline-relevant setting(s) — the same fields
+// Each policyType has its own baseline-relevant setting(s) - the same fields
 // mdo-baseline-matcher.ts scores per MDO0x check. Rendering these instead of
 // three universal columns (Impersonation/Spoof/ZAP) avoids showing "Off" for
 // fields that were never applicable to that policy type in the first place
@@ -95,7 +95,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
   const [isFixing, setIsFixing] = useState(false);
   const [fixError, setFixError] = useState<string | null>(null);
   // Value for the remediation's optional extra input field (e.g. MDO08's
-  // notification recipient) — only rendered/required when
+  // notification recipient) - only rendered/required when
   // fixStandard.remediation.requiresInputField is set.
   const [fixInputValue, setFixInputValue] = useState("");
 
@@ -150,7 +150,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   // Real Exchange Online writes get a mandatory confirm step before the actual
-  // API call fires — these entries take effect immediately with no
+  // API call fires - these entries take effect immediately with no
   // report-only equivalent, mirroring DeployCaPolicyModal's showConfirmDeploy
   // safety pattern for the (less consequential) CA auto-deploy feature.
   const [showWriteConfirm, setShowWriteConfirm] = useState(false);
@@ -471,7 +471,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                               <span className="text-[11px] text-slate-400 dark:text-slate-500">Create the policy first</span>
                             ) : result.unmetPolicyNames ? (
                               <span className="text-[11px] text-slate-500 dark:text-slate-400" title={`Non-compliant: ${result.unmetPolicyNames.join(", ")}`}>
-                                {result.unmetPolicyNames.length} of {result.policyCount} need review — apply manually
+                                {result.unmetPolicyNames.length} of {result.policyCount} need review - apply manually
                               </span>
                             ) : !standard.remediation ? (
                               <span className="text-[11px] text-slate-500 dark:text-slate-400">Manual review required</span>
@@ -551,7 +551,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                           </button>
                         </div>
                       ) : mdoPolicySyncErrors.length > 0 ? (
-                        "Policies couldn't be loaded due to a sync error — see the Baseline & Posture tab."
+                        "Policies couldn't be loaded due to a sync error - see the Baseline & Posture tab."
                       ) : (
                         "No custom Defender for Office 365 policies configured. Default tenant presets apply."
                       )}
@@ -677,7 +677,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                         ) : tablEntries.length === 0 && mdoTablSyncErrors.length > 0 ? (
                           "Entries couldn't be loaded due to the sync error above."
                         ) : tablEntries.length === 0 ? (
-                          "No Allow/Block List entries yet — add one above."
+                          "No Allow/Block List entries yet - add one above."
                         ) : (
                           "No entries match your search/filter."
                         )}
@@ -712,7 +712,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                             {entry.addedBy}
                             {entry.isLocalOnly && (
                               <span
-                                title="Tracked in Clarity365 only — not yet pushed to Microsoft 365"
+                                title="Tracked in Clarity365 only - not yet pushed to Microsoft 365"
                                 className="ml-1.5 text-[9px] font-mono uppercase px-1 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-600 rounded-sm font-bold align-middle"
                               >
                                 Local
@@ -839,7 +839,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                       <td className="text-[11px] font-mono text-slate-600 dark:text-slate-400">{alert.classification}</td>
                       <td className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{new Date(alert.createdDateTime).toLocaleDateString()}</td>
                       <td className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
-                        {alert.affectedUsers.length > 0 ? alert.affectedUsers.join(", ") : "—"}
+                        {alert.affectedUsers.length > 0 ? alert.affectedUsers.join(", ") : "-"}
                       </td>
                       <td className="text-right">
                         {alert.webUrl && (
@@ -934,7 +934,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                 This will immediately {listType === "block" ? "block" : "allow"} <strong>{entryValue}</strong> in{" "}
                 <strong>{tenant.displayName}</strong>'s live Exchange Online Tenant Allow/Block List, expiring{" "}
                 {noExpiration ? "never" : new Date(expirationInput).toLocaleDateString()}. This takes effect right
-                away — there is no report-only mode and no undo from here.
+                away - there is no report-only mode and no undo from here.
               </p>
               {addError && (
                 <div className="p-2 bg-rose-950 border border-rose-800 text-rose-200 text-[11px] rounded-sm">{addError}</div>
@@ -1019,7 +1019,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                 rows={2}
                 required
                 minLength={10}
-                placeholder="Required — why is this being added? Incident ticket #, SOC analysis, business justification..."
+                placeholder="Required - why is this being added? Incident ticket #, SOC analysis, business justification..."
                 value={entryNotes}
                 onChange={(e) => setEntryNotes(e.target.value)}
                 className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
