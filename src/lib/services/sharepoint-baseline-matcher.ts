@@ -5,7 +5,7 @@ import { computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 export interface SharePointBaselineInput {
   policy: SharePointTenantPolicy;
   // Lowercased UPNs of disabled or unlicensed-active accounts (Module 5's
-  // accountClassification) — used by SP05 to cross-check site ownership.
+  // accountClassification) - used by SP05 to cross-check site ownership.
   inactiveUserPrincipalNamesLower: Set<string>;
 }
 
