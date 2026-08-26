@@ -145,7 +145,7 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
         )}
       </div>
 
-      {/* Mailbox Audit Logging gate — every delegation finding below is only
+      {/* Mailbox Audit Logging gate - every delegation finding below is only
           investigable after the fact if this is on, so it's surfaced first,
           not buried in a table row. */}
       {mailboxAuditingEnabled === false ? (
@@ -155,7 +155,7 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
             <p className="font-bold">Mailbox audit logging is OFF for this tenant.</p>
             <p className="text-red-800 dark:text-red-400">
               Every delegation and access-right finding in the table below can only be investigated after the fact
-              if mailbox auditing is enabled — without it, you can see that an account has Full Access to a
+              if mailbox auditing is enabled - without it, you can see that an account has Full Access to a
               mailbox, but never whether it was actually used, or for what.
             </p>
             {auditError && (
@@ -192,7 +192,7 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
       ) : mailboxAuditingEnabled === true ? (
         <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800 rounded-sm flex items-center gap-2 text-xs text-emerald-900 dark:text-emerald-400">
           <ShieldCheck size={16} className="text-emerald-700 dark:text-emerald-400 shrink-0" />
-          <span>Mailbox audit logging is enabled — delegation and access-right findings below are investigable after the fact.</span>
+          <span>Mailbox audit logging is enabled - delegation and access-right findings below are investigable after the fact.</span>
         </div>
       ) : null}
 
@@ -343,7 +343,7 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
               <p className="text-xs text-slate-300 leading-relaxed">
                 This will immediately revoke <strong>{revokeTarget.delegation.principalDisplayName}</strong>'s{" "}
                 <strong>{revokeTarget.delegation.accessRight}</strong> access to{" "}
-                <strong>{revokeTarget.mailbox.userPrincipalName}</strong>. This takes effect right away — there is
+                <strong>{revokeTarget.mailbox.userPrincipalName}</strong>. This takes effect right away - there is
                 no undo from here (the permission can be manually re-granted in Exchange Online if needed).
               </p>
               <div className="p-2 bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-300 rounded-sm">
