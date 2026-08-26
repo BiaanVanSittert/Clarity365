@@ -167,11 +167,25 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       requiredFor: "Tenant Capability Detection & License SKU Matrix",
     },
     {
+      permission: "RoleManagement.Read.Directory",
+      scope: "Application",
+      description: "Read directory role assignments (Global Admin, Security Admin, etc.) to identify privileged accounts.",
+      endpoint: "https://graph.microsoft.com/v1.0/directoryRoles?$top=1",
+      requiredFor: "Module 6: Privileged Admin Role Assignment & Unprotected Admin Detection",
+    },
+    {
       permission: "DeviceManagementManagedDevices.Read.All",
       scope: "Application",
       description: "Read Intune-managed device inventory, compliance state, and encryption status.",
       endpoint: "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=1",
       requiredFor: "Module 10: Intune Endpoint Security",
+    },
+    {
+      permission: "DeviceManagementConfiguration.Read.All",
+      scope: "Application",
+      description: "Read Intune Endpoint Security policy assignments (antivirus, EDR) used to compute policy coverage counts.",
+      endpoint: "https://graph.microsoft.com/beta/deviceManagement/intents?$top=1",
+      requiredFor: "Module 10: Intune Endpoint Security (antivirus/EDR policy counts)",
     },
     {
       permission: "SecurityEvents.Read.All",
@@ -197,9 +211,16 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
     {
       permission: "Sites.Read.All",
       scope: "Application",
-      description: "Read SharePoint site collections, OneDrive storage quotas, and tenant-wide external sharing settings.",
+      description: "Read SharePoint site collections and OneDrive storage quotas.",
       endpoint: "https://graph.microsoft.com/v1.0/sites?search=*&$top=1",
-      requiredFor: "Module 12: SharePoint & OneDrive Storage",
+      requiredFor: "Module 12: SharePoint & OneDrive Storage (site inventory)",
+    },
+    {
+      permission: "SharePointTenantSettings.Read.All",
+      scope: "Application",
+      description: "Read tenant-wide SharePoint sharing settings (sharing capability ceiling, default link type, anonymous link expiration) - a separate, narrower permission from Sites.Read.All that Microsoft requires specifically for the admin settings API.",
+      endpoint: "https://graph.microsoft.com/v1.0/admin/sharepoint/settings",
+      requiredFor: "Module 12: SharePoint & OneDrive Storage (tenant-wide policy)",
     },
     {
       permission: "Policy.ReadWrite.ConditionalAccess",
