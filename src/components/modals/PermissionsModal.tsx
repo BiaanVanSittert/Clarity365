@@ -21,7 +21,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
   const [report, setReport] = useState<TenantPermissionReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Exchange Online (MDO Policies) — separate delegated device-code auth flow
+  // Exchange Online (MDO Policies) - separate delegated device-code auth flow
   // from the Graph client secret above, so it gets its own connectivity
   // check and connect flow rather than living in the permissions table.
   const [exoConnected, setExoConnected] = useState(!!tenant.credentials.exoRefreshToken);
@@ -31,7 +31,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
   const [exoCodeCopied, setExoCodeCopied] = useState(false);
   const [exoTesting, setExoTesting] = useState(false);
   const [exoResult, setExoResult] = useState<{ connected: boolean; error?: string; testedAt: string } | null>(null);
-  // Off by default even when connected — see types/index.ts's TenantCredentials.exoWriteEnabled
+  // Off by default even when connected - see types/index.ts's TenantCredentials.exoWriteEnabled
   // comment for why this needs to be an explicit, separately-persisted opt-in
   // rather than something that turns on automatically once EXO is connected.
   const [exoWriteEnabled, setExoWriteEnabled] = useState(!!tenant.credentials.exoWriteEnabled);
@@ -146,7 +146,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
       setExoCodeCopied(true);
       setTimeout(() => setExoCodeCopied(false), 2000);
     } catch {
-      // Clipboard write failed — don't show a false "Copied" success state.
+      // Clipboard write failed - don't show a false "Copied" success state.
     }
   };
 
@@ -194,7 +194,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={`Azure App Registration Permissions — ${tenant.displayName}`}
+      title={`Azure App Registration Permissions - ${tenant.displayName}`}
       maxWidth="3xl"
     >
       <div className="space-y-4">
@@ -248,20 +248,20 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
               </div>
             </div>
 
-            {/* Write-access legend — only shown when at least one permission in this
+            {/* Write-access legend - only shown when at least one permission in this
                 report actually grants write access, so a fully read-only app
                 registration doesn't see an irrelevant warning. */}
             {report.permissions.some((p) => p.isWriteAccess) && (
               <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 rounded-sm text-[11px] text-amber-900 dark:text-amber-400">
                 <AlertTriangle size={13} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                 <span>
-                  Permissions outlined in amber below let Clarity365 create or modify data in Microsoft 365 —
+                  Permissions outlined in amber below let Clarity365 create or modify data in Microsoft 365 -
                   not just read it. Review these before granting admin consent.
                 </span>
               </div>
             )}
 
-            {/* Per-optional-permission summary — makes the read-vs-write mode explicit
+            {/* Per-optional-permission summary - makes the read-vs-write mode explicit
                 at a glance, since "All Required Permissions Granted" above deliberately
                 says nothing about optional ones either way. */}
             {report.permissions
@@ -284,7 +284,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                     {p.status === "granted" ? (
                       <>Write access enabled for <strong>{p.requiredFor.replace(/^Optional:\s*/, "")}</strong>.</>
                     ) : (
-                      <>Running in read-only/reporting mode — <strong>{p.requiredFor.replace(/^Optional:\s*/, "")}</strong> isn't available. Grant <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded font-mono">{p.permission}</code> in Entra to enable it.</>
+                      <>Running in read-only/reporting mode - <strong>{p.requiredFor.replace(/^Optional:\s*/, "")}</strong> isn't available. Grant <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded font-mono">{p.permission}</code> in Entra to enable it.</>
                     )}
                   </span>
                 </div>
@@ -323,7 +323,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                         <div className="text-[11px] text-slate-500 dark:text-slate-400 break-words">{p.description}</div>
                         {p.isWriteAccess && !p.optional && (
                           <div className="text-[10px] text-amber-800 dark:text-amber-400 mt-1 break-words">
-                            Grants Clarity365 the ability to create, modify, or delete data in Microsoft 365 using this permission — not just view it.
+                            Grants Clarity365 the ability to create, modify, or delete data in Microsoft 365 using this permission - not just view it.
                           </div>
                         )}
                         {p.errorMessage && !(p.optional && p.status !== "granted") && (
@@ -345,7 +345,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                           </span>
                         ) : p.optional ? (
                           <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-700 px-2 py-0.5 border border-slate-300 dark:border-slate-600 text-[11px]">
-                            Not Granted — Read-Only Mode
+                            Not Granted - Read-Only Mode
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-rose-700 dark:text-red-400 font-medium bg-rose-50 dark:bg-red-950 px-2 py-0.5 border border-rose-200 dark:border-red-800 text-[11px]">
@@ -376,7 +376,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
           </div>
         )}
 
-        {/* Exchange Online (MDO Policies) — delegated device-code auth flow */}
+        {/* Exchange Online (MDO Policies) - delegated device-code auth flow */}
         <div className="border border-slate-200 dark:border-slate-700 p-3 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
@@ -407,9 +407,9 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
             !exoConnected ? (
               <div className="space-y-2.5">
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Optional — required only to sync Defender for Office 365 policies (anti-phish, anti-spam, Safe
+                  Optional - required only to sync Defender for Office 365 policies (anti-phish, anti-spam, Safe
                   Links, Safe Attachments) and the Tenant Allow/Block List. Exchange admin APIs don't accept the
-                  client secret above, so this uses a one-time sign-in instead — no certificate or app registration
+                  client secret above, so this uses a one-time sign-in instead - no certificate or app registration
                   changes needed.
                 </p>
                 <button
@@ -460,13 +460,13 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                     <p className="leading-relaxed">
                       {exoWriteEnabled ? (
                         <>
-                          Enabled — adding or removing a Tenant Allow/Block List entry from MDO Policies will create or
+                          Enabled - adding or removing a Tenant Allow/Block List entry from MDO Policies will create or
                           delete it directly in Exchange Online, using the same permissions as the account you
                           connected with. Changes take effect immediately, with no undo.
                         </>
                       ) : (
                         <>
-                          Currently off (default). Add/Remove entries in MDO Policies are tracked in Clarity365 only —
+                          Currently off (default). Add/Remove entries in MDO Policies are tracked in Clarity365 only -
                           nothing is sent to Microsoft 365. Enabling this lets Clarity365 create/remove real Tenant
                           Allow/Block List entries directly in Exchange Online, using the same permissions as the
                           connected account. If you're not sure, leave this off.
