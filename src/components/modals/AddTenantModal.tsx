@@ -257,7 +257,7 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
             </div>
 
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Required Graph Application Permissions (read-only — full audit &amp; reporting, no write access):{" "}
+              Required Graph Application Permissions (read-only - full audit &amp; reporting, no write access):{" "}
               {[
                 "Policy.Read.All",
                 "User.Read.All",
@@ -282,13 +282,13 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
               <code className="bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-400 border border-amber-400 dark:border-amber-800 px-1 py-0.5 rounded font-mono font-semibold">
                 Policy.ReadWrite.ConditionalAccess
               </code>{" "}
-              — <strong>optional, write access.</strong> Only grant this if you want Clarity365 to auto-deploy CA
+              - <strong>optional, write access.</strong> Only grant this if you want Clarity365 to auto-deploy CA
               baseline policies directly from the app. Without it, the read-only permissions above still give full
               CA policy audit/reporting, and Clarity365 generates a PowerShell script you can run manually instead.
             </p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               Defender for Office 365 policy sync (MDO Policies) needs a separate one-time Exchange Online sign-in, not a
-              Graph permission — connect it from the Permissions check after adding this tenant. There, a similar
+              Graph permission - connect it from the Permissions check after adding this tenant. There, a similar
               off-by-default toggle controls whether it can write (Tenant Allow/Block List changes) or stays read-only.
             </p>
           </div>
