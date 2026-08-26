@@ -305,7 +305,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
     });
   }, [timeFilteredSignIns, searchQuery, statusFilter, serviceFilter, errorCodeFilter]);
 
-  // Client-side pagination — a live tenant sync can pull thousands of
+  // Client-side pagination - a live tenant sync can pull thousands of
   // sign-in rows, and rendering them all as literal <tr>s doesn't scale.
   const SIGNIN_PAGE_SIZE = 50;
   const [page, setPage] = useState(1);
@@ -1057,7 +1057,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                   setCopiedKey("kql");
                   setTimeout(() => setCopiedKey(null), 2000);
                 } catch {
-                  // Clipboard write failed (e.g. permission denied) — don't
+                  // Clipboard write failed (e.g. permission denied) - don't
                   // show a false "Copied" success state.
                 }
               }}
