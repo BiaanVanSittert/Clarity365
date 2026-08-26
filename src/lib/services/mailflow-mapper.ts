@@ -5,13 +5,13 @@ import { MailboxItem, MailboxDelegation, EmailForwardingRule, MailflowTransportR
 // Clarity365's mailbox/delegation/forwarding-rule shapes. Field names below
 // are based on the documented Get-Mailbox / Get-MailboxStatistics /
 // Get-MailboxPermission / Get-RecipientPermission / Get-InboxRule /
-// Get-TransportRule cmdlets as of this writing — worth confirming against a
+// Get-TransportRule cmdlets as of this writing - worth confirming against a
 // live tenant's actual JSON shape during real testing, the same honesty
 // caveat mdo-mapper.ts's header already applies to its own EXO field
 // assumptions.
 //
 // isExternal below is a single-domain heuristic (compares against the
-// tenant's own default domain only) — a tenant with multiple accepted
+// tenant's own default domain only) - a tenant with multiple accepted
 // domains (subsidiaries, vanity domains) will see inter-company forwarding
 // misclassified as external until Phase 2 wires in the real accepted-domain
 // list via Get-AcceptedDomain.
@@ -34,12 +34,12 @@ export function extractEmailAddress(raw: string | undefined | null): string {
 
 export function isExternalAddress(address: string, tenantDomain: string): boolean {
   const at = address.lastIndexOf("@");
-  if (at === -1) return false; // not a resolvable SMTP address (e.g. an unresolved legacy DN) — can't classify as external
+  if (at === -1) return false; // not a resolvable SMTP address (e.g. an unresolved legacy DN) - can't classify as external
   const domain = address.slice(at + 1).toLowerCase();
   return domain.length > 0 && domain !== tenantDomain.toLowerCase();
 }
 
-// Exchange reports mailbox size as e.g. "1.204 GB (1,293,942,784 bytes)" —
+// Exchange reports mailbox size as e.g. "1.204 GB (1,293,942,784 bytes)" -
 // the parenthesized byte count is the only part that parses reliably across
 // unit variations (KB/MB/GB/TB).
 export function parseExchangeSizeToMB(raw: string | undefined | null): number {
@@ -50,7 +50,7 @@ export function parseExchangeSizeToMB(raw: string | undefined | null): number {
   return isNaN(bytes) ? 0 : Math.round(bytes / (1024 * 1024));
 }
 
-// hasDirectLicense is deliberately left false here — Get-Mailbox has no
+// hasDirectLicense is deliberately left false here - Get-Mailbox has no
 // license concept at all; the caller (graph-client.ts) cross-references the
 // license data it already fetches from Graph for Module 5 (user
 // classification) rather than this app making a second, redundant call for
@@ -111,7 +111,7 @@ export function mapSendOnBehalfDelegations(grantSendOnBehalfTo: string[] | undef
 }
 
 // Mailbox-level auto-forward (Set-Mailbox -ForwardingSmtpAddress / -ForwardingAddress)
-// is a distinct exfiltration vector from inbox rules — a single tenant-wide
+// is a distinct exfiltration vector from inbox rules - a single tenant-wide
 // mailbox setting rather than a rule an attacker has to plant.
 export function mapMailboxAutoForward(raw: any, tenantDomain: string): EmailForwardingRule | null {
   const configured = raw.ForwardingSmtpAddress || raw.ForwardingAddress;
@@ -126,7 +126,7 @@ export function mapMailboxAutoForward(raw: any, tenantDomain: string): EmailForw
     forwardingAddress: address,
     isExternal: external,
     // DeliverToMailboxAndForward === false means the original stays out of
-    // the mailbox entirely — a straight redirect rather than a copy-forward.
+    // the mailbox entirely - a straight redirect rather than a copy-forward.
     ruleAction: raw.DeliverToMailboxAndForward === false ? "RedirectTo" : "ForwardTo",
     state: "Enabled",
     dateCreated: new Date().toISOString(),
@@ -135,7 +135,7 @@ export function mapMailboxAutoForward(raw: any, tenantDomain: string): EmailForw
 }
 
 // Only inbox rules whose action actually forwards/redirects/copies mail are
-// relevant here — most inbox rules (move to folder, mark as read, etc.)
+// relevant here - most inbox rules (move to folder, mark as read, etc.)
 // aren't forwarding vectors at all and are intentionally excluded (returns
 // null).
 export function mapInboxRule(raw: any, mailboxOwner: string, tenantDomain: string): EmailForwardingRule | null {
@@ -164,7 +164,7 @@ export function mapInboxRule(raw: any, mailboxOwner: string, tenantDomain: strin
   };
 }
 
-// Org-wide transport rules whose action redirects/BCCs/copies mail — the
+// Org-wide transport rules whose action redirects/BCCs/copies mail - the
 // same "only forwarding-shaped actions matter" filter as inbox rules above.
 export function mapTransportRule(raw: any, tenantDomain: string): EmailForwardingRule | null {
   const target = raw.RedirectMessageTo || raw.BlindCopyTo || raw.CopyTo;
@@ -191,11 +191,11 @@ export function mapTransportRule(raw: any, tenantDomain: string): EmailForwardin
   };
 }
 
-// A small set of the most common Get-TransportRule condition parameters —
+// A small set of the most common Get-TransportRule condition parameters -
 // Exchange has dozens of possible ones, so this isn't exhaustive. If none of
 // these are set, the rule applies to all mail with no scoping at all, which
 // is the "broad, permanent rule" pattern the Mail Flow Rules baseline (MF03)
-// flags for review — worth confirming this list against a live tenant's
+// flags for review - worth confirming this list against a live tenant's
 // actual rules, same caveat as the rest of this file.
 const SCOPING_CONDITION_FIELDS = [
   "From",
@@ -244,7 +244,7 @@ export function mapAcceptedDomain(raw: any): { domain: string; isDefaultDomain: 
 
 // Get-DkimSigningConfig's Status property (e.g. "Valid", "CnameMissing",
 // "SelectorBroken", "CouldNotCheckDnsRecords") reports whether the CNAME
-// selector records Exchange expects are actually published and correct —
+// selector records Exchange expects are actually published and correct -
 // worth confirming the exact status string values against a live tenant,
 // same caveat as the rest of this file's EXO field assumptions.
 export function mapDkimStatus(raw: any): DomainAuthCheck {
@@ -260,7 +260,7 @@ export function mapDkimStatus(raw: any): DomainAuthCheck {
   if (status && status.toLowerCase() !== "valid") {
     return {
       status: "warn",
-      detail: `DKIM signing is enabled but Exchange reports its DNS records as "${status}" rather than valid — the CNAME selector records may not be published yet.`,
+      detail: `DKIM signing is enabled but Exchange reports its DNS records as "${status}" rather than valid - the CNAME selector records may not be published yet.`,
       recommendation: "Verify both DKIM CNAME selector records are published at your DNS host and match what Get-DkimSigningConfig expects.",
     };
   }
@@ -268,7 +268,7 @@ export function mapDkimStatus(raw: any): DomainAuthCheck {
 }
 
 // "Trusts anonymous senders" here means SenderDomains includes a wildcard
-// with no IP restriction — Microsoft's own guidance flags this as the
+// with no IP restriction - Microsoft's own guidance flags this as the
 // classic misconfiguration where a connector set up for a vendor/hybrid
 // integration ends up letting anyone spoof that domain past all filtering.
 // Worth confirming this heuristic against a live tenant's real connectors,
