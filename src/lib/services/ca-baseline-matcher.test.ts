@@ -104,10 +104,10 @@ describe("matchCaBaselineCode", () => {
     expect(matchCaBaselineCode({})).toBeNull();
   });
 
-  it("ignores display name entirely — classification is structural only", () => {
+  it("ignores display name entirely - classification is structural only", () => {
     // RawGraphCaPolicy has no displayName field at all, so a policy named e.g.
     // "Require MFA for All Users" that doesn't actually target all users with MFA
-    // cannot fool the matcher — there's nothing here for a misleading name to hook into.
+    // cannot fool the matcher - there's nothing here for a misleading name to hook into.
     const policy: RawGraphCaPolicy = {
       conditions: { users: { includeUsers: ["some-specific-user-id"] } },
       grantControls: { builtInControls: ["mfa"] },
