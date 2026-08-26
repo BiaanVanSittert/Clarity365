@@ -15,7 +15,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // First-run setup only. Once a password exists, this route refuses to overwrite it —
+    // First-run setup only. Once a password exists, this route refuses to overwrite it -
     // rotating the password is done through /api/auth/change-password (requires a session).
     if (tenantStore.isPasswordConfigured()) {
       return NextResponse.json(
