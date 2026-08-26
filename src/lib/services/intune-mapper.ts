@@ -26,7 +26,7 @@ const COMPLIANCE_STATE_MAP: Record<string, IntuneDevice["complianceState"]> = {
   conflict: "conflict",
   error: "error",
   ingraceperiod: "inGracePeriod",
-  // Graph can also report "configManager" (co-managed devices) and "unknown" —
+  // Graph can also report "configManager" (co-managed devices) and "unknown" -
   // neither has a matching bucket in Clarity365's taxonomy yet, so they fold
   // into "error" rather than being silently miscounted as compliant.
   configmanager: "error",
@@ -39,7 +39,7 @@ export function normalizeComplianceState(raw: string | undefined | null): Intune
 }
 
 // antivirusStatus/edrOnboardingState aren't fields on the managedDevices
-// resource — real per-device Microsoft Defender AV/EDR health requires either
+// resource - real per-device Microsoft Defender AV/EDR health requires either
 // an extra Graph beta call per device or Microsoft Defender for Endpoint's
 // separate API (a distinct app registration/permission model). As a
 // documented proxy: a compliant device is assumed to have AV active and EDR
