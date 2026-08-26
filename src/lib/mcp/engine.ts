@@ -6,7 +6,7 @@ import { defaultTablExpirationIso } from "../services/mdo-mapper";
 export { MCP_TOOL_DEFINITIONS };
 export type { McpToolDefinition };
 
-// Every MCP tool call is audit-logged — read-only lookups and mutations alike —
+// Every MCP tool call is audit-logged - read-only lookups and mutations alike -
 // since MCP lets an external AI agent act against real tenants (manage_tabl
 // writes directly to a customer's TABL), and a security product needs a record
 // of what an agent actually did, not just what a human clicked.
@@ -155,13 +155,13 @@ async function runMcpTool(name: string, args: Record<string, any>) {
         return { success: true, tenant: snap.tenant.displayName, entries: snap.mdoThreat.tabl };
       }
 
-      // "add"/"remove" mutate tenant data — respect the "Allow Autonomous Tool
+      // "add"/"remove" mutate tenant data - respect the "Allow Autonomous Tool
       // Execution" setting, unlike the read-only actions above/below.
       if (args.action === "add" || args.action === "remove") {
         if (!tenantStore.getSettings().allowToolExecution) {
           return {
             success: false,
-            error: "Autonomous tool execution is disabled in Settings — enable 'Allow Autonomous Tool Execution' to let MCP agents modify tenant data.",
+            error: "Autonomous tool execution is disabled in Settings - enable 'Allow Autonomous Tool Execution' to let MCP agents modify tenant data.",
           };
         }
       }
