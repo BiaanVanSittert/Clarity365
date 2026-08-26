@@ -101,7 +101,7 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
         </button>
       </div>
 
-      {/* Summary Matrix Cards — click any card to filter the table below */}
+      {/* Summary Matrix Cards - click any card to filter the table below */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <div
           onClick={() => setFilterType("all")}
