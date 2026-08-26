@@ -20,7 +20,7 @@ export interface TenantCredentials {
   clientId?: string;
   clientSecret?: string;
   // Optional Exchange Online delegated-auth connection, used only for MDO
-  // policy & TABL sync (see exo-client.ts) — Exchange admin APIs don't accept
+  // policy & TABL sync (see exo-client.ts) - Exchange admin APIs don't accept
   // the client-secret flow used for everything else in this app. Established
   // via a one-time device-code sign-in (Microsoft's own first-party EXO
   // PowerShell client, no custom app registration changes needed) rather than
@@ -32,8 +32,8 @@ export interface TenantCredentials {
   exoConnectedAt?: string;
   // Off by default, even once Exchange Online is connected. EXO's delegated
   // device-code auth can't be scoped to "read-only" the way Graph app
-  // permissions can — whatever Exchange role the connecting admin holds is
-  // what Clarity365 can do via EXO — so this flag is the explicit,
+  // permissions can - whatever Exchange role the connecting admin holds is
+  // what Clarity365 can do via EXO - so this flag is the explicit,
   // admin-controlled substitute for the missing narrower consent: it gates
   // whether TABL Add/Remove actually calls New-/Remove-TenantAllowBlockListItems
   // against the live tenant, versus staying purely local-only tracking.
@@ -71,7 +71,7 @@ export interface CAPolicyRule {
   grantControls: string[];
   conditions: {
     // exclude here is Graph's excludeUsers only; excludeGroupIds is the
-    // separate excludeGroups field — Graph models "exclude this group of
+    // separate excludeGroups field - Graph models "exclude this group of
     // people" and "exclude this specific group" as distinct properties, and
     // this app previously only captured the former (see the Groups baseline's
     // G03 check, which is the first thing that actually needs the latter).
@@ -280,21 +280,21 @@ export interface MdoThreatPolicy {
   spoofIntelligence: boolean;
   zapEnabled: boolean; // Zero-hour auto purge
   complianceRating: "compliant" | "substandard" | "critical";
-  // Baseline-scoring fields (see mdo-baseline-definitions.ts) — each backs one
+  // Baseline-scoring fields (see mdo-baseline-definitions.ts) - each backs one
   // specific MDO0x check rather than a generic "is it configured" boolean.
   realTimeScanning: boolean; // SafeLinks: URLs are actually scanned in real time, not just rewritten
   blockingAction: boolean; // SafeAttachments: action is Block/DynamicDelivery, not Allow/Monitor
   commonAttachmentFilter: boolean; // AntiMalware: common attachment type filter enabled
   outboundNotify: boolean; // AntiSpamOutbound: admin is notified of suspected outbound spam
-  // AntiSpamOutbound: AutoForwardingMode is "Off" — the tenant-wide kill
+  // AntiSpamOutbound: AutoForwardingMode is "Off" - the tenant-wide kill
   // switch controlling whether ANY auto-forward to an external address is
   // even possible. Scored by the Mail Flow Rules baseline (MF04), not the
-  // MDO0x baseline — a separate concern from outboundNotify/MDO08.
+  // MDO0x baseline - a separate concern from outboundNotify/MDO08.
   autoForwardingBlocked?: boolean;
 }
 
 // Full-fidelity org-wide transport rule shape used by the Transport & Mail
-// Flow Rules baseline (mailflow-baseline-*.ts) — distinct from
+// Flow Rules baseline (mailflow-baseline-*.ts) - distinct from
 // EmailForwardingRule, which only represents the forwarding-shaped subset of
 // transport rules surfaced in the Email Forwarding Audit module (Module 7).
 // A rule can be flagged here (e.g. an SCL override) without ever appearing
@@ -305,7 +305,7 @@ export interface MailflowTransportRule {
   state: "Enabled" | "Disabled";
   redirectsExternally: boolean;
   externalRedirectAddress?: string;
-  overridesSpamConfidence: boolean; // SetSCL action present — bypasses spam/phish filtering for matching mail
+  overridesSpamConfidence: boolean; // SetSCL action present - bypasses spam/phish filtering for matching mail
   hasNoScopingConditions: boolean; // applies to all mail, not a specific sender/domain/recipient
   hasExpiry: boolean;
 }
@@ -316,7 +316,7 @@ export interface MailflowConnector {
   direction: "Inbound" | "Outbound";
   enabled: boolean;
   // Inbound only: treats all mail claiming to be from a configured domain as
-  // pre-authenticated regardless of sending IP — a common way spam/phish
+  // pre-authenticated regardless of sending IP - a common way spam/phish
   // filtering gets silently bypassed for an entire domain.
   trustsAnonymousSenders: boolean;
   requiresTls: boolean;
@@ -329,10 +329,10 @@ export interface MailflowBaselineResult {
   offendingRuleIds?: string[];
 }
 
-// Domain Authentication (SPF/DKIM/DMARC) — the primary defense against the
+// Domain Authentication (SPF/DKIM/DMARC) - the primary defense against the
 // tenant's own domain being spoofed to phish its customers/partners. DKIM
 // comes from the Exchange Online connection; SPF/DMARC are public DNS TXT
-// lookups, so — unlike everything else in this app — remediation here is
+// lookups, so - unlike everything else in this app - remediation here is
 // exact DNS record text to publish at the domain registrar, not a button,
 // since neither Microsoft 365 nor this app can write to a domain's DNS.
 export type DomainAuthCheckStatus = "pass" | "warn" | "fail" | "unknown";
@@ -363,14 +363,14 @@ export interface TablEntry {
   expirationDate: string | "Never";
   notes: string;
   // Set when this entry was added while Exchange Online writes were
-  // disabled (or EXO wasn't connected yet) — see tenant-store.addTablEntry.
+  // disabled (or EXO wasn't connected yet) - see tenant-store.addTablEntry.
   // A live resync merges these back in rather than dropping them, since
   // they were never pushed to the real Tenant Allow/Block List and so never
   // come back from a Get-TenantAllowBlockListItems fetch.
   isLocalOnly?: boolean;
 }
 
-// Static definition of one MDO0x baseline check (mirrors CABaselineItem) —
+// Static definition of one MDO0x baseline check (mirrors CABaselineItem) -
 // see mdo-baseline-definitions.ts for the actual MDO_BASELINE_STANDARDS list.
 export interface MdoBaselineItem {
   code: string;
@@ -381,7 +381,7 @@ export interface MdoBaselineItem {
 }
 
 // Per-check result of scoring live MdoThreatPolicy data against
-// MDO_BASELINE_STANDARDS (mdo-baseline-definitions.ts) — the dynamic half of
+// MDO_BASELINE_STANDARDS (mdo-baseline-definitions.ts) - the dynamic half of
 // the baseline pair; the static check definitions themselves aren't
 // duplicated onto the snapshot (unlike conditionalAccess.baselineDefinitions)
 // since nothing needs them decoupled from the data file that defines them.
@@ -441,7 +441,7 @@ export interface IntuneDevice {
   edrOnboardingState: "onboarded" | "canBeOnboarded" | "unsupported" | "error";
   lastSyncDateTime: string;
   // Richer per-device detail, populated from the same managedDevices Graph
-  // call via an expanded $select (see graph-client.ts) — optional because
+  // call via an expanded $select (see graph-client.ts) - optional because
   // demo/mock tenants don't set them and older cached snapshots predate them.
   model?: string;
   manufacturer?: string;
@@ -484,7 +484,7 @@ export interface TenantGroup {
   isPrivileged: boolean;
   syncSource: "Cloud" | "WindowsServerAD";
   createdDateTime: string;
-  // Baseline-scoring fields (see groups-baseline-definitions.ts) — each backs
+  // Baseline-scoring fields (see groups-baseline-definitions.ts) - each backs
   // one specific G0x check, so unlike isPrivileged (a static demo-data flag)
   // these are populated from real Graph fields once live sync exists.
   isAssignableToRole: boolean; // membership in this group IS an admin role grant
@@ -493,7 +493,7 @@ export interface TenantGroup {
 }
 
 // Per-check result of scoring live TenantGroup/tenant-settings data against
-// GROUPS_BASELINE_STANDARDS (groups-baseline-definitions.ts) — same shape as
+// GROUPS_BASELINE_STANDARDS (groups-baseline-definitions.ts) - same shape as
 // MailflowBaselineResult, since most checks here are also "does any group
 // violate this" rather than a single per-type lookup like MDO's.
 export interface GroupsBaselineResult {
@@ -526,7 +526,7 @@ export interface SharePointTenantPolicy {
 }
 
 // Per-check result of scoring live SharePointTenantPolicy data against
-// SHAREPOINT_BASELINE_STANDARDS (sharepoint-baseline-definitions.ts) — same
+// SHAREPOINT_BASELINE_STANDARDS (sharepoint-baseline-definitions.ts) - same
 // shape as GroupsBaselineResult/MailflowBaselineResult.
 export interface SharePointBaselineResult {
   code: string;
@@ -571,7 +571,7 @@ export interface TenantSecuritySnapshot {
   accountClassification: TenantAccountSummary;
   mailboxes: MailboxItem[];
   emailForwarding: EmailForwardingRule[];
-  // Get-OrganizationConfig's AuditDisabled, inverted — undefined until an EXO
+  // Get-OrganizationConfig's AuditDisabled, inverted - undefined until an EXO
   // sync has actually run (never connected, or the mailflow fetch itself
   // failed). Every mailbox-delegation and forwarding-rule finding in this
   // snapshot is only investigable after the fact if this is true, so it's
@@ -579,12 +579,12 @@ export interface TenantSecuritySnapshot {
   mailboxAuditingEnabled?: boolean;
   mailflowTransportRules: MailflowTransportRule[];
   mailflowConnectors: MailflowConnector[];
-  // Get-RemoteDomain (Default)'s AutoForwardEnabled === false — a second,
+  // Get-RemoteDomain (Default)'s AutoForwardEnabled === false - a second,
   // more obscure org-wide auto-forward switch distinct from
   // MdoThreatPolicy.autoForwardingBlocked (the outbound-spam one). Optional
   // because it's undefined until an EXO sync has actually populated it.
   remoteDomainAutoForwardBlocked?: boolean;
-  // Get-ExternalInOutlook's Enabled — the "this message is from an external
+  // Get-ExternalInOutlook's Enabled - the "this message is from an external
   // sender" Outlook banner.
   externalSenderTagEnabled?: boolean;
   domainAuth: DomainAuthStatus[];
@@ -596,7 +596,7 @@ export interface TenantSecuritySnapshot {
   appRegistrations: AppRegistrationItem[];
   intune: IntunePolicySummary;
   groups: TenantGroup[];
-  // Tenant-wide Entra ID group settings (GET /groupSettings) — undefined
+  // Tenant-wide Entra ID group settings (GET /groupSettings) - undefined
   // until a live sync has actually populated them. Each backs one specific
   // G0x check (see groups-baseline-definitions.ts) rather than a per-group
   // field, since these are single tenant-wide switches, not per-group facts.
@@ -608,7 +608,7 @@ export interface TenantSecuritySnapshot {
     // externalForwardingCount and openSharePointSitesCount intentionally
     // removed: both were second, separate mock-only counters that never
     // derived from their real source (emailForwarding / sharePoint.sites) and
-    // were never populated by a live sync — every reader now computes them
+    // were never populated by a live sync - every reader now computes them
     // directly from that source instead (see e.g. MdoPoliciesModule's own
     // count pattern, and OverviewDashboard's openSharePointSitesCount).
     unprotectedAdminsCount: number;
@@ -616,7 +616,7 @@ export interface TenantSecuritySnapshot {
   };
 }
 
-// Audit Trail — records mutating/sensitive actions (CA policy deployments, MCP
+// Audit Trail - records mutating/sensitive actions (CA policy deployments, MCP
 // tool executions, sync failures) for after-the-fact review. Pruned on write
 // according to SystemSettings.auditLogRetentionDays.
 export interface AuditLogEntry {
@@ -634,7 +634,7 @@ export interface AuditLogEntry {
 export interface SystemSettings {
   enableMcpServer: boolean;
   mcpAuthToken?: string;
-  // Gates manage_tabl's mutating add/remove actions (see src/lib/mcp/engine.ts) —
+  // Gates manage_tabl's mutating add/remove actions (see src/lib/mcp/engine.ts) -
   // read-only MCP tools always run regardless of this setting.
   allowToolExecution: boolean;
   autoSyncIntervalMinutes: number;
