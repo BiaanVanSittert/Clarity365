@@ -11,15 +11,15 @@ interface IntuneSecurityModuleProps {
 }
 
 function formatBytes(bytes: number | undefined): string {
-  if (typeof bytes !== "number" || bytes <= 0) return "—";
+  if (typeof bytes !== "number" || bytes <= 0) return "-";
   const gb = bytes / 1_073_741_824;
   return gb >= 1 ? `${gb.toFixed(1)} GB` : `${(bytes / 1_048_576).toFixed(0)} MB`;
 }
 
 function formatDate(value: string | undefined): string {
-  if (!value) return "—";
+  if (!value) return "-";
   const d = new Date(value);
-  return isNaN(d.getTime()) ? "—" : d.toLocaleString();
+  return isNaN(d.getTime()) ? "-" : d.toLocaleString();
 }
 
 export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snapshot }) => {
@@ -293,20 +293,20 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Hardware</h4>
               <dl className="grid grid-cols-2 gap-y-1.5 text-xs">
                 <dt className="text-slate-500 dark:text-slate-400">Manufacturer</dt>
-                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.manufacturer || "—"}</dd>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.manufacturer || "-"}</dd>
                 <dt className="text-slate-500 dark:text-slate-400">Model</dt>
-                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.model || "—"}</dd>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.model || "-"}</dd>
                 <dt className="text-slate-500 dark:text-slate-400">Serial Number</dt>
-                <dd className="text-slate-900 dark:text-slate-100 font-mono">{selectedDevice.serialNumber || "—"}</dd>
+                <dd className="text-slate-900 dark:text-slate-100 font-mono">{selectedDevice.serialNumber || "-"}</dd>
                 <dt className="text-slate-500 dark:text-slate-400">IMEI</dt>
-                <dd className="text-slate-900 dark:text-slate-100 font-mono">{selectedDevice.imei || "—"}</dd>
+                <dd className="text-slate-900 dark:text-slate-100 font-mono">{selectedDevice.imei || "-"}</dd>
                 <dt className="text-slate-500 dark:text-slate-400">Wi-Fi MAC</dt>
-                <dd className="text-slate-900 dark:text-slate-100 font-mono">{selectedDevice.wiFiMacAddress || "—"}</dd>
+                <dd className="text-slate-900 dark:text-slate-100 font-mono">{selectedDevice.wiFiMacAddress || "-"}</dd>
                 <dt className="text-slate-500 dark:text-slate-400">Storage</dt>
                 <dd className="text-slate-900 dark:text-slate-100 font-medium">
                   {selectedDevice.freeStorageBytes !== undefined && selectedDevice.totalStorageBytes !== undefined
                     ? `${formatBytes(selectedDevice.freeStorageBytes)} free of ${formatBytes(selectedDevice.totalStorageBytes)}`
-                    : "—"}
+                    : "-"}
                 </dd>
               </dl>
             </div>
@@ -315,15 +315,15 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Management & Enrollment</h4>
               <dl className="grid grid-cols-2 gap-y-1.5 text-xs">
                 <dt className="text-slate-500 dark:text-slate-400">Enrollment Type</dt>
-                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.deviceEnrollmentType || "—"}</dd>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.deviceEnrollmentType || "-"}</dd>
                 <dt className="text-slate-500 dark:text-slate-400">Management Agent</dt>
-                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.managementAgent || "—"}</dd>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.managementAgent || "-"}</dd>
                 <dt className="text-slate-500 dark:text-slate-400">Owner Type</dt>
-                <dd className="text-slate-900 dark:text-slate-100 font-medium capitalize">{selectedDevice.ownerType || "—"}</dd>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium capitalize">{selectedDevice.ownerType || "-"}</dd>
                 <dt className="text-slate-500 dark:text-slate-400">Device Category</dt>
-                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.deviceCategory || "—"}</dd>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.deviceCategory || "-"}</dd>
                 <dt className="text-slate-500 dark:text-slate-400">Azure AD Device ID</dt>
-                <dd className="text-slate-900 dark:text-slate-100 font-mono text-[10px] break-all">{selectedDevice.azureADDeviceId || "—"}</dd>
+                <dd className="text-slate-900 dark:text-slate-100 font-mono text-[10px] break-all">{selectedDevice.azureADDeviceId || "-"}</dd>
                 <dt className="text-slate-500 dark:text-slate-400">Enrolled</dt>
                 <dd className="text-slate-900 dark:text-slate-100 font-medium">{formatDate(selectedDevice.enrolledDateTime)}</dd>
                 <dt className="text-slate-500 dark:text-slate-400">Last Sync</dt>
