@@ -40,7 +40,7 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch {
-      // Clipboard write failed (e.g. permission denied) — don't show a
+      // Clipboard write failed (e.g. permission denied) - don't show a
       // false "Copied" success state.
     }
   };
@@ -87,7 +87,7 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
         setDeploySuccess(null);
         onClose();
       }}
-      title={`Deploy Conditional Access Baseline: ${policy.code} — ${policy.name}`}
+      title={`Deploy Conditional Access Baseline: ${policy.code} - ${policy.name}`}
       maxWidth="3xl"
     >
       <div className="space-y-4">
