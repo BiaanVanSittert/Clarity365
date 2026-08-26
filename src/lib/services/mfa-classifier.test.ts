@@ -17,7 +17,7 @@ describe("classifyRegisteredMethods", () => {
   });
 
   it("drops unrecognized method strings rather than misclassifying them", () => {
-    // e.g. Windows Hello for Business isn't part of Clarity365's taxonomy yet —
+    // e.g. Windows Hello for Business isn't part of Clarity365's taxonomy yet -
     // it's silently excluded rather than being guessed into the wrong bucket.
     expect(classifyRegisteredMethods(["windowsHelloForBusiness", "temporaryAccessPass"])).toEqual([]);
   });
@@ -91,7 +91,7 @@ describe("classifyUserAuthMethods", () => {
   it("trusts Graph's isMfaRegistered flag even when no method string was classified", () => {
     // Graph can report a user as MFA-registered via a method outside Clarity365's
     // taxonomy (e.g. Windows Hello). mfaRegistered follows the flag, but since no
-    // concrete method was recognized, defaultMethod stays "none" — which is itself
+    // concrete method was recognized, defaultMethod stays "none" - which is itself
     // a "weak" bucket, so isWeakAuth is still true despite mfaRegistered being true.
     const result = classifyUserAuthMethods(["windowsHelloForBusiness"], true);
     expect(result.mfaRegistered).toBe(true);
