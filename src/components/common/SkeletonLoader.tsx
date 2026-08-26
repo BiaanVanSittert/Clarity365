@@ -54,7 +54,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
 
 // Full-module loading state used as the <Suspense> fallback while a lazy-loaded
 // module chunk is being fetched (see AppShell.tsx). Distinct from the generic
-// Skeleton primitive above — this composes it into a layout that approximates
+// Skeleton primitive above - this composes it into a layout that approximates
 // a typical module's shape (header + stat cards + a data table).
 export const SkeletonLoader: React.FC = () => (
   <div className="p-6 space-y-4">
