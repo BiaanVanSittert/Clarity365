@@ -42,7 +42,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
   auditLogRetentionDays: 90,
 };
 
-// Server-side guard for TABL entries — the Add modal's `required`/`minLength`
+// Server-side guard for TABL entries - the Add modal's `required`/`minLength`
 // form rules only stop the human UI, not a direct API call or an MCP agent,
 // and a write-enabled tenant would otherwise forward garbage straight to a
 // live Exchange Online Tenant Allow/Block List write. Both addTablEntry
@@ -153,7 +153,7 @@ class TenantStore {
   // when the tenants table is empty (fresh DB). On success, the legacy file is
   // renamed (never deleted) so it's obviously retired but still recoverable. On
   // failure, the store is deliberately left empty rather than silently reseeded
-  // with demo tenants — that would paper over a real problem with fake data while
+  // with demo tenants - that would paper over a real problem with fake data while
   // the original file sits untouched.
   private migrateFromLegacyJsonIfNeeded() {
     const { c } = this.db.prepare("SELECT COUNT(*) as c FROM tenants").get() as { c: number };
@@ -192,7 +192,7 @@ class TenantStore {
     } catch (err) {
       console.error(
         `[Clarity365 Store] Found ${legacyPath} but failed to migrate it to SQLite. ` +
-          `Starting with an empty store rather than risking your data — the original file is untouched. ` +
+          `Starting with an empty store rather than risking your data - the original file is untouched. ` +
           `Fix the underlying issue and restart.`,
         err
       );
@@ -266,7 +266,7 @@ class TenantStore {
     return row ? this.backfillSnapshot(JSON.parse(row.data)) : undefined;
   }
 
-  // Snapshots are long-lived JSON blobs — a row written before a field existed
+  // Snapshots are long-lived JSON blobs - a row written before a field existed
   // in TenantSecuritySnapshot (e.g. mdoThreat.alerts) stays missing that field
   // forever, since nothing else ever rewrites it wholesale. Every reader (UI
   // components, this store) relies on the type's fields always being present,
@@ -330,7 +330,7 @@ class TenantStore {
   // Tenants are ALWAYS held on disk with clientSecret and exoRefreshToken
   // encrypted (or absent). Decryption only ever happens transiently, right before a
   // Graph/Exchange Online API call. Anything handed back to an API route/UI goes
-  // through sanitizeTenant/sanitizeSnapshot, which mask both entirely — they are
+  // through sanitizeTenant/sanitizeSnapshot, which mask both entirely - they are
   // write-only fields from the client's perspective.
 
   private encryptTenantSecret(tenant: Tenant): Tenant {
@@ -381,7 +381,7 @@ class TenantStore {
   }
 
   // Exchange Online refresh tokens rotate on every use (single-use, public-
-  // client tokens) — this is called as the rotation callback threaded through
+  // client tokens) - this is called as the rotation callback threaded through
   // exo-client.ts's calls so the new token is saved immediately, not just
   // whatever token was current when the sync started.
   private persistExoRefreshToken(tenantId: string, newRefreshToken: string): void {
@@ -437,7 +437,7 @@ class TenantStore {
       return { snapshot: this.sanitizeSnapshot(snapshot), outcome: "synced" };
     }
 
-    // Live fetch failed entirely (e.g. bad credentials) — don't let this look
+    // Live fetch failed entirely (e.g. bad credentials) - don't let this look
     // like a success just because a stale cached snapshot exists to fall back on.
     const outcome: SyncOutcome = existing ? "stale_fallback" : "no_data";
     this.addAuditLogEntry({
@@ -534,7 +534,7 @@ class TenantStore {
       lastSyncTimestamp: new Date().toISOString(),
       // Demo tenants have nothing to validate, so they're immediately "healthy".
       // A newly-added live tenant hasn't had its credentials verified against
-      // Microsoft Graph yet — show it as disconnected until the first sync
+      // Microsoft Graph yet - show it as disconnected until the first sync
       // (or permissions check) actually succeeds, rather than a misleading
       // green "healthy" badge for credentials that were never tested.
       connectionStatus: tenantData.isDemo ? "healthy" : "disconnected",
@@ -563,8 +563,8 @@ class TenantStore {
     if (updates.credentials) {
       const incomingSecret = updates.credentials.clientSecret;
       // A masked value coming back from the UI (or no value at all) means "leave the
-      // existing secret alone" — the client never has the real value to send back.
-      // exoRefreshToken is deliberately NOT handled here — it's exclusively written by
+      // existing secret alone" - the client never has the real value to send back.
+      // exoRefreshToken is deliberately NOT handled here - it's exclusively written by
       // persistExoRefreshToken() as part of the device-code connect/rotation flow, never
       // through this generic update path, so the spread below naturally leaves it alone
       // whenever a caller's update payload doesn't mention it.
@@ -608,11 +608,11 @@ class TenantStore {
   }
 
   // Real Exchange Online writes only happen when BOTH exoRefreshToken and
-  // exoWriteEnabled are set — the latter is an explicit, off-by-default admin
+  // exoWriteEnabled are set - the latter is an explicit, off-by-default admin
   // opt-in (see types/index.ts), since EXO's delegated device-code auth can't
   // be scoped to read-only the way Graph app permissions can. Everything else
   // (no EXO connection, or connected with writes left disabled) keeps the
-  // original local-only tracking behavior, flagged via isLocalOnly below —
+  // original local-only tracking behavior, flagged via isLocalOnly below -
   // syncTenant() merges those back in after every resync rather than
   // overwriting them (see graph-client.ts's mdoThreat.tabl assignment).
   public async addTablEntry(
@@ -718,7 +718,7 @@ class TenantStore {
   }
 
   // Runs the one-setting EXO fix for a single MDO baseline gap (see
-  // MDO_BASELINE_STANDARDS' remediation descriptors) — same
+  // MDO_BASELINE_STANDARDS' remediation descriptors) - same
   // exoRefreshToken/exoWriteEnabled gate, audit logging, and post-write resync
   // pattern as addTablEntry/removeTablEntry above, just targeting a Set-*Policy
   // cmdlet instead of a TABL cmdlet.
@@ -745,13 +745,13 @@ class TenantStore {
     }
     // The UI hides the one-click fix whenever more than one policy of this
     // type exists (see MdoPoliciesModule.tsx) since auto-remediating one
-    // arbitrary policy while others stay non-compliant would be misleading —
+    // arbitrary policy while others stay non-compliant would be misleading -
     // this is a defense-in-depth guard for any caller that bypasses the UI
     // (a direct API call, or a future MCP tool).
     if (matchingPolicies.length > 1) {
       return {
         success: false,
-        error: `Multiple ${standard.policyType} policies exist — apply this fix manually in Exchange Online.`,
+        error: `Multiple ${standard.policyType} policies exist - apply this fix manually in Exchange Online.`,
       };
     }
     const policy = matchingPolicies[0];
@@ -783,7 +783,7 @@ class TenantStore {
   }
 
   // Disables a detected forwarding vector (inbox rule, transport rule, or
-  // mailbox-level auto-forward) — same exoRefreshToken/exoWriteEnabled gate,
+  // mailbox-level auto-forward) - same exoRefreshToken/exoWriteEnabled gate,
   // audit logging, and post-write resync pattern as applyMdoBaselineFix above.
   public async disableForwardingRule(tenantId: string, ruleId: string): Promise<{ success: boolean; error?: string }> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
@@ -817,7 +817,7 @@ class TenantStore {
     return { success: true };
   }
 
-  // Revokes one FullAccess/SendAs/SendOnBehalf delegation from a mailbox —
+  // Revokes one FullAccess/SendAs/SendOnBehalf delegation from a mailbox -
   // same gate/audit/resync pattern as the methods above.
   public async revokeMailboxDelegation(
     tenantId: string,
@@ -869,7 +869,7 @@ class TenantStore {
     return { success: true };
   }
 
-  // Enables tenant-wide mailbox audit logging — the prerequisite for every
+  // Enables tenant-wide mailbox audit logging - the prerequisite for every
   // delegation/forwarding finding above being investigable after the fact
   // (see the mailboxAuditingEnabled comment in types/index.ts).
   public async setMailboxAuditingEnabled(tenantId: string): Promise<{ success: boolean; error?: string }> {
@@ -933,7 +933,7 @@ class TenantStore {
       detailName = "external sender warning tag";
     } else {
       // MF01/MF02 target a specific transport rule. MF05/MF06 (connectors)
-      // have no remediation defined at all — the !standard.remediation
+      // have no remediation defined at all - the !standard.remediation
       // guard above already returned before reaching here for those codes.
       if (!ruleId) return { success: false, error: "Missing ruleId for this fix." };
       const rule = snap?.mailflowTransportRules.find((r) => r.id === ruleId);
@@ -1023,7 +1023,7 @@ class TenantStore {
         entry.detail ?? null
       );
 
-    // Prune on write rather than on a schedule — audit log volume here is low
+    // Prune on write rather than on a schedule - audit log volume here is low
     // (deploys + MCP tool calls only), so an occasional extra DELETE is cheap and
     // avoids needing a separate timer alongside the sync scheduler.
     const retentionDays = this.getSettingsRow().auditLogRetentionDays;
