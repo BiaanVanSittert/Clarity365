@@ -79,11 +79,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       if (data.success && data.settings) {
         setSettings(data.settings);
       } else {
-        setSettingsError(data.error || "Failed to load current settings — showing defaults, which may not reflect what's actually saved.");
+        setSettingsError(data.error || "Failed to load current settings - showing defaults, which may not reflect what's actually saved.");
       }
     } catch (err) {
       console.error("Failed to fetch settings", err);
-      setSettingsError("Failed to load current settings — showing defaults, which may not reflect what's actually saved.");
+      setSettingsError("Failed to load current settings - showing defaults, which may not reflect what's actually saved.");
     } finally {
       setIsLoading(false);
     }
