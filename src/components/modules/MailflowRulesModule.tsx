@@ -96,8 +96,8 @@ export const MailflowRulesModule: React.FC<MailflowRulesModuleProps> = ({
       );
     }
 
-    // MF04/07/08 are single tenant-wide settings — one fix button. MF01/02
-    // can have several offending rules — one fix button per rule, since each
+    // MF04/07/08 are single tenant-wide settings - one fix button. MF01/02
+    // can have several offending rules - one fix button per rule, since each
     // is independently safe to disable regardless of the others. MF05/06
     // (connectors) have no remediation defined at all, so they never reach
     // this function past the !standard.remediation check above.
@@ -279,7 +279,7 @@ export const MailflowRulesModule: React.FC<MailflowRulesModuleProps> = ({
                 ) : (
                   fixStandard.remediation.summary
                 )}{" "}
-                This takes effect right away — there is no undo from here.
+                This takes effect right away - there is no undo from here.
               </p>
               <div className="p-2 bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-300 rounded-sm">
                 {fixStandard.remediation.cmdlet}
