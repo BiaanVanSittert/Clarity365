@@ -3,7 +3,7 @@ import { GROUPS_BASELINE_STANDARDS } from "../data/groups-baseline-definitions";
 import { computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 
 // A CA-exclusion ("break-glass"/bypass) group beyond this size is flagged for
-// review by G03 — a handful of named break-glass accounts is normal and
+// review by G03 - a handful of named break-glass accounts is normal and
 // expected; dozens of members in an exclusion group usually means it quietly
 // became a general-purpose CA bypass over time.
 const CA_EXCLUSION_GROUP_MAX_MEMBERS = 5;
@@ -14,7 +14,7 @@ export interface GroupsBaselineInput {
   // policies (see types/index.ts's CAPolicyRule.conditions.users.excludeGroupIds).
   caExclusionGroupIds: Set<string>;
   // Lowercased UPNs of users with isWeakAuth || !mfaRegistered (Module 4's
-  // mfaAudit) — used by G04 to cross-check role-assignable group members.
+  // mfaAudit) - used by G04 to cross-check role-assignable group members.
   weakMfaUserPrincipalNamesLower: Set<string>;
   groupExpirationPolicyEnabled?: boolean;
   groupSelfServiceCreationRestricted?: boolean;
