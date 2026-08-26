@@ -236,9 +236,9 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
                       </span>
                     </td>
                     <td className="text-xs font-semibold text-slate-900 dark:text-slate-100">{entry.action}</td>
-                    <td className="text-[11px] text-slate-600 dark:text-slate-400">{entry.tenantName || "—"}</td>
+                    <td className="text-[11px] text-slate-600 dark:text-slate-400">{entry.tenantName || "-"}</td>
                     <td className="text-[11px] text-slate-500 dark:text-slate-400 max-w-[420px] truncate" title={entry.detail}>
-                      {entry.detail || "—"}
+                      {entry.detail || "-"}
                     </td>
                     <td className="text-right">
                       <StatusPill status={entry.success ? "pass" : "fail"} label={entry.success ? "Success" : "Failed"} size="sm" />
