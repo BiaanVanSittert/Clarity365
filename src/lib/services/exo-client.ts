@@ -19,19 +19,19 @@ import {
 } from "./mailflow-mapper";
 
 // Exchange Online / Defender for Office 365 policy data (anti-phish, anti-spam,
-// Safe Links, Safe Attachments) isn't exposed via standard Microsoft Graph —
+// Safe Links, Safe Attachments) isn't exposed via standard Microsoft Graph -
 // it's Exchange admin surface, reachable only through Exchange Online
 // PowerShell or Security & Compliance PowerShell. The modern EXO V3 module
 // actually talks to a REST endpoint under the hood
 // (outlook.office365.com/adminapi/beta/{tenantId}/InvokeCommand) rather than
 // classic WinRM remoting, so this is reachable with a plain authenticated
-// HTTPS POST — no PowerShell runtime/shelling required.
+// HTTPS POST - no PowerShell runtime/shelling required.
 //
 // Auth: Exchange admin APIs don't accept the client-secret flow used
 // everywhere else in this app. Rather than requiring a certificate (an
 // earlier version of this file did), this uses a delegated OAuth device-code
 // flow against Microsoft's own first-party "Microsoft Exchange REST API
-// Based PowerShell" multi-tenant public client — the exact same client ID
+// Based PowerShell" multi-tenant public client - the exact same client ID
 // the real Connect-ExchangeOnline cmdlet uses for interactive sign-in. That
 // means zero custom app-registration configuration: no certificate, no
 // Exchange.ManageAsApp permission, nothing to add to the tenant's own app
@@ -43,7 +43,7 @@ const EXO_POWERSHELL_CLIENT_ID = "fb78d390-0c51-40cd-8e17-fdbfab77341b";
 const EXO_SCOPE = "https://outlook.office365.com/.default offline_access";
 
 // Called whenever a refresh-token grant rotates the token (which happens on
-// every use — these are single-use/rotating public-client refresh tokens).
+// every use - these are single-use/rotating public-client refresh tokens).
 // exo-client.ts has no database access (avoiding a circular import with
 // tenant-store.ts), so persistence is delegated to the caller via this
 // callback, threaded through every layer up to tenant-store.ts.
@@ -74,7 +74,7 @@ export async function getExoAccessToken(
   onRefreshRotated?: ExoRefreshRotatedCallback
 ): Promise<{ token?: string; error?: string }> {
   if (!credentials.tenantId || !credentials.exoRefreshToken) {
-    return { error: "Exchange Online isn't connected for this tenant yet — use the Permissions check to connect." };
+    return { error: "Exchange Online isn't connected for this tenant yet - use the Permissions check to connect." };
   }
 
   const cacheKey = `exo:${credentials.tenantId}`;
@@ -100,7 +100,7 @@ export async function getExoAccessToken(
       return {
         error:
           data.error_description ||
-          "Exchange Online authentication failed — the connection may have been revoked; try reconnecting in the Permissions check.",
+          "Exchange Online authentication failed - the connection may have been revoked; try reconnecting in the Permissions check.",
       };
     }
 
@@ -110,7 +110,7 @@ export async function getExoAccessToken(
       expiresAt: Date.now() + expiresInSeconds * 1000 - EXO_TOKEN_SAFETY_MARGIN_MS,
     });
 
-    // Public-client refresh tokens rotate on every use — the old one becomes
+    // Public-client refresh tokens rotate on every use - the old one becomes
     // invalid the moment a new one is issued, so this MUST be persisted every
     // time or the connection silently breaks after the very next sync.
     if (data.refresh_token && data.refresh_token !== credentials.exoRefreshToken) {
@@ -125,7 +125,7 @@ export async function getExoAccessToken(
 
 // Runs one Exchange Online cmdlet via the InvokeCommand REST surface.
 // Response shape mirrors Graph's list convention closely enough that we
-// normalize the same way (an array directly, or a `.value` array) — worth
+// normalize the same way (an array directly, or a `.value` array) - worth
 // confirming the exact shape against a live tenant, since this endpoint's
 // JSON contract isn't as consistently documented as Graph's.
 export async function invokeExoCommand(
@@ -187,7 +187,7 @@ export async function fetchMdoPoliciesAndTabl(
 
   // Kept as a distinct array from policyErrors above (rather than one shared
   // list) so callers can label a Get-TenantAllowBlockListItems failure as an
-  // "MDO TABL" problem instead of an "MDO Policies" one — the two surfaces
+  // "MDO TABL" problem instead of an "MDO Policies" one - the two surfaces
   // fail independently and the UI shows them in different tabs.
   const tablErrors: string[] = [];
   const tabl: TablEntry[] = [];
@@ -203,12 +203,12 @@ export async function fetchMdoPoliciesAndTabl(
   return { policies, tabl, policyErrors, tablErrors };
 }
 
-// Real, live writes to the Tenant Allow/Block List — gated by
+// Real, live writes to the Tenant Allow/Block List - gated by
 // tenant.credentials.exoWriteEnabled at the tenant-store layer (see
 // addTablEntry/removeTablEntry there), never called unconditionally just
 // because a read-only EXO connection exists. Cmdlet parameter names below
 // follow the documented New-/Remove-TenantAllowBlockListItems shape as of
-// this writing — worth confirming against a live tenant during testing,
+// this writing - worth confirming against a live tenant during testing,
 // matching the same honesty-about-untested-assumptions pattern already used
 // for the read-side mapping in mdo-mapper.ts.
 export async function addTenantAllowBlockListItem(
@@ -247,7 +247,7 @@ export async function removeTenantAllowBlockListItem(
 }
 
 // Runs a single Set-*Policy remediation cmdlet for one MDO baseline gap (see
-// mdo-baseline-definitions.ts's MdoRemediationAction) — a thin wrapper over
+// mdo-baseline-definitions.ts's MdoRemediationAction) - a thin wrapper over
 // invokeExoCommand, same shape/gating as the TABL write functions above.
 export async function applyMdoRemediation(
   tenant: Tenant,
@@ -262,13 +262,13 @@ export async function applyMdoRemediation(
 // ---- Mailbox delegation & email forwarding (Module 6/7 live data) --------
 //
 // Unlike the MDO policy fetch above, Exchange has no bulk "get every
-// mailbox's permissions/rules" cmdlet — each mailbox needs its own
+// mailbox's permissions/rules" cmdlet - each mailbox needs its own
 // Get-MailboxStatistics/Get-MailboxPermission/Get-RecipientPermission/
 // Get-InboxRule round trip, so this is N+1 network calls rather than a
 // single paginated fetch like the Graph endpoints elsewhere in this app.
 // The per-mailbox calls run concurrently (Promise.all) to keep wall-clock
 // time down, and the mailbox count itself is capped so one sync can't run
-// unboundedly long on a very large tenant — mailboxes beyond the cap simply
+// unboundedly long on a very large tenant - mailboxes beyond the cap simply
 // aren't scanned this cycle (surfaced as a sync note, not a hard error)
 // rather than silently showing "no delegations found".
 const MAX_MAILBOXES_FOR_MAILFLOW_SCAN = 250;
@@ -312,7 +312,7 @@ export async function fetchMailflowData(
   }
   if (mailboxResult.items.length === MAX_MAILBOXES_FOR_MAILFLOW_SCAN) {
     errors.push(
-      `Mailbox scan capped at the first ${MAX_MAILBOXES_FOR_MAILFLOW_SCAN} mailboxes for sync performance — this tenant may have more.`
+      `Mailbox scan capped at the first ${MAX_MAILBOXES_FOR_MAILFLOW_SCAN} mailboxes for sync performance - this tenant may have more.`
     );
   }
 
@@ -369,7 +369,7 @@ export async function fetchMailflowData(
       const forwardingRule = mapTransportRule(raw, tenantDomain);
       if (forwardingRule) emailForwarding.push(forwardingRule);
       // Every transport rule (not just the forwarding-shaped subset above)
-      // gets scored against the Mail Flow Rules baseline (MF01-03) — a rule
+      // gets scored against the Mail Flow Rules baseline (MF01-03) - a rule
       // can be flagged there (e.g. an SCL override) without ever appearing
       // in Email Forwarding Audit at all.
       transportRules.push(mapMailflowTransportRule(raw, tenantDomain));
@@ -388,7 +388,7 @@ export async function fetchMailflowData(
 
   // Get-OrganizationConfig, Get-RemoteDomain (Default), and
   // Get-ExternalInOutlook all normally return a single object rather than a
-  // list — worth confirming these still land in items[0] via
+  // list - worth confirming these still land in items[0] via
   // invokeExoCommand's array/`.value` normalization against a live tenant,
   // same caveat as every other not-yet-verified EXO field assumption here.
   let mailboxAuditingEnabled: boolean | null = null;
@@ -435,7 +435,7 @@ export async function removeMailboxDelegation(
     mailboxUpn: string;
     principalUpn: string;
     accessRight: DelegationAccessRight;
-    // Required (and used) only for SendOnBehalf — see comment below.
+    // Required (and used) only for SendOnBehalf - see comment below.
     remainingSendOnBehalf?: string[];
   },
   onRefreshRotated?: ExoRefreshRotatedCallback
@@ -459,7 +459,7 @@ export async function removeMailboxDelegation(
     // GrantSendOnBehalfTo is a multi-valued mailbox property with no
     // dedicated Remove- cmdlet (PowerShell's interactive `@{remove=...}`
     // hash syntax for updating multi-valued properties has no equivalent in
-    // a plain JSON RPC parameter payload) — revoking one entry means
+    // a plain JSON RPC parameter payload) - revoking one entry means
     // replacing the whole list with everyone except the principal being
     // removed, which the caller computes from the already-synced snapshot.
     result = await invokeExoCommand(
@@ -508,11 +508,11 @@ export async function setMailboxAuditingEnabled(
   return result.error ? { success: false, error: result.error } : { success: true };
 }
 
-// ---- Domain Authentication (SPF/DKIM/DMARC) — Module: DKIM half ----------
+// ---- Domain Authentication (SPF/DKIM/DMARC) - Module: DKIM half ----------
 //
 // DKIM is Exchange Online config, reached the same way as everything else in
 // this file. SPF/DMARC are plain public DNS TXT lookups (see
-// domain-dns-checker.ts) — a different mechanism entirely, orchestrated by
+// domain-dns-checker.ts) - a different mechanism entirely, orchestrated by
 // the caller (graph-client.ts) rather than living in this file, which is
 // scoped to "things that need the EXO device-code credential."
 export async function fetchAcceptedDomainsAndDkim(
@@ -552,7 +552,7 @@ export interface ExoConnectivityResult {
   testedAt: string;
 }
 
-// Lightweight connectivity check for the Permissions modal — confirms the
+// Lightweight connectivity check for the Permissions modal - confirms the
 // stored refresh token is still valid and can run at least one read-only
 // Exchange Online cmdlet, without pulling all six policy types.
 export async function testExoConnectivity(
