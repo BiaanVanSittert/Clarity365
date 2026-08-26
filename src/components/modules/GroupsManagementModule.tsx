@@ -279,7 +279,7 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
                         {grp.displayName}
                         {grp.isPrivileged && (
                           <span
-                            title="isAssignableToRole — membership in this group IS an admin role grant"
+                            title="isAssignableToRole - membership in this group IS an admin role grant"
                             className="text-[9px] font-mono uppercase px-1 bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400 border border-red-300 dark:border-red-800 rounded-sm font-bold"
                           >
                             ROLE-ASSIGNABLE
@@ -367,7 +367,7 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
                 <AlertTriangle size={14} className="text-amber-700 dark:text-amber-400 shrink-0" />
                 <span>
                   <strong>{selectedGroup.guestMemberCount} guest member(s)</strong> in this group
-                  {selectedGroup.isAssignableToRole && " — and this group is role-assignable, so an external account effectively holds a directory role"}.
+                  {selectedGroup.isAssignableToRole && " - and this group is role-assignable, so an external account effectively holds a directory role"}.
                 </span>
               </div>
             )}
