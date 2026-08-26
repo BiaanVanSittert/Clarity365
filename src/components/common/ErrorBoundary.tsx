@@ -7,7 +7,7 @@ interface ErrorBoundaryProps {
   children: ReactNode;
   /** Label shown in the error fallback (e.g. the module name). */
   moduleName?: string;
-  /** Called when the user clicks "Retry" — typically re-mounts the component. */
+  /** Called when the user clicks "Retry" - typically re-mounts the component. */
   onRetry?: () => void;
 }
 
