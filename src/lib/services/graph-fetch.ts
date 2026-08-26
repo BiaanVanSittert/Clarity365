@@ -2,12 +2,12 @@
 // Retries on 429 (throttled) and 503 (service unavailable), honoring the server's
 // Retry-After header when present, falling back to exponential backoff with jitter.
 // Other HTTP statuses (401, 403, 404, 400...) are real errors and are returned
-// as-is for the caller to handle — only throttling/transient failures are retried here.
+// as-is for the caller to handle - only throttling/transient failures are retried here.
 
 export interface GraphFetchOptions {
   maxRetries?: number;
   // POST/PATCH/DELETE calls that create or mutate state should NOT retry on a raw
-  // network exception (fetch throwing) — the request may have already reached the
+  // network exception (fetch throwing) - the request may have already reached the
   // server and been processed; retrying could double it. A 429/503 HTTP response is
   // always safe to retry regardless, since the server is explicitly saying it did
   // not process the request. GET calls are naturally safe to retry either way.
