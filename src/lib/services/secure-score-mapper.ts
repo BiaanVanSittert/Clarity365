@@ -4,7 +4,7 @@ import { SecureScoreControl, SecureScoreHistoryPoint } from "../types";
 // responses into Clarity365's SecureScoreControl shape. Graph splits "current score
 // achieved" (on a secureScores entry's controlScores[], keyed by controlName) from
 // "control definition" (title/maxScore/remediation, on the SEPARATE
-// secureScoreControlProfiles list, joined by id === controlName) — both are needed
+// secureScoreControlProfiles list, joined by id === controlName) - both are needed
 // to build one control row. Pulled out of graph-client.ts so this join/normalization
 // logic is unit-testable without a live Graph response driving it.
 
@@ -18,7 +18,7 @@ const CATEGORY_MAP: Record<string, SecureScoreControl["category"]> = {
 
 export function normalizeCategory(raw: string | undefined | null): SecureScoreControl["category"] {
   const lower = (raw || "").toLowerCase();
-  // Fallback bucket for any Graph category outside the current 5-value union —
+  // Fallback bucket for any Graph category outside the current 5-value union -
   // exact real-world values should be confirmed against a live tenant.
   return CATEGORY_MAP[lower] || "Apps";
 }
