@@ -1,4 +1,4 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { matchCaBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
@@ -9,7 +9,17 @@ import { mapSecureScoreControl, buildSecureScoreHistory, computeScoreDelta, extr
 import { fetchMdoPoliciesAndTabl, fetchMailflowData, fetchAcceptedDomainsAndDkim } from "./exo-client";
 import { mapMdoAlert } from "./mdo-alert-mapper";
 import { checkSpfRecord, checkDmarcRecord } from "./domain-dns-checker";
+import {
+  mapGroup,
+  mapGroupExpirationPolicyEnabled,
+  mapGroupSelfServiceCreationRestricted,
+  mapGroupNamingPolicyEnabled,
+} from "./groups-mapper";
 import { graphFetch } from "./graph-fetch";
+
+// No bulk "every group's owners/members" Graph endpoint exists — capped for
+// the same reason the mailflow mailbox scan is capped (see exo-client.ts).
+const MAX_GROUPS_FOR_MEMBER_SCAN = 250;
 
 interface CachedToken {
   token: string;
@@ -172,6 +182,13 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       description: "Read Microsoft Defender for Office 365 threat detections (phishing, malware) from the Security Alerts API.",
       endpoint: "https://graph.microsoft.com/v1.0/security/alerts_v2?$top=1",
       requiredFor: "Module 8: MDO Threat Detections",
+    },
+    {
+      permission: "Group.Read.All",
+      scope: "Application",
+      description: "Read Microsoft 365 groups, security groups, and distribution lists — membership, owners, and tenant-wide group settings.",
+      endpoint: "https://graph.microsoft.com/v1.0/groups?$top=1",
+      requiredFor: "Module 11: Groups & Distribution Management",
     },
     {
       permission: "Policy.ReadWrite.ConditionalAccess",
@@ -505,6 +522,7 @@ export async function fetchLiveTenantSnapshot(
           users: {
             include: p.conditions?.users?.includeUsers || p.conditions?.users?.includeRoles || [],
             exclude: p.conditions?.users?.excludeUsers || [],
+            excludeGroupIds: p.conditions?.users?.excludeGroups || [],
           },
           applications: {
             include: p.conditions?.applications?.includeApplications || [],
@@ -984,6 +1002,60 @@ export async function fetchLiveTenantSnapshot(
     }
   }
 
+  // 8.8. Groups & Distribution — pure Graph, independent of the EXO
+  // connection above. Exchange has no bulk "every group's owners/members"
+  // endpoint any more than it does for mailboxes, so the same N+1-with-a-cap
+  // shape from the mailflow mailbox scan applies here: one extra owners +
+  // members round trip per group, capped for sync performance.
+  let groupsLive: TenantGroup[] | null = null;
+  let groupExpirationPolicyEnabled: boolean | undefined;
+  let groupSelfServiceCreationRestricted: boolean | undefined;
+  let groupNamingPolicyEnabled: boolean | undefined;
+  try {
+    const groupsResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/v1.0/groups?$top=999&$select=id,displayName,mailNickname,groupTypes,mailEnabled,securityEnabled,isAssignableToRole,onPremisesSyncEnabled,createdDateTime,membershipRule",
+      headers
+    );
+    if (groupsResult.error) syncErrors.push(`Groups: ${groupsResult.error}`);
+
+    const cappedGroups = groupsResult.items.slice(0, MAX_GROUPS_FOR_MEMBER_SCAN);
+    if (groupsResult.items.length > MAX_GROUPS_FOR_MEMBER_SCAN) {
+      syncErrors.push(
+        `Groups: Owner/member scan capped at the first ${MAX_GROUPS_FOR_MEMBER_SCAN} groups for sync performance — this tenant may have more.`
+      );
+    }
+
+    groupsLive = await Promise.all(
+      cappedGroups.map(async (raw: any) => {
+        const [ownersResult, membersResult] = await Promise.all([
+          fetchAllPages<any>(`https://graph.microsoft.com/v1.0/groups/${raw.id}/owners?$select=userPrincipalName&$top=100`, headers, 1),
+          fetchAllPages<any>(
+            `https://graph.microsoft.com/v1.0/groups/${raw.id}/members?$select=userPrincipalName,userType&$top=100`,
+            headers,
+            1
+          ),
+        ]);
+        const ownerNames = ownersResult.items.map((o: any) => o.userPrincipalName).filter(Boolean);
+        return mapGroup(raw, ownerNames, membersResult.items);
+      })
+    );
+
+    // GET /groupSettings — tenant-wide expiration/self-service-creation/naming
+    // policy. A 403 here (missing permission) is common and shouldn't block
+    // the rest of the group data above from being used.
+    const settingsResult = await fetchAllPages<any>("https://graph.microsoft.com/v1.0/groupSettings", headers);
+    if (settingsResult.error) {
+      syncErrors.push(`Group Settings: ${settingsResult.error}`);
+    } else {
+      groupExpirationPolicyEnabled = mapGroupExpirationPolicyEnabled(settingsResult.items);
+      groupSelfServiceCreationRestricted = mapGroupSelfServiceCreationRestricted(settingsResult.items);
+      groupNamingPolicyEnabled = mapGroupNamingPolicyEnabled(settingsResult.items);
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching groups:", err);
+    syncErrors.push(`Groups: ${err.message || "Unexpected error while processing groups."}`);
+  }
+
   // 9. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = computeBaselineCoveragePercent(deployedBaselineCodes.size, CA_BASELINE_STANDARDS.length);
@@ -1070,6 +1142,18 @@ export async function fetchLiveTenantSnapshot(
   }
   if (domainAuthLive !== null) {
     base.domainAuth = domainAuthLive;
+  }
+  if (groupsLive !== null) {
+    base.groups = groupsLive;
+  }
+  if (groupExpirationPolicyEnabled !== undefined) {
+    base.groupExpirationPolicyEnabled = groupExpirationPolicyEnabled;
+  }
+  if (groupSelfServiceCreationRestricted !== undefined) {
+    base.groupSelfServiceCreationRestricted = groupSelfServiceCreationRestricted;
+  }
+  if (groupNamingPolicyEnabled !== undefined) {
+    base.groupNamingPolicyEnabled = groupNamingPolicyEnabled;
   }
   // Distinguish "never synced" (leave whatever the snapshot already had,
   // including undefined) from "synced but the Get-OrganizationConfig call

@@ -70,7 +70,12 @@ export interface CAPolicyRule {
   createdDateTime: string;
   grantControls: string[];
   conditions: {
-    users: { include: string[]; exclude: string[] };
+    // exclude here is Graph's excludeUsers only; excludeGroupIds is the
+    // separate excludeGroups field — Graph models "exclude this group of
+    // people" and "exclude this specific group" as distinct properties, and
+    // this app previously only captured the former (see the Groups baseline's
+    // G03 check, which is the first thing that actually needs the latter).
+    users: { include: string[]; exclude: string[]; excludeGroupIds?: string[] };
     applications: { include: string[]; exclude: string[] };
     clientAppTypes: string[];
     platforms?: { include: string[]; exclude: string[] };
@@ -479,6 +484,22 @@ export interface TenantGroup {
   isPrivileged: boolean;
   syncSource: "Cloud" | "WindowsServerAD";
   createdDateTime: string;
+  // Baseline-scoring fields (see groups-baseline-definitions.ts) — each backs
+  // one specific G0x check, so unlike isPrivileged (a static demo-data flag)
+  // these are populated from real Graph fields once live sync exists.
+  isAssignableToRole: boolean; // membership in this group IS an admin role grant
+  membershipRule?: string; // raw dynamic-membership rule text, for Dynamic groups
+  guestMemberCount: number;
+}
+
+// Per-check result of scoring live TenantGroup/tenant-settings data against
+// GROUPS_BASELINE_STANDARDS (groups-baseline-definitions.ts) — same shape as
+// MailflowBaselineResult, since most checks here are also "does any group
+// violate this" rather than a single per-type lookup like MDO's.
+export interface GroupsBaselineResult {
+  code: string;
+  met: boolean;
+  offendingGroupNames?: string[];
 }
 
 // Module 12: SharePoint & Storage Policies
@@ -566,6 +587,13 @@ export interface TenantSecuritySnapshot {
   appRegistrations: AppRegistrationItem[];
   intune: IntunePolicySummary;
   groups: TenantGroup[];
+  // Tenant-wide Entra ID group settings (GET /groupSettings) — undefined
+  // until a live sync has actually populated them. Each backs one specific
+  // G0x check (see groups-baseline-definitions.ts) rather than a per-group
+  // field, since these are single tenant-wide switches, not per-group facts.
+  groupExpirationPolicyEnabled?: boolean;
+  groupSelfServiceCreationRestricted?: boolean;
+  groupNamingPolicyEnabled?: boolean;
   sharePoint: SharePointTenantPolicy;
   highRiskThreatIndicators: {
     // externalForwardingCount intentionally removed: it was a second, separate

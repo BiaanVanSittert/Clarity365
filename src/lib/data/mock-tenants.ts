@@ -1020,6 +1020,8 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         isPrivileged: true,
         syncSource: "Cloud",
         createdDateTime: "2023-01-20T10:00:00Z",
+        isAssignableToRole: true,
+        guestMemberCount: 0,
       },
       {
         id: "grp-02",
@@ -1034,6 +1036,8 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         isPrivileged: false,
         syncSource: "Cloud",
         createdDateTime: "2024-03-01T11:00:00Z",
+        isAssignableToRole: false,
+        guestMemberCount: 2,
       },
       {
         id: "grp-03",
@@ -1048,6 +1052,9 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         isPrivileged: false,
         syncSource: "Cloud",
         createdDateTime: "2023-01-15T09:00:00Z",
+        isAssignableToRole: false,
+        membershipRule: "(user.accountEnabled -eq true)",
+        guestMemberCount: 0,
       },
     ],
     sharePoint: {
@@ -1485,6 +1492,8 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         isPrivileged: false,
         syncSource: "Cloud",
         createdDateTime: "2023-08-20T10:00:00Z",
+        isAssignableToRole: false,
+        guestMemberCount: 0,
       },
     ],
     sharePoint: {

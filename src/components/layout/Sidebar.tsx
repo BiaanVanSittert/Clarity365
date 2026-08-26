@@ -27,6 +27,7 @@ import {
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
 import { evaluateMailflowBaseline } from "@/lib/services/mailflow-baseline-matcher";
+import { evaluateGroupsBaseline } from "@/lib/services/groups-baseline-matcher";
 
 interface SidebarProps {
   activeView: string;
@@ -182,6 +183,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
     : 0;
 
   const groupsCount = snapshot ? snapshot.groups.length : 0;
+  const groupsBaselineResults = snapshot
+    ? evaluateGroupsBaseline({
+        groups: snapshot.groups,
+        caExclusionGroupIds: new Set(snapshot.conditionalAccess.policies.flatMap((p) => p.conditions.users.excludeGroupIds || [])),
+        weakMfaUserPrincipalNamesLower: new Set(
+          snapshot.mfaAudit.filter((u) => u.isWeakAuth || !u.mfaRegistered).map((u) => u.userPrincipalName.toLowerCase())
+        ),
+        groupExpirationPolicyEnabled: snapshot.groupExpirationPolicyEnabled,
+        groupSelfServiceCreationRestricted: snapshot.groupSelfServiceCreationRestricted,
+        groupNamingPolicyEnabled: snapshot.groupNamingPolicyEnabled,
+      }).results
+    : [];
+  const groupsBaselineGapCount = groupsBaselineResults.filter((r) => !r.met).length;
 
   const mdoBaselineGapCount = snapshot
     ? evaluateMdoBaseline(snapshot.mdoThreat.policies).results.filter((r) => !r.met).length
@@ -200,6 +214,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     mailboxAuditGapCount +
     (mailflowRuleGapCount > 0 ? mailflowRuleGapCount : 0) +
     (domainAuthGapCount > 0 ? domainAuthGapCount : 0) +
+    (groupsBaselineGapCount > 0 ? groupsBaselineGapCount : 0) +
     (mdoIssueCount > 0 ? mdoIssueCount : 0);
 
   const navGroups: NavGroup[] = [
@@ -318,8 +333,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: "groups",
           label: "Groups & Distribution",
           icon: Users,
-          badgeCount: groupsCount > 0 ? groupsCount : undefined,
-          badgeStatus: "info",
+          badgeCount: groupsBaselineGapCount > 0 ? groupsBaselineGapCount : undefined,
+          badgeStatus: "warn",
+          badgeDetail:
+            groupsBaselineGapCount > 0
+              ? `${groupsBaselineGapCount} of ${groupsBaselineResults.length} governance checks below recommended (${groupsCount} groups total)`
+              : undefined,
         },
         {
           id: "sharepoint",
