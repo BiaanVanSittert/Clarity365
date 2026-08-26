@@ -5,7 +5,7 @@ import { isRateLimited } from "@/lib/services/rate-limit";
 
 const MIN_PASSWORD_LENGTH = 8;
 
-// Reaching this route at all requires a valid session — see the middleware matcher,
+// Reaching this route at all requires a valid session - see the middleware matcher,
 // which only exempts /api/auth/login, /api/auth/setup, and /api/auth/status.
 export async function POST(request: Request) {
   try {
