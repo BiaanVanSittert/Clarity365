@@ -25,7 +25,7 @@ export const RemediationDrawer: React.FC<RemediationDrawerProps> = ({
       setCopiedIndex(idx);
       setTimeout(() => setCopiedIndex(null), 2000);
     } catch {
-      // Clipboard write failed (e.g. permission denied) — don't show a
+      // Clipboard write failed (e.g. permission denied) - don't show a
       // false "Copied" success state.
     }
   };
