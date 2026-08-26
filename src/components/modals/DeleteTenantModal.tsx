@@ -65,14 +65,14 @@ export const DeleteTenantModal: React.FC<DeleteTenantModalProps> = ({
     >
       <div className="space-y-4">
         {error && (
-          <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-sm">
+          <div className="p-2.5 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-xs rounded-sm">
             {error}
           </div>
         )}
 
-        <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-sm">
-          <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
-          <div className="text-xs text-amber-800 space-y-1">
+        <div className="flex items-start gap-3 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-sm">
+          <AlertTriangle size={18} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-800 dark:text-amber-400 space-y-1">
             <p className="font-semibold">Are you sure you want to disconnect this tenant?</p>
             <p>
               This will remove <strong>{tenant.displayName}</strong> (<code className="font-mono text-[11px]">{tenant.defaultDomainName}</code>) and clear all cached telemetry and snapshots from Clarity365. This action cannot be undone.
@@ -81,8 +81,8 @@ export const DeleteTenantModal: React.FC<DeleteTenantModalProps> = ({
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">
-            Type <span className="font-mono text-slate-900">{tenant.displayName}</span> to confirm
+          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+            Type <span className="font-mono text-slate-900 dark:text-slate-100">{tenant.displayName}</span> to confirm
           </label>
           <input
             type="text"
@@ -90,15 +90,15 @@ export const DeleteTenantModal: React.FC<DeleteTenantModalProps> = ({
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
             placeholder={tenant.displayName}
-            className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-red-500 bg-white"
+            className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-red-500 dark:focus:border-red-400 dark:border-red-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
           />
         </div>
 
-        <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0]">
+        <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0] dark:border-slate-700">
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 border border-[#CBD5E1] bg-white rounded-sm hover:bg-slate-50 transition-colors"
+            className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
           >
             Cancel
           </button>

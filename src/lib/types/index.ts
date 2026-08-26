@@ -281,6 +281,71 @@ export interface MdoThreatPolicy {
   blockingAction: boolean; // SafeAttachments: action is Block/DynamicDelivery, not Allow/Monitor
   commonAttachmentFilter: boolean; // AntiMalware: common attachment type filter enabled
   outboundNotify: boolean; // AntiSpamOutbound: admin is notified of suspected outbound spam
+  // AntiSpamOutbound: AutoForwardingMode is "Off" — the tenant-wide kill
+  // switch controlling whether ANY auto-forward to an external address is
+  // even possible. Scored by the Mail Flow Rules baseline (MF04), not the
+  // MDO0x baseline — a separate concern from outboundNotify/MDO08.
+  autoForwardingBlocked?: boolean;
+}
+
+// Full-fidelity org-wide transport rule shape used by the Transport & Mail
+// Flow Rules baseline (mailflow-baseline-*.ts) — distinct from
+// EmailForwardingRule, which only represents the forwarding-shaped subset of
+// transport rules surfaced in the Email Forwarding Audit module (Module 7).
+// A rule can be flagged here (e.g. an SCL override) without ever appearing
+// in EmailForwardingRule at all.
+export interface MailflowTransportRule {
+  id: string;
+  name: string;
+  state: "Enabled" | "Disabled";
+  redirectsExternally: boolean;
+  externalRedirectAddress?: string;
+  overridesSpamConfidence: boolean; // SetSCL action present — bypasses spam/phish filtering for matching mail
+  hasNoScopingConditions: boolean; // applies to all mail, not a specific sender/domain/recipient
+  hasExpiry: boolean;
+}
+
+export interface MailflowConnector {
+  id: string;
+  name: string;
+  direction: "Inbound" | "Outbound";
+  enabled: boolean;
+  // Inbound only: treats all mail claiming to be from a configured domain as
+  // pre-authenticated regardless of sending IP — a common way spam/phish
+  // filtering gets silently bypassed for an entire domain.
+  trustsAnonymousSenders: boolean;
+  requiresTls: boolean;
+}
+
+export interface MailflowBaselineResult {
+  code: string;
+  met: boolean;
+  offendingRuleNames?: string[];
+  offendingRuleIds?: string[];
+}
+
+// Domain Authentication (SPF/DKIM/DMARC) — the primary defense against the
+// tenant's own domain being spoofed to phish its customers/partners. DKIM
+// comes from the Exchange Online connection; SPF/DMARC are public DNS TXT
+// lookups, so — unlike everything else in this app — remediation here is
+// exact DNS record text to publish at the domain registrar, not a button,
+// since neither Microsoft 365 nor this app can write to a domain's DNS.
+export type DomainAuthCheckStatus = "pass" | "warn" | "fail" | "unknown";
+
+export interface DomainAuthCheck {
+  status: DomainAuthCheckStatus;
+  detail: string;
+  // Exact remediation text (e.g. the literal DNS record to add), present
+  // whenever status isn't "pass".
+  recommendation?: string;
+}
+
+export interface DomainAuthStatus {
+  domain: string;
+  isDefaultDomain: boolean;
+  dkim: DomainAuthCheck;
+  spf: DomainAuthCheck;
+  dmarc: DomainAuthCheck;
 }
 
 export interface TablEntry {
@@ -292,6 +357,12 @@ export interface TablEntry {
   dateAdded: string;
   expirationDate: string | "Never";
   notes: string;
+  // Set when this entry was added while Exchange Online writes were
+  // disabled (or EXO wasn't connected yet) — see tenant-store.addTablEntry.
+  // A live resync merges these back in rather than dropping them, since
+  // they were never pushed to the real Tenant Allow/Block List and so never
+  // come back from a Get-TenantAllowBlockListItems fetch.
+  isLocalOnly?: boolean;
 }
 
 // Static definition of one MDO0x baseline check (mirrors CABaselineItem) —
@@ -314,6 +385,12 @@ export interface MdoBaselineResult {
   met: boolean;
   policyFound: boolean;
   currentPolicyName?: string;
+  // How many policies of this check's policyType actually exist. When this
+  // is >1, `met` reflects "every one of them satisfies the check" rather
+  // than a single arbitrary policy, and unmetPolicyNames names the ones
+  // still failing (see mdo-baseline-matcher.ts).
+  policyCount: number;
+  unmetPolicyNames?: string[];
 }
 
 export interface MdoThreatAlert {
@@ -464,6 +541,23 @@ export interface TenantSecuritySnapshot {
   accountClassification: TenantAccountSummary;
   mailboxes: MailboxItem[];
   emailForwarding: EmailForwardingRule[];
+  // Get-OrganizationConfig's AuditDisabled, inverted — undefined until an EXO
+  // sync has actually run (never connected, or the mailflow fetch itself
+  // failed). Every mailbox-delegation and forwarding-rule finding in this
+  // snapshot is only investigable after the fact if this is true, so it's
+  // surfaced as a standalone gating check rather than folded into a generic list.
+  mailboxAuditingEnabled?: boolean;
+  mailflowTransportRules: MailflowTransportRule[];
+  mailflowConnectors: MailflowConnector[];
+  // Get-RemoteDomain (Default)'s AutoForwardEnabled === false — a second,
+  // more obscure org-wide auto-forward switch distinct from
+  // MdoThreatPolicy.autoForwardingBlocked (the outbound-spam one). Optional
+  // because it's undefined until an EXO sync has actually populated it.
+  remoteDomainAutoForwardBlocked?: boolean;
+  // Get-ExternalInOutlook's Enabled — the "this message is from an external
+  // sender" Outlook banner.
+  externalSenderTagEnabled?: boolean;
+  domainAuth: DomainAuthStatus[];
   mdoThreat: {
     policies: MdoThreatPolicy[];
     tabl: TablEntry[];
@@ -474,7 +568,10 @@ export interface TenantSecuritySnapshot {
   groups: TenantGroup[];
   sharePoint: SharePointTenantPolicy;
   highRiskThreatIndicators: {
-    externalForwardingCount: number;
+    // externalForwardingCount intentionally removed: it was a second, separate
+    // mock-only counter that never derived from emailForwarding and was never
+    // populated by a live sync — every reader now computes it directly from
+    // emailForwarding instead (see e.g. MdoPoliciesModule's own count pattern).
     openSharePointSitesCount: number;
     unprotectedAdminsCount: number;
     highRiskAppRegistrationsCount: number;

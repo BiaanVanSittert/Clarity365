@@ -1,6 +1,22 @@
-import { Tenant, MdoThreatPolicy, TablEntry } from "../types";
+import { Tenant, MdoThreatPolicy, TablEntry, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthCheck, MailflowConnector } from "../types";
 import { graphFetch } from "./graph-fetch";
 import { mapMdoPolicy, mapTablEntry, TablListType } from "./mdo-mapper";
+import {
+  mapMailboxItem,
+  mapMailboxStatistics,
+  mapFullAccessDelegations,
+  mapSendAsDelegations,
+  mapSendOnBehalfDelegations,
+  mapMailboxAutoForward,
+  mapInboxRule,
+  mapTransportRule,
+  mapMailflowTransportRule,
+  mapAcceptedDomain,
+  mapDkimStatus,
+  mapConnector,
+  mapRemoteDomainAutoForwardBlocked,
+  mapExternalSenderTagEnabled,
+} from "./mailflow-mapper";
 
 // Exchange Online / Defender for Office 365 policy data (anti-phish, anti-spam,
 // Safe Links, Safe Attachments) isn't exposed via standard Microsoft Graph —
@@ -156,30 +172,35 @@ const TABL_LIST_TYPES: TablListType[] = ["Sender", "Url", "FileHash"];
 export async function fetchMdoPoliciesAndTabl(
   tenant: Tenant,
   onRefreshRotated?: ExoRefreshRotatedCallback
-): Promise<{ policies: MdoThreatPolicy[]; tabl: TablEntry[]; errors: string[] }> {
-  const errors: string[] = [];
+): Promise<{ policies: MdoThreatPolicy[]; tabl: TablEntry[]; policyErrors: string[]; tablErrors: string[] }> {
+  const policyErrors: string[] = [];
   const policies: MdoThreatPolicy[] = [];
 
   for (const { cmdlet, policyType } of POLICY_CMDLETS) {
     const result = await invokeExoCommand(tenant, cmdlet, {}, onRefreshRotated);
     if (result.error) {
-      errors.push(`${cmdlet}: ${result.error}`);
+      policyErrors.push(`${cmdlet}: ${result.error}`);
       continue;
     }
     result.items.forEach((raw) => policies.push(mapMdoPolicy(raw, policyType)));
   }
 
+  // Kept as a distinct array from policyErrors above (rather than one shared
+  // list) so callers can label a Get-TenantAllowBlockListItems failure as an
+  // "MDO TABL" problem instead of an "MDO Policies" one — the two surfaces
+  // fail independently and the UI shows them in different tabs.
+  const tablErrors: string[] = [];
   const tabl: TablEntry[] = [];
   for (const listType of TABL_LIST_TYPES) {
     const result = await invokeExoCommand(tenant, "Get-TenantAllowBlockListItems", { ListType: listType }, onRefreshRotated);
     if (result.error) {
-      errors.push(`Get-TenantAllowBlockListItems (${listType}): ${result.error}`);
+      tablErrors.push(`Get-TenantAllowBlockListItems (${listType}): ${result.error}`);
       continue;
     }
     result.items.forEach((raw) => tabl.push(mapTablEntry(raw, listType)));
   }
 
-  return { policies, tabl, errors };
+  return { policies, tabl, policyErrors, tablErrors };
 }
 
 // Real, live writes to the Tenant Allow/Block List — gated by
@@ -236,6 +257,293 @@ export async function applyMdoRemediation(
 ): Promise<{ success: boolean; error?: string }> {
   const result = await invokeExoCommand(tenant, cmdlet, parameters, onRefreshRotated);
   return result.error ? { success: false, error: result.error } : { success: true };
+}
+
+// ---- Mailbox delegation & email forwarding (Module 6/7 live data) --------
+//
+// Unlike the MDO policy fetch above, Exchange has no bulk "get every
+// mailbox's permissions/rules" cmdlet — each mailbox needs its own
+// Get-MailboxStatistics/Get-MailboxPermission/Get-RecipientPermission/
+// Get-InboxRule round trip, so this is N+1 network calls rather than a
+// single paginated fetch like the Graph endpoints elsewhere in this app.
+// The per-mailbox calls run concurrently (Promise.all) to keep wall-clock
+// time down, and the mailbox count itself is capped so one sync can't run
+// unboundedly long on a very large tenant — mailboxes beyond the cap simply
+// aren't scanned this cycle (surfaced as a sync note, not a hard error)
+// rather than silently showing "no delegations found".
+const MAX_MAILBOXES_FOR_MAILFLOW_SCAN = 250;
+
+export interface MailflowFetchResult {
+  mailboxes: MailboxItem[];
+  emailForwarding: EmailForwardingRule[];
+  transportRules: MailflowTransportRule[];
+  connectors: MailflowConnector[];
+  remoteDomainAutoForwardBlocked: boolean | null;
+  externalSenderTagEnabled: boolean | null;
+  mailboxAuditingEnabled: boolean | null;
+  errors: string[];
+}
+
+export async function fetchMailflowData(
+  tenant: Tenant,
+  onRefreshRotated?: ExoRefreshRotatedCallback
+): Promise<MailflowFetchResult> {
+  const errors: string[] = [];
+  const tenantDomain = tenant.defaultDomainName;
+
+  const mailboxResult = await invokeExoCommand(
+    tenant,
+    "Get-Mailbox",
+    { ResultSize: MAX_MAILBOXES_FOR_MAILFLOW_SCAN },
+    onRefreshRotated
+  );
+  if (mailboxResult.error) {
+    errors.push(`Get-Mailbox: ${mailboxResult.error}`);
+    return {
+      mailboxes: [],
+      emailForwarding: [],
+      transportRules: [],
+      connectors: [],
+      remoteDomainAutoForwardBlocked: null,
+      externalSenderTagEnabled: null,
+      mailboxAuditingEnabled: null,
+      errors,
+    };
+  }
+  if (mailboxResult.items.length === MAX_MAILBOXES_FOR_MAILFLOW_SCAN) {
+    errors.push(
+      `Mailbox scan capped at the first ${MAX_MAILBOXES_FOR_MAILFLOW_SCAN} mailboxes for sync performance — this tenant may have more.`
+    );
+  }
+
+  const mailboxes: MailboxItem[] = [];
+  const emailForwarding: EmailForwardingRule[] = [];
+
+  for (const raw of mailboxResult.items) {
+    const mailbox = mapMailboxItem(raw);
+
+    const [statsResult, fullAccessResult, sendAsResult, inboxRulesResult] = await Promise.all([
+      invokeExoCommand(tenant, "Get-MailboxStatistics", { Identity: mailbox.userPrincipalName }, onRefreshRotated),
+      invokeExoCommand(tenant, "Get-MailboxPermission", { Identity: mailbox.userPrincipalName }, onRefreshRotated),
+      invokeExoCommand(tenant, "Get-RecipientPermission", { Identity: mailbox.userPrincipalName }, onRefreshRotated),
+      invokeExoCommand(tenant, "Get-InboxRule", { Mailbox: mailbox.userPrincipalName, IncludeHidden: true }, onRefreshRotated),
+    ]);
+
+    if (statsResult.error) {
+      errors.push(`Get-MailboxStatistics (${mailbox.userPrincipalName}): ${statsResult.error}`);
+    } else {
+      const stats = mapMailboxStatistics(statsResult.items[0]);
+      mailbox.totalItemSizeMB = stats.totalItemSizeMB;
+      mailbox.itemCount = stats.itemCount;
+    }
+
+    if (fullAccessResult.error) errors.push(`Get-MailboxPermission (${mailbox.userPrincipalName}): ${fullAccessResult.error}`);
+    if (sendAsResult.error) errors.push(`Get-RecipientPermission (${mailbox.userPrincipalName}): ${sendAsResult.error}`);
+    mailbox.delegations = [
+      ...(fullAccessResult.error ? [] : mapFullAccessDelegations(fullAccessResult.items)),
+      ...(sendAsResult.error ? [] : mapSendAsDelegations(sendAsResult.items)),
+      ...mapSendOnBehalfDelegations(raw.GrantSendOnBehalfTo),
+    ];
+
+    const autoForward = mapMailboxAutoForward(raw, tenantDomain);
+    if (autoForward) emailForwarding.push(autoForward);
+
+    if (inboxRulesResult.error) {
+      errors.push(`Get-InboxRule (${mailbox.userPrincipalName}): ${inboxRulesResult.error}`);
+    } else {
+      inboxRulesResult.items.forEach((ruleRaw) => {
+        const rule = mapInboxRule(ruleRaw, mailbox.userPrincipalName, tenantDomain);
+        if (rule) emailForwarding.push(rule);
+      });
+    }
+
+    mailboxes.push(mailbox);
+  }
+
+  const transportRules: MailflowTransportRule[] = [];
+  const transportRuleResult = await invokeExoCommand(tenant, "Get-TransportRule", {}, onRefreshRotated);
+  if (transportRuleResult.error) {
+    errors.push(`Get-TransportRule: ${transportRuleResult.error}`);
+  } else {
+    transportRuleResult.items.forEach((raw) => {
+      const forwardingRule = mapTransportRule(raw, tenantDomain);
+      if (forwardingRule) emailForwarding.push(forwardingRule);
+      // Every transport rule (not just the forwarding-shaped subset above)
+      // gets scored against the Mail Flow Rules baseline (MF01-03) — a rule
+      // can be flagged there (e.g. an SCL override) without ever appearing
+      // in Email Forwarding Audit at all.
+      transportRules.push(mapMailflowTransportRule(raw, tenantDomain));
+    });
+  }
+
+  const connectors: MailflowConnector[] = [];
+  const [inboundResult, outboundResult] = await Promise.all([
+    invokeExoCommand(tenant, "Get-InboundConnector", {}, onRefreshRotated),
+    invokeExoCommand(tenant, "Get-OutboundConnector", {}, onRefreshRotated),
+  ]);
+  if (inboundResult.error) errors.push(`Get-InboundConnector: ${inboundResult.error}`);
+  else inboundResult.items.forEach((raw) => connectors.push(mapConnector(raw, "Inbound")));
+  if (outboundResult.error) errors.push(`Get-OutboundConnector: ${outboundResult.error}`);
+  else outboundResult.items.forEach((raw) => connectors.push(mapConnector(raw, "Outbound")));
+
+  // Get-OrganizationConfig, Get-RemoteDomain (Default), and
+  // Get-ExternalInOutlook all normally return a single object rather than a
+  // list — worth confirming these still land in items[0] via
+  // invokeExoCommand's array/`.value` normalization against a live tenant,
+  // same caveat as every other not-yet-verified EXO field assumption here.
+  let mailboxAuditingEnabled: boolean | null = null;
+  const orgConfigResult = await invokeExoCommand(tenant, "Get-OrganizationConfig", {}, onRefreshRotated);
+  if (orgConfigResult.error) {
+    errors.push(`Get-OrganizationConfig: ${orgConfigResult.error}`);
+  } else if (orgConfigResult.items[0]) {
+    mailboxAuditingEnabled = orgConfigResult.items[0].AuditDisabled === false;
+  }
+
+  let remoteDomainAutoForwardBlocked: boolean | null = null;
+  const remoteDomainResult = await invokeExoCommand(tenant, "Get-RemoteDomain", { Identity: "Default" }, onRefreshRotated);
+  if (remoteDomainResult.error) {
+    errors.push(`Get-RemoteDomain: ${remoteDomainResult.error}`);
+  } else if (remoteDomainResult.items[0]) {
+    remoteDomainAutoForwardBlocked = mapRemoteDomainAutoForwardBlocked(remoteDomainResult.items[0]);
+  }
+
+  let externalSenderTagEnabled: boolean | null = null;
+  const externalTagResult = await invokeExoCommand(tenant, "Get-ExternalInOutlook", {}, onRefreshRotated);
+  if (externalTagResult.error) {
+    errors.push(`Get-ExternalInOutlook: ${externalTagResult.error}`);
+  } else if (externalTagResult.items[0]) {
+    externalSenderTagEnabled = mapExternalSenderTagEnabled(externalTagResult.items[0]);
+  }
+
+  return {
+    mailboxes,
+    emailForwarding,
+    transportRules,
+    connectors,
+    remoteDomainAutoForwardBlocked,
+    externalSenderTagEnabled,
+    mailboxAuditingEnabled,
+    errors,
+  };
+}
+
+export type DelegationAccessRight = "FullAccess" | "SendAs" | "SendOnBehalf";
+
+export async function removeMailboxDelegation(
+  tenant: Tenant,
+  params: {
+    mailboxUpn: string;
+    principalUpn: string;
+    accessRight: DelegationAccessRight;
+    // Required (and used) only for SendOnBehalf — see comment below.
+    remainingSendOnBehalf?: string[];
+  },
+  onRefreshRotated?: ExoRefreshRotatedCallback
+): Promise<{ success: boolean; error?: string }> {
+  let result;
+  if (params.accessRight === "FullAccess") {
+    result = await invokeExoCommand(
+      tenant,
+      "Remove-MailboxPermission",
+      { Identity: params.mailboxUpn, User: params.principalUpn, AccessRights: ["FullAccess"], Confirm: false },
+      onRefreshRotated
+    );
+  } else if (params.accessRight === "SendAs") {
+    result = await invokeExoCommand(
+      tenant,
+      "Remove-RecipientPermission",
+      { Identity: params.mailboxUpn, Trustee: params.principalUpn, AccessRights: ["SendAs"], Confirm: false },
+      onRefreshRotated
+    );
+  } else {
+    // GrantSendOnBehalfTo is a multi-valued mailbox property with no
+    // dedicated Remove- cmdlet (PowerShell's interactive `@{remove=...}`
+    // hash syntax for updating multi-valued properties has no equivalent in
+    // a plain JSON RPC parameter payload) — revoking one entry means
+    // replacing the whole list with everyone except the principal being
+    // removed, which the caller computes from the already-synced snapshot.
+    result = await invokeExoCommand(
+      tenant,
+      "Set-Mailbox",
+      { Identity: params.mailboxUpn, GrantSendOnBehalfTo: params.remainingSendOnBehalf || [] },
+      onRefreshRotated
+    );
+  }
+  return result.error ? { success: false, error: result.error } : { success: true };
+}
+
+export async function disableForwardingRule(
+  tenant: Tenant,
+  rule: { scope: EmailForwardingRule["scope"]; name: string; mailboxOwner?: string },
+  onRefreshRotated?: ExoRefreshRotatedCallback
+): Promise<{ success: boolean; error?: string }> {
+  let result;
+  if (rule.scope === "transport_rule") {
+    result = await invokeExoCommand(tenant, "Disable-TransportRule", { Identity: rule.name, Confirm: false }, onRefreshRotated);
+  } else if (rule.scope === "inbox_rule") {
+    if (!rule.mailboxOwner) return { success: false, error: "Missing mailbox owner for inbox rule." };
+    result = await invokeExoCommand(
+      tenant,
+      "Disable-InboxRule",
+      { Mailbox: rule.mailboxOwner, Identity: rule.name, Confirm: false },
+      onRefreshRotated
+    );
+  } else {
+    if (!rule.mailboxOwner) return { success: false, error: "Missing mailbox owner for auto-forward rule." };
+    result = await invokeExoCommand(
+      tenant,
+      "Set-Mailbox",
+      { Identity: rule.mailboxOwner, ForwardingSmtpAddress: null, ForwardingAddress: null },
+      onRefreshRotated
+    );
+  }
+  return result.error ? { success: false, error: result.error } : { success: true };
+}
+
+export async function setMailboxAuditingEnabled(
+  tenant: Tenant,
+  onRefreshRotated?: ExoRefreshRotatedCallback
+): Promise<{ success: boolean; error?: string }> {
+  const result = await invokeExoCommand(tenant, "Set-OrganizationConfig", { AuditDisabled: false }, onRefreshRotated);
+  return result.error ? { success: false, error: result.error } : { success: true };
+}
+
+// ---- Domain Authentication (SPF/DKIM/DMARC) — Module: DKIM half ----------
+//
+// DKIM is Exchange Online config, reached the same way as everything else in
+// this file. SPF/DMARC are plain public DNS TXT lookups (see
+// domain-dns-checker.ts) — a different mechanism entirely, orchestrated by
+// the caller (graph-client.ts) rather than living in this file, which is
+// scoped to "things that need the EXO device-code credential."
+export async function fetchAcceptedDomainsAndDkim(
+  tenant: Tenant,
+  onRefreshRotated?: ExoRefreshRotatedCallback
+): Promise<{
+  domains: { domain: string; isDefaultDomain: boolean }[];
+  dkimByDomain: Map<string, DomainAuthCheck>;
+  errors: string[];
+}> {
+  const errors: string[] = [];
+
+  const domainsResult = await invokeExoCommand(tenant, "Get-AcceptedDomain", {}, onRefreshRotated);
+  if (domainsResult.error) {
+    errors.push(`Get-AcceptedDomain: ${domainsResult.error}`);
+    return { domains: [], dkimByDomain: new Map(), errors };
+  }
+  const domains = domainsResult.items.map(mapAcceptedDomain).filter((d) => d.domain);
+
+  const dkimByDomain = new Map<string, DomainAuthCheck>();
+  const dkimResult = await invokeExoCommand(tenant, "Get-DkimSigningConfig", {}, onRefreshRotated);
+  if (dkimResult.error) {
+    errors.push(`Get-DkimSigningConfig: ${dkimResult.error}`);
+  } else {
+    dkimResult.items.forEach((raw) => {
+      const domain = (raw.Domain || "").toLowerCase();
+      if (domain) dkimByDomain.set(domain, mapDkimStatus(raw));
+    });
+  }
+
+  return { domains, dkimByDomain, errors };
 }
 
 export interface ExoConnectivityResult {

@@ -1,4 +1,4 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { matchCaBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
@@ -6,8 +6,9 @@ import { createBlankSnapshot } from "../data/default-snapshot";
 import { classifyUserAuthMethods } from "./mfa-classifier";
 import { mapManagedDeviceToIntuneDevice } from "./intune-mapper";
 import { mapSecureScoreControl, buildSecureScoreHistory, computeScoreDelta, extractIndustryBenchmark } from "./secure-score-mapper";
-import { fetchMdoPoliciesAndTabl } from "./exo-client";
+import { fetchMdoPoliciesAndTabl, fetchMailflowData, fetchAcceptedDomainsAndDkim } from "./exo-client";
 import { mapMdoAlert } from "./mdo-alert-mapper";
+import { checkSpfRecord, checkDmarcRecord } from "./domain-dns-checker";
 import { graphFetch } from "./graph-fetch";
 
 interface CachedToken {
@@ -41,6 +42,16 @@ export interface PermissionTestResult {
   statusCode?: number;
   errorMessage?: string;
   requiredFor: string;
+  // True only for permissions that let Clarity365 create/modify/delete data in
+  // the live tenant, not just read it — flagged distinctly in the Permissions
+  // UI so granting it is a conscious choice, not lost among read-only scopes.
+  isWriteAccess?: boolean;
+  // True for a permission the app doesn't need to function — it unlocks one
+  // additional write-capable feature on top of the read-only reporting this
+  // app already provides without it. Excluded from the pass/fail rollup in
+  // overallStatus so declining it (choosing read-only/reporting-only mode)
+  // never shows as a problem needing attention.
+  optional?: boolean;
 }
 
 export interface TenantPermissionReport {
@@ -99,6 +110,12 @@ export async function getGraphAccessToken(credentials: Tenant["credentials"]): P
 }
 
 export async function testAppRegistrationPermissions(tenant: Tenant): Promise<TenantPermissionReport> {
+  // Ordered read-only first, write-capable last — Policy.ReadWrite.ConditionalAccess
+  // is the only write permission this app ever requests, and it's optional: every
+  // other permission below already gives Clarity365 full audit/reporting coverage
+  // (including generating a copy-pasteable PowerShell script for CA baseline gaps)
+  // without it. Granting it additionally enables one specific feature — in-app
+  // one-click auto-deployment — rather than being required for the app to work.
   const permissionsToTest: Omit<PermissionTestResult, "status">[] = [
     {
       permission: "Policy.Read.All",
@@ -106,13 +123,6 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       description: "Read Conditional Access policies and tenant identity security baselines.",
       endpoint: "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
       requiredFor: "Module 1: Conditional Access Policy Scanner & Baseline Audit",
-    },
-    {
-      permission: "Policy.ReadWrite.ConditionalAccess",
-      scope: "Application",
-      description: "Create and update Conditional Access policies in Report-Only or Enforced mode.",
-      endpoint: "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
-      requiredFor: "Direct In-App CA Auto-Deployment & Baseline Remediation",
     },
     {
       permission: "User.Read.All",
@@ -163,6 +173,16 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       endpoint: "https://graph.microsoft.com/v1.0/security/alerts_v2?$top=1",
       requiredFor: "Module 8: MDO Threat Detections",
     },
+    {
+      permission: "Policy.ReadWrite.ConditionalAccess",
+      scope: "Application",
+      description:
+        "Optional — only needed to auto-deploy CA baseline policies directly from Clarity365. Without it, Policy.Read.All above still gives full audit/reporting coverage, and Clarity365 generates a PowerShell script you can run manually instead.",
+      endpoint: "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
+      requiredFor: "Optional: Direct In-App CA Auto-Deployment & Baseline Remediation",
+      isWriteAccess: true,
+      optional: true,
+    },
   ];
 
   if (tenant.credentials.authMode === "mock") {
@@ -206,7 +226,7 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
           statusCode: res.status,
         });
       } else {
-        allPassed = false;
+        if (!perm.optional) allPassed = false;
         const errJson = await res.json().catch(() => ({}));
         results.push({
           ...perm,
@@ -216,7 +236,7 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
         });
       }
     } catch (e: any) {
-      allPassed = false;
+      if (!perm.optional) allPassed = false;
       results.push({
         ...perm,
         status: "missing",
@@ -225,11 +245,19 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
     }
   }
 
+  // Optional permissions (currently just Policy.ReadWrite.ConditionalAccess) are
+  // excluded from this rollup entirely — declining an optional write permission
+  // is a valid, deliberate choice (read-only/reporting mode), not a problem.
+  const requiredResults = results.filter((r) => !r.optional);
   return {
     tenantId: tenant.id,
     tenantName: tenant.displayName,
     testedAt: new Date().toISOString(),
-    overallStatus: allPassed ? "all_granted" : results.some((r) => r.status === "granted") ? "partial" : "failed",
+    overallStatus: allPassed
+      ? "all_granted"
+      : requiredResults.some((r) => r.status === "granted")
+      ? "partial"
+      : "failed",
     permissions: results,
   };
 }
@@ -851,8 +879,9 @@ export async function fetchLiveTenantSnapshot(
   let mdoTabl: TablEntry[] | null = null;
   if (tenant.credentials.exoRefreshToken) {
     try {
-      const { policies, tabl, errors } = await fetchMdoPoliciesAndTabl(tenant, onExoRefreshRotated);
-      errors.forEach((e) => syncErrors.push(`MDO Policies: ${e}`));
+      const { policies, tabl, policyErrors, tablErrors } = await fetchMdoPoliciesAndTabl(tenant, onExoRefreshRotated);
+      policyErrors.forEach((e) => syncErrors.push(`MDO Policies: ${e}`));
+      tablErrors.forEach((e) => syncErrors.push(`MDO TABL: ${e}`));
       mdoPolicies = policies;
       mdoTabl = tabl;
     } catch (err: any) {
@@ -882,6 +911,77 @@ export async function fetchLiveTenantSnapshot(
   } catch (err: any) {
     console.error("[Graph Client] Error fetching MDO threat alerts:", err);
     syncErrors.push(`MDO Threat Alerts: ${err.message || "Unexpected error while processing threat alerts."}`);
+  }
+
+  // 8.6. Fetch live mailbox delegations, forwarding rules, and mailbox-audit
+  // status via the same Exchange Online connection MDO uses (Module 6/7).
+  // Gated the same way as MDO policies above — skipped silently if EXO isn't
+  // connected, surfaced as a real sync error (prefixed "Mailflow:") if it is
+  // connected but the fetch fails.
+  let mailboxesLive: MailboxItem[] | null = null;
+  let emailForwardingLive: EmailForwardingRule[] | null = null;
+  let transportRulesLive: MailflowTransportRule[] | null = null;
+  let connectorsLive: MailflowConnector[] | null = null;
+  let remoteDomainAutoForwardBlocked: boolean | null | undefined = undefined;
+  let externalSenderTagEnabled: boolean | null | undefined = undefined;
+  let mailboxAuditingEnabled: boolean | null | undefined = undefined;
+  if (tenant.credentials.exoRefreshToken) {
+    try {
+      const result = await fetchMailflowData(tenant, onExoRefreshRotated);
+      result.errors.forEach((e) => syncErrors.push(`Mailflow: ${e}`));
+      // Cross-reference the Graph license data already fetched for Module 5
+      // (usersList, step 2) rather than making a second call for the same
+      // information — Get-Mailbox itself has no license concept.
+      const licensedUpns = new Set(
+        usersList.filter((u) => u.classification === "licensed").map((u) => u.userPrincipalName.toLowerCase())
+      );
+      mailboxesLive = result.mailboxes.map((mbx) => ({
+        ...mbx,
+        hasDirectLicense: licensedUpns.has(mbx.userPrincipalName.toLowerCase()),
+      }));
+      emailForwardingLive = result.emailForwarding;
+      transportRulesLive = result.transportRules;
+      connectorsLive = result.connectors;
+      remoteDomainAutoForwardBlocked = result.remoteDomainAutoForwardBlocked;
+      externalSenderTagEnabled = result.externalSenderTagEnabled;
+      mailboxAuditingEnabled = result.mailboxAuditingEnabled;
+    } catch (err: any) {
+      console.error("[Graph Client] Error fetching mailflow data via Exchange Online:", err);
+      syncErrors.push(`Mailflow: ${err.message || "Unexpected error while processing mailbox/forwarding data."}`);
+    }
+  }
+
+  // 8.7. Domain Authentication (SPF/DKIM/DMARC). DKIM comes from the EXO
+  // connection above; SPF/DMARC are plain public DNS TXT lookups run for
+  // every accepted domain, independent of any Microsoft 365 credential —
+  // but the accepted-domain list itself still needs EXO's
+  // Get-AcceptedDomain, so this whole step is gated the same way as the
+  // rest of Exchange & Mailflow rather than running standalone.
+  let domainAuthLive: DomainAuthStatus[] | null = null;
+  if (tenant.credentials.exoRefreshToken) {
+    try {
+      const { domains, dkimByDomain, errors: domainErrors } = await fetchAcceptedDomainsAndDkim(tenant, onExoRefreshRotated);
+      domainErrors.forEach((e) => syncErrors.push(`Domain Auth: ${e}`));
+      domainAuthLive = await Promise.all(
+        domains.map(async ({ domain, isDefaultDomain }) => {
+          const [spf, dmarc] = await Promise.all([checkSpfRecord(domain), checkDmarcRecord(domain)]);
+          return {
+            domain,
+            isDefaultDomain,
+            dkim: dkimByDomain.get(domain) || {
+              status: "fail" as const,
+              detail: "DKIM has never been configured for this domain.",
+              recommendation: "Run Enable-DkimSigningConfig, then publish the two CNAME selector records Exchange provides at your DNS host.",
+            },
+            spf,
+            dmarc,
+          };
+        })
+      );
+    } catch (err: any) {
+      console.error("[Graph Client] Error checking domain authentication:", err);
+      syncErrors.push(`Domain Auth: ${err.message || "Unexpected error while checking SPF/DKIM/DMARC."}`);
+    }
   }
 
   // 9. Compute baseline coverage
@@ -950,9 +1050,44 @@ export async function fetchLiveTenantSnapshot(
   // for policies/tabl, Graph Security Alerts for alerts) and falls back to
   // whatever the previous snapshot had whenever this sync's fetch for that
   // field specifically didn't run or didn't return data.
+  if (mailboxesLive !== null) {
+    base.mailboxes = mailboxesLive;
+  }
+  if (emailForwardingLive !== null) {
+    base.emailForwarding = emailForwardingLive;
+  }
+  if (transportRulesLive !== null) {
+    base.mailflowTransportRules = transportRulesLive;
+  }
+  if (connectorsLive !== null) {
+    base.mailflowConnectors = connectorsLive;
+  }
+  if (remoteDomainAutoForwardBlocked !== undefined && remoteDomainAutoForwardBlocked !== null) {
+    base.remoteDomainAutoForwardBlocked = remoteDomainAutoForwardBlocked;
+  }
+  if (externalSenderTagEnabled !== undefined && externalSenderTagEnabled !== null) {
+    base.externalSenderTagEnabled = externalSenderTagEnabled;
+  }
+  if (domainAuthLive !== null) {
+    base.domainAuth = domainAuthLive;
+  }
+  // Distinguish "never synced" (leave whatever the snapshot already had,
+  // including undefined) from "synced but the Get-OrganizationConfig call
+  // itself failed" (null — treated the same as never synced, since there's
+  // nothing new to show) from an actual true/false result.
+  if (mailboxAuditingEnabled !== undefined && mailboxAuditingEnabled !== null) {
+    base.mailboxAuditingEnabled = mailboxAuditingEnabled;
+  }
+
   base.mdoThreat = {
     policies: mdoPolicies !== null ? mdoPolicies : base.mdoThreat.policies,
-    tabl: mdoTabl !== null ? mdoTabl : base.mdoThreat.tabl,
+    // A successful live fetch replaces the synced portion of the list, but
+    // preserves any entry added locally while writes were disabled (or
+    // before EXO was connected) — those never exist in the real Tenant
+    // Allow/Block List, so a Get-TenantAllowBlockListItems fetch can never
+    // return them, and replacing wholesale would silently delete them.
+    // See tenant-store.addTablEntry, which is what sets isLocalOnly.
+    tabl: mdoTabl !== null ? [...base.mdoThreat.tabl.filter((e) => e.isLocalOnly), ...mdoTabl] : base.mdoThreat.tabl,
     alerts: mdoAlerts !== null ? mdoAlerts : base.mdoThreat.alerts,
   };
 

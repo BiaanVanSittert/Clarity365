@@ -1,6 +1,7 @@
 import { tenantStore } from "../services/tenant-store";
 import { generateRemediationPlanForTenant } from "../services/remediation-generator";
 import { MCP_TOOL_DEFINITIONS, McpToolDefinition } from "./definitions";
+import { defaultTablExpirationIso } from "../services/mdo-mapper";
 
 export { MCP_TOOL_DEFINITIONS };
 export type { McpToolDefinition };
@@ -51,7 +52,7 @@ async function runMcpTool(name: string, args: Record<string, any>) {
           secureScorePercentage: snap?.secureScore.percentage ?? 0,
           licensedUsers: snap?.accountClassification.licensedUsersCount ?? 0,
           criticalAlerts:
-            (snap?.highRiskThreatIndicators.externalForwardingCount ?? 0) +
+            (snap?.emailForwarding.filter((f) => f.isExternal && f.state === "Enabled").length ?? 0) +
             (snap?.highRiskThreatIndicators.unprotectedAdminsCount ?? 0),
         };
       });
@@ -174,7 +175,7 @@ async function runMcpTool(name: string, args: Record<string, any>) {
           entryType: args.entry.entryType,
           value: args.entry.value,
           addedBy: args.entry.addedBy || "mcp-agent@clarity365.local",
-          expirationDate: "Never",
+          expirationDate: args.entry.expirationDate || defaultTablExpirationIso(),
           notes: args.entry.notes || "Added via MCP Agent Tool Call",
         });
         return result.success

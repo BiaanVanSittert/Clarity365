@@ -92,15 +92,15 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Header */}
-      <div className="bg-[#F8FAFC] border border-[#CBD5E1] p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <Users size={18} className="text-slate-800" />
-            <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+            <Users size={18} className="text-slate-800 dark:text-slate-200" />
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               Module 11: Microsoft Groups & Distribution Management
             </h2>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Audit Security Groups, M365 Unified Teams, Distribution Lists, Mail-Enabled Security, and Privileged Roles.
           </p>
         </div>
@@ -115,24 +115,24 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
       </div>
 
       {/* Filter and Search */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 border border-[#CBD5E1] rounded-sm">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-800 p-3 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
         <div className="relative w-full sm:w-80">
-          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400 dark:text-slate-500" />
           <input
             type="text"
             placeholder="Search groups by name or owner..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
           />
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter size={14} className="text-slate-500" />
+          <Filter size={14} className="text-slate-500 dark:text-slate-400" />
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-medium"
+            className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium"
           >
             <option value="all">All Group Types ({groups.length})</option>
             <option value="Security">Security Groups</option>
@@ -144,21 +144,21 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
           <button
             onClick={handleExportCSV}
             title="Export filtered groups to CSV"
-            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
           >
-            <Download size={13} className="text-slate-500" />
+            <Download size={13} className="text-slate-500 dark:text-slate-400" />
             <span>Export CSV</span>
           </button>
         </div>
       </div>
 
       {/* Groups Table */}
-      <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-xs">
-        <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+      <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
+        <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
             Directory Group Hierarchy & Ownership Matrix
           </h3>
-          <span className="text-[11px] font-mono text-slate-500">{filteredGroups.length} Groups Listed</span>
+          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{filteredGroups.length} Groups Listed</span>
         </div>
 
         <div className="overflow-x-auto">
@@ -185,18 +185,18 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
                     tabIndex={0}
                     role="button"
                     onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSelectedGroup(grp))}
-                    className="cursor-pointer hover:bg-slate-50 transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2"
+                    className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2"
                   >
                     <td>
-                      <div className="font-semibold text-xs text-slate-900 flex items-center gap-1.5">
+                      <div className="font-semibold text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                         {grp.displayName}
                         {grp.isPrivileged && (
-                          <span className="text-[9px] font-mono uppercase px-1 bg-red-100 text-red-800 border border-red-300 rounded-sm font-bold">
+                          <span className="text-[9px] font-mono uppercase px-1 bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400 border border-red-300 dark:border-red-800 rounded-sm font-bold">
                             PRIVILEGED
                           </span>
                         )}
                       </div>
-                      <div className="text-[11px] font-mono text-slate-500">{grp.mailNickname}@{tenant.defaultDomainName}</div>
+                      <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{grp.mailNickname}@{tenant.defaultDomainName}</div>
                     </td>
                     <td>
                       <StatusPill
@@ -213,11 +213,11 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
                         size="sm"
                       />
                     </td>
-                    <td className="text-xs font-mono text-slate-700">{grp.membershipType}</td>
-                    <td className="font-mono text-xs font-bold text-slate-900 tabular-nums">{grp.ownersCount}</td>
-                    <td className="font-mono text-xs font-bold text-slate-900 tabular-nums">{grp.membersCount}</td>
+                    <td className="text-xs font-mono text-slate-700 dark:text-slate-300">{grp.membershipType}</td>
+                    <td className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 tabular-nums">{grp.ownersCount}</td>
+                    <td className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 tabular-nums">{grp.membersCount}</td>
                     <td>
-                      <span className="text-xs font-mono text-slate-600">{grp.syncSource}</span>
+                      <span className="text-xs font-mono text-slate-600 dark:text-slate-400">{grp.syncSource}</span>
                     </td>
                     <td className="text-right">
                       <button
@@ -226,7 +226,7 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
                           e.stopPropagation();
                           setSelectedGroup(grp);
                         }}
-                        className="p-1 text-slate-400 hover:text-slate-900 rounded-sm"
+                        className="p-1 text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:text-slate-100 rounded-sm"
                       >
                         <ChevronRight size={14} />
                       </button>
@@ -249,16 +249,16 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
           width="lg"
         >
           <div className="space-y-4">
-            <div className="border border-[#CBD5E1] p-3 rounded-sm bg-[#F8FAFC] space-y-2">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+            <div className="border border-[#CBD5E1] dark:border-slate-700 p-3 rounded-sm bg-[#F8FAFC] dark:bg-slate-900/50 space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                 Designated Group Owners ({selectedGroup.owners.length})
               </h4>
               {selectedGroup.owners.length === 0 ? (
-                <p className="text-xs text-amber-800 italic">No assigned owners (Orphaned Group Risk).</p>
+                <p className="text-xs text-amber-800 dark:text-amber-400 italic">No assigned owners (Orphaned Group Risk).</p>
               ) : (
                 <div className="space-y-1">
                   {selectedGroup.owners.map((owner, idx) => (
-                    <div key={idx} className="text-xs font-mono text-slate-800 p-1.5 bg-white border border-slate-200 rounded-sm">
+                    <div key={idx} className="text-xs font-mono text-slate-800 dark:text-slate-200 p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-sm">
                       {owner}
                     </div>
                   ))}
@@ -266,16 +266,16 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
               )}
             </div>
 
-            <div className="border border-[#CBD5E1] p-3 rounded-sm bg-white space-y-2">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+            <div className="border border-[#CBD5E1] dark:border-slate-700 p-3 rounded-sm bg-white dark:bg-slate-800 space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                 Direct Assigned Members ({selectedGroup.members.length})
               </h4>
               {selectedGroup.members.length === 0 ? (
-                <p className="text-xs text-slate-500 italic">No direct members listed.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 italic">No direct members listed.</p>
               ) : (
                 <div className="space-y-1">
                   {selectedGroup.members.map((member, idx) => (
-                    <div key={idx} className="text-xs font-mono text-slate-800 p-1.5 bg-[#F8FAFC] border border-slate-200 rounded-sm">
+                    <div key={idx} className="text-xs font-mono text-slate-800 dark:text-slate-200 p-1.5 bg-[#F8FAFC] dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-sm">
                       {member}
                     </div>
                   ))}
@@ -296,8 +296,8 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
       >
         <form onSubmit={handleCreateGroup} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Group Display Name <span className="text-red-500">*</span>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Group Display Name <span className="text-red-500 dark:text-red-400">*</span>
             </label>
             <input
               type="text"
@@ -305,14 +305,14 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
               placeholder="e.g. SOC Tier 1 Analysts"
               value={newDisplayName}
               onChange={(e) => setNewDisplayName(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+              className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Mail Nickname / Alias <span className="text-red-500">*</span>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Mail Nickname / Alias <span className="text-red-500 dark:text-red-400">*</span>
               </label>
               <input
                 type="text"
@@ -320,16 +320,16 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
                 placeholder="soc-tier1"
                 value={newMailNickname}
                 onChange={(e) => setNewMailNickname(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-mono"
+                className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Group Type</label>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Group Type</label>
               <select
                 value={newGroupType}
                 onChange={(e) => setNewGroupType(e.target.value as any)}
-                className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+                className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
               >
                 <option value="Security">Security Group</option>
                 <option value="M365Unified">Microsoft 365 (Unified)</option>
@@ -340,23 +340,23 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Initial Owner UPN</label>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Initial Owner UPN</label>
             <input
               type="email"
               placeholder={`admin@${tenant.defaultDomainName}`}
               value={newOwner}
               onChange={(e) => setNewOwner(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+              className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
             />
           </div>
 
           <LocalOnlyNotice />
 
-          <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0]">
+          <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0] dark:border-slate-700">
             <button
               type="button"
               onClick={() => setIsCreateOpen(false)}
-              className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 border border-[#CBD5E1] bg-white rounded-sm hover:bg-slate-50 transition-colors"
+              className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
             >
               Cancel
             </button>

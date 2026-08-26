@@ -4,6 +4,7 @@ import { StatusPill } from "../common/StatusPill";
 import { Modal } from "../common/Modal";
 import { LocalOnlyNotice } from "../common/LocalOnlyNotice";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
+import { defaultTablExpirationIso } from "@/lib/services/mdo-mapper";
 import { MDO_BASELINE_STANDARDS } from "@/lib/data/mdo-baseline-definitions";
 import {
   Layers,
@@ -27,7 +28,7 @@ interface MdoPoliciesModuleProps {
   onOpenPermissions: () => void;
 }
 
-const STALE_NOTES = new Set(["Added via Clarity365 TABL Manager", "No expiration configured.", ""]);
+const STALE_NOTES = new Set(["No expiration configured.", ""]);
 
 function isTablEntryStale(entry: TablEntry): boolean {
   if (entry.expirationDate === "Never") return true;
@@ -37,7 +38,35 @@ function isTablEntryStale(entry: TablEntry): boolean {
 }
 
 function defaultExpirationInput(): string {
-  return new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+  return defaultTablExpirationIso().slice(0, 10);
+}
+
+// Each policyType has its own baseline-relevant setting(s) — the same fields
+// mdo-baseline-matcher.ts scores per MDO0x check. Rendering these instead of
+// three universal columns (Impersonation/Spoof/ZAP) avoids showing "Off" for
+// fields that were never applicable to that policy type in the first place
+// (e.g. Safe Attachments has no concept of impersonation protection).
+function keySettingsFor(pol: MdoThreatPolicy): { label: string; active: boolean }[] {
+  switch (pol.policyType) {
+    case "AntiPhishing":
+      return [
+        { label: "Impersonation", active: pol.impersonationProtection },
+        { label: "Spoof Intel", active: pol.spoofIntelligence },
+        { label: "Phish ZAP", active: pol.zapEnabled },
+      ];
+    case "AntiSpamInbound":
+      return [{ label: "Spam ZAP", active: pol.zapEnabled }];
+    case "AntiSpamOutbound":
+      return [{ label: "Outbound Notify", active: pol.outboundNotify }];
+    case "AntiMalware":
+      return [{ label: "Attachment Filter", active: pol.commonAttachmentFilter }];
+    case "SafeLinks":
+      return [{ label: "Real-Time Scan", active: pol.realTimeScanning }];
+    case "SafeAttachments":
+      return [{ label: "Blocking Action", active: pol.blockingAction }];
+    default:
+      return [];
+  }
 }
 
 export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, onLocalRefresh, onOpenPermissions }) => {
@@ -49,6 +78,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
   const exoConnected = !!tenant.credentials.exoRefreshToken;
   const exoWriteEnabled = !!tenant.credentials.exoWriteEnabled;
   const mdoPolicySyncErrors = (snapshot.syncHealth?.errors || []).filter((e) => e.startsWith("MDO Policies:"));
+  const mdoTablSyncErrors = (snapshot.syncHealth?.errors || []).filter((e) => e.startsWith("MDO TABL:"));
   const mdoAlertSyncErrors = (snapshot.syncHealth?.errors || []).filter((e) => e.startsWith("MDO Threat Alerts:"));
 
   const policies = mdoThreat.policies;
@@ -64,22 +94,40 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
   const [fixModalCode, setFixModalCode] = useState<string | null>(null);
   const [isFixing, setIsFixing] = useState(false);
   const [fixError, setFixError] = useState<string | null>(null);
+  // Value for the remediation's optional extra input field (e.g. MDO08's
+  // notification recipient) — only rendered/required when
+  // fixStandard.remediation.requiresInputField is set.
+  const [fixInputValue, setFixInputValue] = useState("");
 
   const fixStandard = fixModalCode ? MDO_BASELINE_STANDARDS.find((s) => s.code === fixModalCode) : undefined;
+  const fixInputField = fixStandard?.remediation?.requiresInputField;
+
+  const closeFixModal = () => {
+    setFixModalCode(null);
+    setFixError(null);
+    setFixInputValue("");
+  };
 
   const applyFix = async () => {
     if (!fixModalCode) return;
+    if (fixInputField && !fixInputValue.trim()) {
+      setFixError(`${fixInputField.label} is required to apply this fix.`);
+      return;
+    }
     setIsFixing(true);
     setFixError(null);
     try {
       const res = await fetch(`/api/tenants/${tenant.id}/mdo-fix`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: fixModalCode }),
+        body: JSON.stringify({
+          code: fixModalCode,
+          extra: fixInputField ? { [fixInputField.key]: fixInputValue.trim() } : undefined,
+        }),
       });
       const data = await res.json();
       if (data.success) {
-        setFixModalCode(null);
+        closeFixModal();
         onLocalRefresh();
       } else {
         setFixError(data.error || "Failed to apply fix.");
@@ -234,15 +282,15 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Header */}
-      <div className="bg-[#F8FAFC] border border-[#CBD5E1] p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <Layers size={18} className="text-slate-800" />
-            <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+            <Layers size={18} className="text-slate-800 dark:text-slate-200" />
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               Module 8: Email Threat Protection Posture (MDO Policies & TABL)
             </h2>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Score Defender for Office 365 configuration against Microsoft's recommended baseline, govern the Allow/Block List, and surface real detected threats.
           </p>
         </div>
@@ -260,51 +308,51 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
 
       {/* Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-        <div className="p-3 bg-white border border-[#CBD5E1] rounded-sm">
-          <div className="text-[10px] uppercase font-mono text-slate-500 font-semibold">Baseline Coverage</div>
-          <div className="text-xl font-bold font-mono text-slate-900 tabular-nums mt-0.5">{coveragePercent}%</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">
+        <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
+          <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 font-semibold">Baseline Coverage</div>
+          <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">{coveragePercent}%</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
             {baselineResults.length - policiesBelowCount} / {baselineResults.length} checks met
           </div>
         </div>
-        <div className={`p-3 border rounded-sm ${policiesBelowCount > 0 ? "bg-[#FEF2F2] border-[#EF4444]" : "bg-white border-[#CBD5E1]"}`}>
-          <div className={`text-[10px] uppercase font-mono font-semibold ${policiesBelowCount > 0 ? "text-[#991B1B]" : "text-slate-500"}`}>
+        <div className={`p-3 border rounded-sm ${policiesBelowCount > 0 ? "bg-[#FEF2F2] dark:bg-red-950 border-[#EF4444] dark:border-red-800" : "bg-white dark:bg-slate-800 border-[#CBD5E1] dark:border-slate-700"}`}>
+          <div className={`text-[10px] uppercase font-mono font-semibold ${policiesBelowCount > 0 ? "text-[#991B1B] dark:text-red-400" : "text-slate-500 dark:text-slate-400"}`}>
             Policies Below Recommended
           </div>
-          <div className={`text-xl font-bold font-mono tabular-nums mt-0.5 ${policiesBelowCount > 0 ? "text-[#991B1B]" : "text-slate-900"}`}>
+          <div className={`text-xl font-bold font-mono tabular-nums mt-0.5 ${policiesBelowCount > 0 ? "text-[#991B1B] dark:text-red-400" : "text-slate-900 dark:text-slate-100"}`}>
             {policiesBelowCount}
           </div>
-          <div className={`text-[11px] mt-0.5 ${policiesBelowCount > 0 ? "text-[#991B1B]" : "text-slate-500"}`}>Out of {baselineResults.length} checks</div>
+          <div className={`text-[11px] mt-0.5 ${policiesBelowCount > 0 ? "text-[#991B1B] dark:text-red-400" : "text-slate-500 dark:text-slate-400"}`}>Out of {baselineResults.length} checks</div>
         </div>
-        <div className={`p-3 border rounded-sm ${unresolvedHighAlertCount > 0 ? "bg-[#FEF2F2] border-[#EF4444]" : "bg-white border-[#CBD5E1]"}`}>
-          <div className={`text-[10px] uppercase font-mono font-semibold ${unresolvedHighAlertCount > 0 ? "text-[#991B1B]" : "text-slate-500"}`}>
+        <div className={`p-3 border rounded-sm ${unresolvedHighAlertCount > 0 ? "bg-[#FEF2F2] dark:bg-red-950 border-[#EF4444] dark:border-red-800" : "bg-white dark:bg-slate-800 border-[#CBD5E1] dark:border-slate-700"}`}>
+          <div className={`text-[10px] uppercase font-mono font-semibold ${unresolvedHighAlertCount > 0 ? "text-[#991B1B] dark:text-red-400" : "text-slate-500 dark:text-slate-400"}`}>
             Threats Detected (30d)
           </div>
-          <div className={`text-xl font-bold font-mono tabular-nums mt-0.5 ${unresolvedHighAlertCount > 0 ? "text-[#991B1B]" : "text-slate-900"}`}>
+          <div className={`text-xl font-bold font-mono tabular-nums mt-0.5 ${unresolvedHighAlertCount > 0 ? "text-[#991B1B] dark:text-red-400" : "text-slate-900 dark:text-slate-100"}`}>
             {alerts.length}
           </div>
-          <div className={`text-[11px] mt-0.5 ${unresolvedHighAlertCount > 0 ? "text-[#991B1B]" : "text-slate-500"}`}>
+          <div className={`text-[11px] mt-0.5 ${unresolvedHighAlertCount > 0 ? "text-[#991B1B] dark:text-red-400" : "text-slate-500 dark:text-slate-400"}`}>
             {unresolvedHighAlertCount} unresolved (high)
           </div>
         </div>
-        <div className={`p-3 border rounded-sm ${needsReviewCount > 0 ? "bg-[#FFFBEB] border-[#F59E0B]" : "bg-white border-[#CBD5E1]"}`}>
-          <div className={`text-[10px] uppercase font-mono font-semibold ${needsReviewCount > 0 ? "text-[#92400E]" : "text-slate-500"}`}>
+        <div className={`p-3 border rounded-sm ${needsReviewCount > 0 ? "bg-[#FFFBEB] dark:bg-amber-950 border-[#F59E0B] dark:border-amber-800" : "bg-white dark:bg-slate-800 border-[#CBD5E1] dark:border-slate-700"}`}>
+          <div className={`text-[10px] uppercase font-mono font-semibold ${needsReviewCount > 0 ? "text-[#92400E] dark:text-amber-400" : "text-slate-500 dark:text-slate-400"}`}>
             TABL Entries Needing Review
           </div>
-          <div className={`text-xl font-bold font-mono tabular-nums mt-0.5 ${needsReviewCount > 0 ? "text-[#92400E]" : "text-slate-900"}`}>
+          <div className={`text-xl font-bold font-mono tabular-nums mt-0.5 ${needsReviewCount > 0 ? "text-[#92400E] dark:text-amber-400" : "text-slate-900 dark:text-slate-100"}`}>
             {needsReviewCount}
           </div>
-          <div className={`text-[11px] mt-0.5 ${needsReviewCount > 0 ? "text-[#92400E]" : "text-slate-500"}`}>Out of {tablEntries.length} entries</div>
+          <div className={`text-[11px] mt-0.5 ${needsReviewCount > 0 ? "text-[#92400E] dark:text-amber-400" : "text-slate-500 dark:text-slate-400"}`}>Out of {tablEntries.length} entries</div>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center justify-between border-b border-[#CBD5E1] bg-white px-2 pt-2">
+      <div className="flex items-center justify-between border-b border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 px-2 pt-2">
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => setActiveTab("baseline")}
             className={`px-3 py-2 text-xs font-semibold border-b-2 transition-colors ${
-              activeTab === "baseline" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-900"
+              activeTab === "baseline" ? "border-slate-900 dark:border-slate-100 text-slate-900 dark:text-slate-100" : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100"
             }`}
           >
             Baseline & Posture ({coveragePercent}%)
@@ -312,7 +360,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
           <button
             onClick={() => setActiveTab("policies")}
             className={`px-3 py-2 text-xs font-semibold border-b-2 transition-colors ${
-              activeTab === "policies" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-900"
+              activeTab === "policies" ? "border-slate-900 dark:border-slate-100 text-slate-900 dark:text-slate-100" : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100"
             }`}
           >
             All Policies ({policies.length})
@@ -320,7 +368,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
           <button
             onClick={() => setActiveTab("tabl")}
             className={`px-3 py-2 text-xs font-semibold border-b-2 transition-colors ${
-              activeTab === "tabl" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-900"
+              activeTab === "tabl" ? "border-slate-900 dark:border-slate-100 text-slate-900 dark:text-slate-100" : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100"
             }`}
           >
             Allow/Block List ({tablEntries.length})
@@ -328,7 +376,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
           <button
             onClick={() => setActiveTab("alerts")}
             className={`px-3 py-2 text-xs font-semibold border-b-2 transition-colors ${
-              activeTab === "alerts" ? "border-slate-900 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-900"
+              activeTab === "alerts" ? "border-slate-900 dark:border-slate-100 text-slate-900 dark:text-slate-100" : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100"
             }`}
           >
             Threat Detections ({alerts.length})
@@ -337,17 +385,17 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
       </div>
 
       {removeError && (
-        <div className="p-2.5 bg-rose-50 border border-rose-300 text-rose-900 text-xs rounded-sm">{removeError}</div>
+        <div className="p-2.5 bg-rose-50 dark:bg-red-950 border border-rose-300 dark:border-red-800 text-rose-900 dark:text-red-400 text-xs rounded-sm">{removeError}</div>
       )}
 
       {/* TAB: Baseline & Posture */}
       {activeTab === "baseline" && (
-        <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-xs">
-          <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+        <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
+          <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
               Standard Baseline Specification & Configuration Alignment
             </h3>
-            <span className="text-[11px] font-mono text-slate-500">
+            <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
               {coveragePercent}% ({baselineResults.length - policiesBelowCount}/{baselineResults.length})
             </span>
           </div>
@@ -355,7 +403,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
           {!exoConnected ? (
             <div className="p-6 text-center space-y-2">
               <Mail className="w-6 h-6 text-slate-300 mx-auto" />
-              <p className="text-xs text-slate-500">Connect Exchange Online to score your Defender for Office 365 configuration.</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Connect Exchange Online to score your Defender for Office 365 configuration.</p>
               <button
                 onClick={onOpenPermissions}
                 className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm inline-flex items-center gap-1.5"
@@ -367,13 +415,13 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
           ) : (
             <>
               {mdoPolicySyncErrors.length > 0 && (
-                <div className="m-3 p-3 bg-rose-50 border border-rose-300 text-rose-900 text-xs rounded-sm space-y-1.5">
+                <div className="m-3 p-3 bg-rose-50 dark:bg-red-950 border border-rose-300 dark:border-red-800 text-rose-900 dark:text-red-300 text-xs rounded-sm space-y-1.5">
                   <div className="flex items-center gap-2 font-semibold">
-                    <AlertTriangle size={14} className="text-rose-600" />
+                    <AlertTriangle size={14} className="text-rose-600 dark:text-red-400" />
                     <span>Exchange Online sync error</span>
                   </div>
                   {mdoPolicySyncErrors.map((err, i) => (
-                    <div key={i} className="text-[11px] font-mono bg-white/70 p-1.5 border border-rose-200 rounded-sm">
+                    <div key={i} className="text-[11px] font-mono bg-white/70 dark:bg-slate-900/50 p-1.5 border border-rose-200 dark:border-red-800 rounded-sm">
                       {err}
                     </div>
                   ))}
@@ -395,13 +443,18 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                       const result = resultFor(standard.code);
                       return (
                         <tr key={standard.code}>
-                          <td className="font-mono font-bold text-xs text-slate-900">{standard.code}</td>
+                          <td className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100">{standard.code}</td>
                           <td>
-                            <div className="font-semibold text-xs text-slate-900">{standard.name}</div>
-                            <div className="text-[11px] text-slate-500 mt-0.5">{standard.description}</div>
-                            <div className="text-[10px] text-slate-400 mt-0.5">Mitigates: {standard.riskMitigated}</div>
+                            <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{standard.name}</div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{standard.description}</div>
+                            <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">Mitigates: {standard.riskMitigated}</div>
                           </td>
-                          <td className="text-xs font-mono text-slate-700">{standard.policyType}</td>
+                          <td className="text-xs font-mono text-slate-700 dark:text-slate-300">
+                            {standard.policyType}
+                            {result.policyCount > 1 && (
+                              <div className="text-[10px] text-slate-400 dark:text-slate-500 font-sans">{result.policyCount} policies</div>
+                            )}
+                          </td>
                           <td>
                             {!result.policyFound ? (
                               <StatusPill status="fail" label="No Policy Found" size="sm" />
@@ -413,15 +466,20 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                           </td>
                           <td className="text-right">
                             {result.met ? (
-                              <span className="text-[11px] text-slate-400">No action needed</span>
+                              <span className="text-[11px] text-slate-400 dark:text-slate-500">No action needed</span>
                             ) : !result.policyFound ? (
-                              <span className="text-[11px] text-slate-400">Create the policy first</span>
+                              <span className="text-[11px] text-slate-400 dark:text-slate-500">Create the policy first</span>
+                            ) : result.unmetPolicyNames ? (
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400" title={`Non-compliant: ${result.unmetPolicyNames.join(", ")}`}>
+                                {result.unmetPolicyNames.length} of {result.policyCount} need review — apply manually
+                              </span>
                             ) : !standard.remediation ? (
-                              <span className="text-[11px] text-slate-500">Manual review required</span>
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400">Manual review required</span>
                             ) : exoConnected && exoWriteEnabled ? (
                               <button
                                 onClick={() => {
                                   setFixError(null);
+                                  setFixInputValue("");
                                   setFixModalCode(standard.code);
                                 }}
                                 className="px-2.5 py-1 text-[11px] font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm inline-flex items-center gap-1"
@@ -430,7 +488,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                                 <span>Fix This</span>
                               </button>
                             ) : (
-                              <span className="text-[11px] text-slate-400" title="Enable live Exchange Online writes in the Permissions check to use one-click fixes">
+                              <span className="text-[11px] text-slate-400 dark:text-slate-500" title="Enable live Exchange Online writes in the Permissions check to use one-click fixes">
                                 Enable write access to fix
                               </span>
                             )}
@@ -448,19 +506,19 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
 
       {/* TAB: All Policies */}
       {activeTab === "policies" && (
-        <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-xs">
-          <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+        <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
+          <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
               Configured Defender for Office 365 Threat Policies
             </h3>
             <div className="flex items-center gap-3">
-              <span className="text-[11px] font-mono text-slate-500">{policies.length} Policies Active</span>
+              <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{policies.length} Policies Active</span>
               <button
                 onClick={handleExportPoliciesCSV}
                 title="Export policies to CSV"
-                className="px-2 py-1 text-[11px] font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1 transition-colors"
+                className="px-2 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1 transition-colors"
               >
-                <Download size={12} className="text-slate-500" />
+                <Download size={12} className="text-slate-500 dark:text-slate-400" />
                 <span>Export CSV</span>
               </button>
             </div>
@@ -472,16 +530,14 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                 <tr>
                   <th className="w-36">Policy Type</th>
                   <th>Display Name & Scope</th>
-                  <th>Impersonation Protection</th>
-                  <th>Spoof Intelligence</th>
-                  <th>Zero-Hour Auto Purge (ZAP)</th>
+                  <th>Key Setting(s)</th>
                   <th className="w-28 text-right">Compliance</th>
                 </tr>
               </thead>
               <tbody>
                 {policies.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-4 text-center text-xs text-slate-500">
+                    <td colSpan={4} className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">
                       {!exoConnected ? (
                         <div className="space-y-2 py-2">
                           <Mail className="w-6 h-6 text-slate-300 mx-auto" />
@@ -504,19 +560,17 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                 ) : (
                   policies.map((pol) => (
                     <tr key={pol.id}>
-                      <td className="font-mono text-xs font-bold text-slate-900">{pol.policyType}</td>
+                      <td className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100">{pol.policyType}</td>
                       <td>
-                        <div className="font-semibold text-xs text-slate-900">{pol.displayName}</div>
-                        <div className="text-[11px] text-slate-500">{pol.assignedScope}</div>
+                        <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{pol.displayName}</div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">{pol.assignedScope}</div>
                       </td>
                       <td>
-                        <StatusPill status={pol.impersonationProtection ? "pass" : "disabled"} label={pol.impersonationProtection ? "Active" : "Off"} size="sm" />
-                      </td>
-                      <td>
-                        <StatusPill status={pol.spoofIntelligence ? "pass" : "disabled"} label={pol.spoofIntelligence ? "Active" : "Off"} size="sm" />
-                      </td>
-                      <td>
-                        <StatusPill status={pol.zapEnabled ? "pass" : "disabled"} label={pol.zapEnabled ? "ZAP Enabled" : "Off"} size="sm" />
+                        <div className="flex flex-wrap gap-1">
+                          {keySettingsFor(pol).map((s) => (
+                            <StatusPill key={s.label} status={s.active ? "pass" : "disabled"} label={`${s.label}: ${s.active ? "On" : "Off"}`} size="sm" />
+                          ))}
+                        </div>
                       </td>
                       <td className="text-right">
                         <StatusPill status={pol.complianceRating} label={pol.complianceRating.toUpperCase()} size="sm" />
@@ -533,24 +587,24 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
       {/* TAB: Allow/Block List */}
       {activeTab === "tabl" && (
         <div className="space-y-3">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 border border-[#CBD5E1] rounded-sm">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-800 p-3 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
             <div className="relative w-full sm:w-80">
-              <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+              <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400 dark:text-slate-500" />
               <input
                 type="text"
                 placeholder="Search domain, sender, URL, or notes..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+                className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
               />
             </div>
 
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Filter size={14} className="text-slate-500" />
+              <Filter size={14} className="text-slate-500 dark:text-slate-400" />
               <select
                 value={tablFilter}
                 onChange={(e) => setTablFilter(e.target.value)}
-                className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-medium"
+                className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium"
               >
                 <option value="all">All Lists (Allow & Block)</option>
                 <option value="block">Block List Only ({tablEntries.filter((e) => e.listType === "block").length})</option>
@@ -561,21 +615,35 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
               <button
                 onClick={handleExportTablCSV}
                 title="Export filtered TABL entries to CSV"
-                className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+                className="px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
               >
-                <Download size={13} className="text-slate-500" />
+                <Download size={13} className="text-slate-500 dark:text-slate-400" />
                 <span>Export CSV</span>
               </button>
             </div>
           </div>
 
-          <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-xs">
-            <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+          <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
+            <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                 Tenant Allow/Block List (TABL) Indicators
               </h3>
-              <span className="text-[11px] font-mono text-slate-500">{filteredTabl.length} Entries</span>
+              <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{filteredTabl.length} Entries</span>
             </div>
+
+            {mdoTablSyncErrors.length > 0 && (
+              <div className="m-3 p-3 bg-rose-50 dark:bg-red-950 border border-rose-300 dark:border-red-800 text-rose-900 dark:text-red-300 text-xs rounded-sm space-y-1.5">
+                <div className="flex items-center gap-2 font-semibold">
+                  <AlertTriangle size={14} className="text-rose-600 dark:text-red-400" />
+                  <span>Exchange Online sync error</span>
+                </div>
+                {mdoTablSyncErrors.map((err, i) => (
+                  <div key={i} className="text-[11px] font-mono bg-white/70 dark:bg-slate-900/50 p-1.5 border border-rose-200 dark:border-red-800 rounded-sm">
+                    {err}
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse table-dense">
@@ -593,7 +661,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                 <tbody>
                   {filteredTabl.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-4 text-center text-xs text-slate-500">
+                      <td colSpan={7} className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">
                         {tablEntries.length === 0 && !exoConnected ? (
                           <div className="space-y-2 py-2">
                             <Mail className="w-6 h-6 text-slate-300 mx-auto" />
@@ -606,10 +674,12 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                               <span>Connect Exchange Online</span>
                             </button>
                           </div>
-                        ) : tablEntries.length === 0 && mdoPolicySyncErrors.length > 0 ? (
-                          "Entries couldn't be loaded due to a sync error — see the Baseline & Posture tab."
+                        ) : tablEntries.length === 0 && mdoTablSyncErrors.length > 0 ? (
+                          "Entries couldn't be loaded due to the sync error above."
+                        ) : tablEntries.length === 0 ? (
+                          "No Allow/Block List entries yet — add one above."
                         ) : (
-                          "No allow/block indicators found matching search."
+                          "No entries match your search/filter."
                         )}
                       </td>
                     </tr>
@@ -617,36 +687,46 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                     filteredTabl.map((entry) => {
                       const stale = isTablEntryStale(entry);
                       return (
-                        <tr key={entry.id} className={entry.listType === "block" ? "bg-red-50/20" : "bg-emerald-50/20"}>
+                        <tr key={entry.id} className={entry.listType === "block" ? "bg-red-50/20 dark:bg-red-950" : "bg-emerald-50/20 dark:bg-emerald-950"}>
                           <td>
                             <StatusPill status={entry.listType === "block" ? "fail" : "pass"} label={entry.listType.toUpperCase()} size="sm" />
                           </td>
                           <td>
-                            <span className="font-mono text-xs text-slate-700 uppercase font-semibold">{entry.entryType}</span>
+                            <span className="font-mono text-xs text-slate-700 dark:text-slate-300 uppercase font-semibold">{entry.entryType}</span>
                           </td>
                           <td>
-                            <span className="font-mono text-xs font-bold text-slate-900">{entry.value}</span>
+                            <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100">{entry.value}</span>
                           </td>
-                          <td className="text-xs text-slate-600">
+                          <td className="text-xs text-slate-600 dark:text-slate-400">
                             {entry.notes}
                             {stale && (
-                              <span className="ml-1.5 text-[9px] font-mono uppercase px-1 bg-amber-100 text-amber-800 border border-amber-300 rounded-sm font-bold align-middle">
+                              <span className="ml-1.5 text-[9px] font-mono uppercase px-1 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-400 border border-amber-300 dark:border-amber-800 rounded-sm font-bold align-middle">
                                 Needs Review
                               </span>
                             )}
                           </td>
-                          <td className="text-[11px] font-mono text-slate-500">
+                          <td className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                             {entry.expirationDate === "Never" ? "Never" : new Date(entry.expirationDate).toLocaleDateString()}
                           </td>
-                          <td className="text-[11px] font-mono text-slate-500">{entry.addedBy}</td>
+                          <td className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                            {entry.addedBy}
+                            {entry.isLocalOnly && (
+                              <span
+                                title="Tracked in Clarity365 only — not yet pushed to Microsoft 365"
+                                className="ml-1.5 text-[9px] font-mono uppercase px-1 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-300 dark:border-slate-600 rounded-sm font-bold align-middle"
+                              >
+                                Local
+                              </span>
+                            )}
+                          </td>
                           <td className="text-right">
                             {pendingRemoveId === entry.id ? (
                               <div className="flex items-center justify-end gap-1.5">
-                                <span className="text-[10px] text-amber-800 font-medium">Remove from live EXO?</span>
+                                <span className="text-[10px] text-amber-800 dark:text-amber-400 font-medium">Remove from live EXO?</span>
                                 <button
                                   onClick={() => setPendingRemoveId(null)}
                                   disabled={isRemoving}
-                                  className="px-1.5 py-0.5 text-[10px] font-medium text-slate-600 bg-white border border-slate-300 rounded-sm hover:bg-slate-50 disabled:opacity-50"
+                                  className="px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-sm hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50"
                                 >
                                   Cancel
                                 </button>
@@ -662,7 +742,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                               <button
                                 onClick={() => handleRemoveTabl(entry.id)}
                                 title="Remove indicator"
-                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-sm transition-colors"
+                                className="p-1 text-slate-400 dark:text-slate-500 hover:text-red-600 dark:text-red-400 hover:bg-red-50 dark:bg-red-950 rounded-sm transition-colors"
                               >
                                 <Trash2 size={13} />
                               </button>
@@ -681,26 +761,26 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
 
       {/* TAB: Threat Detections */}
       {activeTab === "alerts" && (
-        <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-xs">
-          <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+        <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
+          <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex items-center justify-between">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
               Defender for Office 365 Threat Detections (Last 30 Days)
             </h3>
-            <span className="text-[11px] font-mono text-slate-500">{alerts.length} Alerts</span>
+            <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{alerts.length} Alerts</span>
           </div>
 
           {mdoAlertSyncErrors.length > 0 && (
-            <div className="m-3 p-3 bg-rose-50 border border-rose-300 text-rose-900 text-xs rounded-sm space-y-1.5">
+            <div className="m-3 p-3 bg-rose-50 dark:bg-red-950 border border-rose-300 dark:border-red-800 text-rose-900 dark:text-red-300 text-xs rounded-sm space-y-1.5">
               <div className="flex items-center gap-2 font-semibold">
-                <AlertTriangle size={14} className="text-rose-600" />
+                <AlertTriangle size={14} className="text-rose-600 dark:text-red-400" />
                 <span>Threat alert sync error</span>
               </div>
               {mdoAlertSyncErrors.map((err, i) => (
-                <div key={i} className="text-[11px] font-mono bg-white/70 p-1.5 border border-rose-200 rounded-sm">
+                <div key={i} className="text-[11px] font-mono bg-white/70 dark:bg-slate-900/50 p-1.5 border border-rose-200 dark:border-red-800 rounded-sm">
                   {err}
                 </div>
               ))}
-              <p className="text-[10px] text-rose-700">
+              <p className="text-[10px] text-rose-700 dark:text-red-400">
                 Ensure your App Registration has been granted <strong>SecurityAlert.Read.All</strong> with admin consent.
               </p>
             </div>
@@ -723,7 +803,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
               <tbody>
                 {alerts.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="p-4 text-center text-xs text-slate-500">
+                    <td colSpan={8} className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">
                       {mdoAlertSyncErrors.length > 0 ? (
                         "Threat alerts couldn't be loaded due to the sync error above."
                       ) : (
@@ -745,10 +825,10 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                         />
                       </td>
                       <td>
-                        <div className="font-semibold text-xs text-slate-900">{alert.title}</div>
-                        <div className="text-[11px] text-slate-500 mt-0.5">{alert.description}</div>
+                        <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{alert.title}</div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{alert.description}</div>
                       </td>
-                      <td className="text-xs font-mono text-slate-700">{alert.category}</td>
+                      <td className="text-xs font-mono text-slate-700 dark:text-slate-300">{alert.category}</td>
                       <td>
                         <StatusPill
                           status={alert.status === "resolved" ? "pass" : alert.status === "inProgress" ? "warn" : "fail"}
@@ -756,14 +836,14 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                           size="sm"
                         />
                       </td>
-                      <td className="text-[11px] font-mono text-slate-600">{alert.classification}</td>
-                      <td className="text-[11px] font-mono text-slate-500">{new Date(alert.createdDateTime).toLocaleDateString()}</td>
-                      <td className="text-[11px] font-mono text-slate-600">
+                      <td className="text-[11px] font-mono text-slate-600 dark:text-slate-400">{alert.classification}</td>
+                      <td className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{new Date(alert.createdDateTime).toLocaleDateString()}</td>
+                      <td className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
                         {alert.affectedUsers.length > 0 ? alert.affectedUsers.join(", ") : "—"}
                       </td>
                       <td className="text-right">
                         {alert.webUrl && (
-                          <a href={alert.webUrl} target="_blank" rel="noopener noreferrer" title="Open in Microsoft Defender" className="p-1 text-slate-400 hover:text-slate-900 inline-block">
+                          <a href={alert.webUrl} target="_blank" rel="noopener noreferrer" title="Open in Microsoft Defender" className="p-1 text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:text-slate-100 inline-block">
                             <ExternalLink size={13} />
                           </a>
                         )}
@@ -780,7 +860,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
       {/* Confirm Remediation Modal */}
       <Modal
         isOpen={!!fixModalCode}
-        onClose={() => setFixModalCode(null)}
+        onClose={closeFixModal}
         title="Confirm Remediation"
         subtitle={fixStandard ? `${fixStandard.code}: ${fixStandard.name}` : undefined}
         maxWidth="md"
@@ -796,13 +876,26 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
               <div className="p-2 bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-300 rounded-sm">
                 {fixStandard.remediation.cmdlet}
               </div>
+              {fixInputField && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">{fixInputField.label}</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder={fixInputField.placeholder}
+                    value={fixInputValue}
+                    onChange={(e) => setFixInputValue(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-700 rounded-sm focus:outline-none focus:border-slate-400 bg-slate-950 text-slate-100"
+                  />
+                </div>
+              )}
               {fixError && (
                 <div className="p-2 bg-rose-950 border border-rose-800 text-rose-200 text-[11px] rounded-sm">{fixError}</div>
               )}
               <div className="flex items-center justify-end gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => setFixModalCode(null)}
+                  onClick={closeFixModal}
                   disabled={isFixing}
                   className="px-3 py-1.5 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-sm transition-colors disabled:opacity-50"
                 >
@@ -811,8 +904,8 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                 <button
                   type="button"
                   onClick={applyFix}
-                  disabled={isFixing}
-                  className="px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-sm transition-colors disabled:opacity-50"
+                  disabled={isFixing || (!!fixInputField && !fixInputValue.trim())}
+                  className="px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600 rounded-sm transition-colors disabled:opacity-50"
                 >
                   {isFixing ? "Applying..." : "Confirm & Apply Fix"}
                 </button>
@@ -859,7 +952,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                   type="button"
                   onClick={performAdd}
                   disabled={isSubmitting}
-                  className="px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-sm transition-colors disabled:opacity-50"
+                  className="px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600 rounded-sm transition-colors disabled:opacity-50"
                 >
                   {isSubmitting ? "Writing..." : "Confirm & Write to Exchange Online"}
                 </button>
@@ -870,11 +963,11 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
           <form onSubmit={handleFormSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">List Target Action</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">List Target Action</label>
                 <select
                   value={listType}
                   onChange={(e) => setListType(e.target.value as "allow" | "block")}
-                  className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-medium"
+                  className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium"
                 >
                   <option value="block">Block Indicator</option>
                   <option value="allow">Allow Indicator (Exemption)</option>
@@ -882,11 +975,11 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Indicator Type</label>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Indicator Type</label>
                 <select
                   value={entryType}
                   onChange={(e) => setEntryType(e.target.value as any)}
-                  className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-medium"
+                  className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium"
                 >
                   <option value="domain">Domain</option>
                   <option value="sender">Sender Email</option>
@@ -897,8 +990,8 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Indicator Value <span className="text-red-500">*</span>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Indicator Value <span className="text-red-500 dark:text-red-400">*</span>
               </label>
               <input
                 type="text"
@@ -914,13 +1007,13 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                 }
                 value={entryValue}
                 onChange={(e) => setEntryValue(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-mono"
+                className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Security / Audit Reason <span className="text-red-500">*</span>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                Security / Audit Reason <span className="text-red-500 dark:text-red-400">*</span>
               </label>
               <textarea
                 rows={2}
@@ -929,14 +1022,14 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                 placeholder="Required — why is this being added? Incident ticket #, SOC analysis, business justification..."
                 value={entryNotes}
                 onChange={(e) => setEntryNotes(e.target.value)}
-                className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+                className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
               />
             </div>
 
             <div>
               <label className="flex items-center gap-2 mb-1.5">
                 <input type="checkbox" checked={noExpiration} onChange={(e) => setNoExpiration(e.target.checked)} />
-                <span className="text-xs font-semibold text-slate-700">No expiration (not recommended)</span>
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">No expiration (not recommended)</span>
               </label>
               {!noExpiration && (
                 <input
@@ -945,7 +1038,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
                   value={expirationInput}
                   min={new Date().toISOString().slice(0, 10)}
                   onChange={(e) => setExpirationInput(e.target.value)}
-                  className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+                  className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
                 />
               )}
             </div>
@@ -953,29 +1046,29 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
             {!exoConnected ? (
               <LocalOnlyNotice />
             ) : !exoWriteEnabled ? (
-              <div className="flex items-start gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-sm text-[11px] text-slate-600">
-                <Info size={13} className="text-slate-400 shrink-0 mt-0.5" />
+              <div className="flex items-start gap-2 p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-sm text-[11px] text-slate-600 dark:text-slate-400">
+                <Info size={13} className="text-slate-400 dark:text-slate-500 shrink-0 mt-0.5" />
                 <span>
                   Exchange Online is connected, but live writes are disabled. This entry will be tracked in
                   Clarity365 only. Enable write access in the Permissions check to make changes reach Microsoft 365.
                 </span>
               </div>
             ) : (
-              <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-300 rounded-sm text-[11px] text-amber-900">
-                <AlertTriangle size={13} className="text-amber-600 shrink-0 mt-0.5" />
+              <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 rounded-sm text-[11px] text-amber-900 dark:text-amber-400">
+                <AlertTriangle size={13} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                 <span>Live writes are enabled. You'll be asked to confirm before this reaches Exchange Online.</span>
               </div>
             )}
 
             {addError && (
-              <div className="p-2 bg-rose-50 border border-rose-300 text-rose-900 text-[11px] rounded-sm">{addError}</div>
+              <div className="p-2 bg-rose-50 dark:bg-red-950 border border-rose-300 dark:border-red-800 text-rose-900 dark:text-red-400 text-[11px] rounded-sm">{addError}</div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0]">
+            <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0] dark:border-slate-700">
               <button
                 type="button"
                 onClick={closeAddModal}
-                className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 border border-[#CBD5E1] bg-white rounded-sm hover:bg-slate-50 transition-colors"
+                className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
               >
                 Cancel
               </button>

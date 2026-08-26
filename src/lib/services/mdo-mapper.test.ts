@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mapMdoPolicy, mapTablEntry, mapEntryTypeToListType } from "./mdo-mapper";
+import { mapMdoPolicy, mapTablEntry, mapEntryTypeToListType, defaultTablExpirationIso } from "./mdo-mapper";
 
 describe("mapEntryTypeToListType", () => {
   it("maps url and file_hash to their own EXO ListType", () => {
@@ -14,7 +14,7 @@ describe("mapEntryTypeToListType", () => {
 });
 
 describe("mapMdoPolicy", () => {
-  it("maps an enabled anti-phish policy with impersonation and spoof protection active", () => {
+  it("maps an enabled anti-phish policy with impersonation and spoof protection active, but withholds compliant until phish ZAP is also on", () => {
     const policy = mapMdoPolicy(
       {
         Guid: "guid-1",
@@ -34,12 +34,27 @@ describe("mapMdoPolicy", () => {
       impersonationProtection: true,
       spoofIntelligence: true,
       zapEnabled: false,
-      complianceRating: "compliant",
+      complianceRating: "substandard",
       realTimeScanning: false,
       blockingAction: false,
       commonAttachmentFilter: false,
       outboundNotify: false,
+      autoForwardingBlocked: false,
     });
+  });
+
+  it("marks an anti-phish policy compliant only once impersonation, spoof, and phish ZAP are all active", () => {
+    const policy = mapMdoPolicy(
+      {
+        Name: "Fully Configured Anti-Phish",
+        Enabled: true,
+        EnableTargetedUserProtection: true,
+        EnableSpoofIntelligence: true,
+        PhishZapEnabled: true,
+      },
+      "AntiPhishing"
+    );
+    expect(policy.complianceRating).toBe("compliant");
   });
 
   it("marks a disabled policy as critical regardless of its configured protections", () => {
@@ -48,9 +63,37 @@ describe("mapMdoPolicy", () => {
     expect(policy.complianceRating).toBe("critical");
   });
 
-  it("treats Safe Links/Safe Attachments as protective simply by existing, even with no anti-phish flags", () => {
-    const safeLinks = mapMdoPolicy({ Name: "Default Safe Links", Enabled: true }, "SafeLinks");
-    expect(safeLinks.complianceRating).toBe("compliant");
+  it("only rates Safe Links compliant once real-time URL scanning is actually on, not simply by existing", () => {
+    const noScanning = mapMdoPolicy({ Name: "Default Safe Links", Enabled: true }, "SafeLinks");
+    expect(noScanning.complianceRating).toBe("substandard");
+
+    const withScanning = mapMdoPolicy(
+      { Name: "Default Safe Links", Enabled: true, EnableSafeLinksForEmail: true, ScanUrls: true },
+      "SafeLinks"
+    );
+    expect(withScanning.complianceRating).toBe("compliant");
+  });
+
+  it("only rates Safe Attachments compliant when its action actually blocks, not simply by existing", () => {
+    const monitorOnly = mapMdoPolicy({ Name: "Default Safe Attachments", Enabled: true, Action: "Monitor" }, "SafeAttachments");
+    expect(monitorOnly.complianceRating).toBe("substandard");
+
+    const blocking = mapMdoPolicy({ Name: "Default Safe Attachments", Enabled: true, Action: "Block" }, "SafeAttachments");
+    expect(blocking.complianceRating).toBe("compliant");
+  });
+
+  it("rates AntiMalware and AntiSpamOutbound compliant based on their own specific field, not the anti-phish flags", () => {
+    expect(mapMdoPolicy({ Enabled: true, EnableFileFilter: true }, "AntiMalware").complianceRating).toBe("compliant");
+    expect(mapMdoPolicy({ Enabled: true }, "AntiMalware").complianceRating).toBe("substandard");
+
+    expect(mapMdoPolicy({ Enabled: true, NotifyOutboundSpam: true }, "AntiSpamOutbound").complianceRating).toBe("compliant");
+    expect(mapMdoPolicy({ Enabled: true }, "AntiSpamOutbound").complianceRating).toBe("substandard");
+  });
+
+  it("derives autoForwardingBlocked from AutoForwardingMode being exactly 'Off'", () => {
+    expect(mapMdoPolicy({ Enabled: true, AutoForwardingMode: "Off" }, "AntiSpamOutbound").autoForwardingBlocked).toBe(true);
+    expect(mapMdoPolicy({ Enabled: true, AutoForwardingMode: "Automatic" }, "AntiSpamOutbound").autoForwardingBlocked).toBe(false);
+    expect(mapMdoPolicy({ Enabled: true }, "AntiSpamOutbound").autoForwardingBlocked).toBe(false);
   });
 
   it("marks an enabled policy with no active protections as substandard", () => {
@@ -129,5 +172,14 @@ describe("mapTablEntry", () => {
   it("notes a lack of expiration when NoExpiration is set and no explicit notes exist", () => {
     expect(mapTablEntry({ Value: "x", NoExpiration: true }, "Sender").notes).toBe("No expiration configured.");
     expect(mapTablEntry({ Value: "x", Notes: "Reported by SOC." }, "Sender").notes).toBe("Reported by SOC.");
+  });
+});
+
+describe("defaultTablExpirationIso", () => {
+  it("returns an ISO timestamp roughly 90 days in the future", () => {
+    const iso = defaultTablExpirationIso();
+    const daysOut = (new Date(iso).getTime() - Date.now()) / 86_400_000;
+    expect(daysOut).toBeGreaterThan(89.9);
+    expect(daysOut).toBeLessThan(90.1);
   });
 });

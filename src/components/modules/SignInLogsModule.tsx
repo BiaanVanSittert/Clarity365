@@ -394,15 +394,15 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Header */}
-      <div className="bg-[#F8FAFC] border border-[#CBD5E1] p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <Key size={18} className="text-slate-800" />
-            <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+            <Key size={18} className="text-slate-800 dark:text-slate-200" />
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               Module 2: Entra ID Sign-In Logs & CA Diagnostic Engine
             </h2>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Real-time interactive log streamer with time filtering, Conditional Access policy rule-chain inspection, and failure analytics.
           </p>
         </div>
@@ -413,18 +413,18 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
             <button
               onClick={handleRestoreAlerts}
               title="Restore sign-in alert badge on the sidebar"
-              className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+              className="px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
             >
-              <RotateCcw size={13} className="text-slate-500" />
+              <RotateCcw size={13} className="text-slate-500 dark:text-slate-400" />
               <span>Restore Alert Badge</span>
             </button>
           ) : (
             <button
               onClick={handleClearAlerts}
               title="Acknowledge reviewed sign-in alerts and clear the sidebar number icon"
-              className="px-2.5 py-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+              className="px-2.5 py-1.5 text-xs font-medium text-emerald-800 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 dark:hover:bg-emerald-900 border border-emerald-300 dark:border-emerald-800 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
             >
-              <CheckCheck size={14} className="text-emerald-600" />
+              <CheckCheck size={14} className="text-emerald-600 dark:text-emerald-400" />
               <span>Mark All Reviewed (Clear Alert)</span>
             </button>
           )}
@@ -433,9 +433,9 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
           <button
             onClick={handleExportCSV}
             title="Export filtered logs to CSV"
-            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
           >
-            <Download size={13} className="text-slate-500" />
+            <Download size={13} className="text-slate-500 dark:text-slate-400" />
             <span>Export CSV</span>
           </button>
 
@@ -453,7 +453,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
             <button
               onClick={onRefresh}
               title="Synchronize live sign-ins from Microsoft Graph"
-              className="p-1.5 text-slate-600 hover:text-slate-900 bg-white border border-[#CBD5E1] rounded-sm hover:bg-slate-50 transition-colors"
+              className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
             >
               <RefreshCw size={14} />
             </button>
@@ -462,12 +462,12 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
       </div>
 
       {/* Time Range & Timestamp Filtering Bar */}
-      <div className="bg-white border border-[#CBD5E1] p-3 rounded-sm space-y-3 shadow-2xs">
+      <div className="bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 p-3 rounded-sm space-y-3 shadow-2xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           {/* Preset Buttons */}
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mr-1 flex items-center gap-1">
-              <Calendar size={13} className="text-slate-500" />
+            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mr-1 flex items-center gap-1">
+              <Calendar size={13} className="text-slate-500 dark:text-slate-400" />
               <span>Timeframe:</span>
             </span>
 
@@ -492,8 +492,8 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                   }}
                   className={`px-2.5 py-1 text-xs rounded-sm font-medium transition-colors border ${
                     isSelected
-                      ? "bg-slate-900 text-white border-slate-900 shadow-2xs font-semibold"
-                      : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100/70"
+                      ? "bg-slate-900 text-white border-slate-900 dark:border-slate-100 shadow-2xs font-semibold"
+                      : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700/70"
                   }`}
                 >
                   {preset.label}
@@ -503,9 +503,9 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
           </div>
 
           {/* Quick Active Filter Indicators */}
-          <div className="text-[11px] text-slate-500 font-mono flex items-center gap-2">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono flex items-center gap-2">
             <span>Showing:</span>
-            <span className="font-bold text-slate-900 tabular-nums">
+            <span className="font-bold text-slate-900 dark:text-slate-100 tabular-nums">
               {filteredSignIns.length} of {signIns.length} Events
             </span>
           </div>
@@ -513,10 +513,10 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
 
         {/* Custom Range & Specific Date Inputs (Shown when "custom" selected) */}
         {timePreset === "custom" && (
-          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-3 bg-slate-50 p-2.5 rounded-sm">
+          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-3 bg-slate-50 dark:bg-slate-800 p-2.5 rounded-sm">
             {/* Specific Day Picker */}
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-semibold text-slate-700">Specific Day:</span>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Specific Day:</span>
               <input
                 type="date"
                 value={specificDate}
@@ -525,16 +525,16 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                   setCustomStartDate("");
                   setCustomEndDate("");
                 }}
-                className="px-2 py-1 text-xs border border-slate-300 rounded-sm bg-white focus:outline-none focus:border-slate-800"
+                className="px-2 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-800 dark:focus:border-slate-400"
               />
             </div>
 
-            <div className="text-slate-400 text-xs font-semibold">OR</div>
+            <div className="text-slate-400 dark:text-slate-500 text-xs font-semibold">OR</div>
 
             {/* Date Range Start -> End */}
             <div className="flex items-center gap-2 flex-wrap">
               <div className="flex items-center gap-1">
-                <span className="text-xs font-semibold text-slate-700">Start Date:</span>
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Start Date:</span>
                 <input
                   type="date"
                   value={customStartDate}
@@ -542,12 +542,12 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                     setCustomStartDate(e.target.value);
                     setSpecificDate("");
                   }}
-                  className="px-2 py-1 text-xs border border-slate-300 rounded-sm bg-white focus:outline-none focus:border-slate-800"
+                  className="px-2 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-800 dark:focus:border-slate-400"
                 />
               </div>
 
               <div className="flex items-center gap-1">
-                <span className="text-xs font-semibold text-slate-700">End Date:</span>
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">End Date:</span>
                 <input
                   type="date"
                   value={customEndDate}
@@ -555,7 +555,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                     setCustomEndDate(e.target.value);
                     setSpecificDate("");
                   }}
-                  className="px-2 py-1 text-xs border border-slate-300 rounded-sm bg-white focus:outline-none focus:border-slate-800"
+                  className="px-2 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-800 dark:focus:border-slate-400"
                 />
               </div>
 
@@ -566,7 +566,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                     setCustomEndDate("");
                     setSpecificDate("");
                   }}
-                  className="px-2 py-1 text-xs text-rose-700 hover:text-rose-900 border border-rose-200 bg-rose-50 hover:bg-rose-100 rounded-sm transition-colors"
+                  className="px-2 py-1 text-xs text-rose-700 dark:text-red-400 hover:text-rose-900 dark:text-red-400 border border-rose-200 dark:border-red-800 bg-rose-50 dark:bg-red-950 hover:bg-rose-100 dark:hover:bg-red-900 rounded-sm transition-colors"
                 >
                   Clear Date Filter
                 </button>
@@ -578,48 +578,48 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
 
       {/* Analytics KPI Metric Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-3 bg-white border border-[#CBD5E1] rounded-sm">
-          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Sign-Ins</div>
-          <div className="text-xl font-bold font-mono text-slate-900 mt-1">{stats.total}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">
+        <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
+          <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Sign-Ins</div>
+          <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">{stats.total}</div>
+          <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
             {timePreset === "24h" ? "Past 24 Hours" : timePreset === "7d" ? "Past 7 Days" : timePreset === "30d" ? "Past 30 Days" : "Selected Range"}
           </div>
         </div>
 
-        <div className="p-3 bg-white border border-[#CBD5E1] rounded-sm">
-          <div className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider flex items-center gap-1">
+        <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
+          <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1">
             <CheckCircle2 size={12} />
             <span>Succeeded</span>
           </div>
-          <div className="text-xl font-bold font-mono text-emerald-900 mt-1">
-            {stats.successful} <span className="text-xs font-normal text-emerald-600">({stats.successRate}%)</span>
+          <div className="text-xl font-bold font-mono text-emerald-900 dark:text-emerald-400 mt-1">
+            {stats.successful} <span className="text-xs font-normal text-emerald-600 dark:text-emerald-400">({stats.successRate}%)</span>
           </div>
-          <div className="text-[10px] text-emerald-600 mt-0.5">Passed all evaluations</div>
+          <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">Passed all evaluations</div>
         </div>
 
-        <div className="p-3 bg-white border border-[#CBD5E1] rounded-sm">
-          <div className="text-[11px] font-semibold text-rose-700 uppercase tracking-wider flex items-center gap-1">
+        <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
+          <div className="text-[11px] font-semibold text-rose-700 dark:text-red-400 uppercase tracking-wider flex items-center gap-1">
             <XCircle size={12} />
             <span>Auth Failures</span>
           </div>
-          <div className="text-xl font-bold font-mono text-rose-900 mt-1">{stats.failed}</div>
-          <div className="text-[10px] text-rose-600 mt-0.5">Bad credentials / policy blocks</div>
+          <div className="text-xl font-bold font-mono text-rose-900 dark:text-red-400 mt-1">{stats.failed}</div>
+          <div className="text-[10px] text-rose-600 dark:text-red-400 mt-0.5">Bad credentials / policy blocks</div>
         </div>
 
         <div
           onClick={() => setStatusFilter(statusFilter === "report_only_failed" ? "all" : "report_only_failed")}
           className={`p-3 border rounded-sm cursor-pointer transition-colors ${
             statusFilter === "report_only_failed"
-              ? "bg-amber-100 border-amber-400"
-              : "bg-amber-50/60 border-amber-200 hover:bg-amber-100/70"
+              ? "bg-amber-100 dark:bg-amber-950 border-amber-400 dark:border-amber-800"
+              : "bg-amber-50/60 dark:bg-amber-950 border-amber-200 dark:border-amber-800 hover:bg-amber-100/70 dark:hover:bg-amber-900"
           }`}
         >
-          <div className="text-[11px] font-semibold text-amber-800 uppercase tracking-wider flex items-center gap-1">
+          <div className="text-[11px] font-semibold text-amber-800 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1">
             <AlertTriangle size={12} />
             <span>CA Report-Only Failures</span>
           </div>
-          <div className="text-xl font-bold font-mono text-amber-950 mt-1">{stats.reportOnlyFailed}</div>
-          <div className="text-[10px] text-amber-700 mt-0.5">
+          <div className="text-xl font-bold font-mono text-amber-950 dark:text-amber-400 mt-1">{stats.reportOnlyFailed}</div>
+          <div className="text-[10px] text-amber-700 dark:text-amber-400 mt-0.5">
             {reportOnlyImpact.uniqueUsersImpacted > 0
               ? `${reportOnlyImpact.uniqueUsersImpacted} users impacted (Click to filter)`
               : "No report-only block events"}
@@ -629,9 +629,9 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
 
       {/* Top Error Code Breakdown Pills */}
       {topErrorCodes.length > 0 && (
-        <div className="bg-slate-50 border border-[#CBD5E1] p-2.5 rounded-sm flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1">
-            <ShieldAlert size={12} className="text-rose-600" />
+        <div className="bg-slate-50 dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 p-2.5 rounded-sm flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center gap-1">
+            <ShieldAlert size={12} className="text-rose-600 dark:text-red-400" />
             <span>Frequent Error Codes:</span>
           </span>
 
@@ -640,7 +640,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
             className={`px-2 py-0.5 text-[11px] font-mono rounded-sm transition-colors border ${
               errorCodeFilter === "all"
                 ? "bg-slate-800 text-white border-slate-800 font-bold"
-                : "bg-white text-slate-700 border-slate-300 hover:bg-slate-100"
+                : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
             }`}
           >
             All Codes
@@ -657,12 +657,12 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                 className={`px-2 py-0.5 text-[11px] font-mono rounded-sm transition-colors border flex items-center gap-1 ${
                   isSelected
                     ? "bg-rose-700 text-white border-rose-700 font-bold shadow-2xs"
-                    : "bg-white text-rose-800 border-rose-200 hover:bg-rose-50"
+                    : "bg-white dark:bg-slate-800 text-rose-800 dark:text-red-400 border-rose-200 dark:border-red-800 hover:bg-rose-50 dark:bg-red-950"
                 }`}
               >
                 <span>[{code}]</span>
                 <span className="font-sans font-medium text-[10px]">{meta?.title || "Error"}</span>
-                <span className="px-1 bg-rose-100 text-rose-900 rounded text-[9px] font-bold">{count}</span>
+                <span className="px-1 bg-rose-100 dark:bg-red-950 text-rose-900 dark:text-red-400 rounded text-[9px] font-bold">{count}</span>
               </button>
             );
           })}
@@ -670,26 +670,26 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
       )}
 
       {/* Filters Bar */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-white p-3 border border-[#CBD5E1] rounded-sm">
+      <div className="flex flex-col md:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-800 p-3 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
         <div className="relative w-full md:w-80">
-          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400 dark:text-slate-500" />
           <input
             type="text"
             placeholder="Search by User (UPN), Service, Failure Reason, IP..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
           {/* Status Filter */}
           <div className="flex items-center gap-1.5">
-            <Filter size={13} className="text-slate-500" />
+            <Filter size={13} className="text-slate-500 dark:text-slate-400" />
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-medium text-slate-700"
+              className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium text-slate-700 dark:text-slate-300"
             >
               <option value="all">All Outcomes</option>
               <option value="success">Succeeded Logins</option>
@@ -702,11 +702,11 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
 
           {/* Service Filter */}
           <div className="flex items-center gap-1.5">
-            <AppWindow size={13} className="text-slate-500" />
+            <AppWindow size={13} className="text-slate-500 dark:text-slate-400" />
             <select
               value={serviceFilter}
               onChange={(e) => setServiceFilter(e.target.value)}
-              className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-medium text-slate-700 max-w-[200px] truncate"
+              className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium text-slate-700 dark:text-slate-300 max-w-[200px] truncate"
             >
               <option value="all">All Services ({availableServices.length})</option>
               {availableServices.map((svc) => (
@@ -729,7 +729,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                 setCustomEndDate("");
                 setSpecificDate("");
               }}
-              className="px-2.5 py-1 text-xs text-slate-600 hover:text-slate-900 border border-slate-300 rounded-sm hover:bg-slate-50 transition-colors"
+              className="px-2.5 py-1 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 border border-slate-300 dark:border-slate-600 rounded-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
             >
               Reset All Filters
             </button>
@@ -738,12 +738,12 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
       </div>
 
       {/* Log Table */}
-      <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-2xs">
-        <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+      <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-2xs">
+        <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
             Authentication & Session Audit Stream
           </h3>
-          <span className="text-[11px] font-mono text-slate-500">
+          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
             {filteredSignIns.length} Records Matching
           </span>
         </div>
@@ -764,11 +764,11 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
             <tbody>
               {filteredSignIns.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-xs text-slate-500">
+                  <td colSpan={7} className="p-8 text-center text-xs text-slate-500 dark:text-slate-400">
                     <div className="space-y-1">
-                      <Clock size={20} className="mx-auto text-slate-400 mb-1" />
-                      <div className="font-semibold text-slate-700">No sign-in events match the active filter criteria.</div>
-                      <div className="text-[11px] text-slate-400">Try adjusting the time range or resetting filters.</div>
+                      <Clock size={20} className="mx-auto text-slate-400 dark:text-slate-500 mb-1" />
+                      <div className="font-semibold text-slate-700 dark:text-slate-300">No sign-in events match the active filter criteria.</div>
+                      <div className="text-[11px] text-slate-400 dark:text-slate-500">Try adjusting the time range or resetting filters.</div>
                     </div>
                   </td>
                 </tr>
@@ -780,23 +780,23 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                     tabIndex={0}
                     role="button"
                     onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSelectedEvent(evt))}
-                    className="cursor-pointer hover:bg-slate-50 transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2"
+                    className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2"
                   >
                     {/* Timestamp */}
-                    <td className="font-mono text-[11px] text-slate-600 whitespace-nowrap">
+                    <td className="font-mono text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap">
                       <div>{new Date(evt.createdDateTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
-                      <div className="text-[10px] text-slate-400">{new Date(evt.createdDateTime).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}</div>
+                      <div className="text-[10px] text-slate-400 dark:text-slate-500">{new Date(evt.createdDateTime).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}</div>
                     </td>
 
                     {/* User */}
                     <td>
-                      <div className="font-mono font-semibold text-xs text-slate-900 leading-tight flex items-center gap-1">
+                      <div className="font-mono font-semibold text-xs text-slate-900 dark:text-slate-100 leading-tight flex items-center gap-1">
                         <span>{evt.userPrincipalName}</span>
                       </div>
-                      <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mt-0.5">
                         <span>{evt.userDisplayName || evt.userPrincipalName}</span>
                         {evt.isRisky && (
-                          <span className="text-[9px] font-mono uppercase px-1 bg-red-100 text-red-800 border border-red-300 rounded-sm">
+                          <span className="text-[9px] font-mono uppercase px-1 bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400 border border-red-300 dark:border-red-800 rounded-sm">
                             {evt.riskLevel} Risk
                           </span>
                         )}
@@ -808,11 +808,11 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
 
                     {/* Service */}
                     <td>
-                      <div className="font-semibold text-xs text-slate-800 flex items-center gap-1.5">
-                        <AppWindow size={13} className="text-slate-400 flex-shrink-0" />
+                      <div className="font-semibold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        <AppWindow size={13} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
                         <span className="truncate">{evt.appDisplayName}</span>
                       </div>
-                      <div className="text-[10px] font-mono text-slate-400 mt-0.5 flex items-center gap-1">
+                      <div className="text-[10px] font-mono text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1">
                         <MapPin size={10} />
                         <span>{evt.location.city || "Unknown"}, {evt.location.country || "ZA"}</span>
                       </div>
@@ -821,14 +821,14 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                     {/* Failure Reason */}
                     <td className="text-xs">
                       {evt.errorCode === 0 && !evt.hasReportOnlyFailure ? (
-                        <span className="text-slate-400 text-[11px] italic">None (Authentication Successful)</span>
+                        <span className="text-slate-400 dark:text-slate-500 text-[11px] italic">None (Authentication Successful)</span>
                       ) : evt.errorCode !== 0 ? (
-                        <div className="text-rose-900 bg-rose-50 border border-rose-200 p-1.5 rounded-sm text-[11px] leading-snug">
-                          <span className="font-mono font-bold text-rose-800 mr-1">[{evt.errorCode}]</span>
+                        <div className="text-rose-900 dark:text-red-400 bg-rose-50 dark:bg-red-950 border border-rose-200 dark:border-red-800 p-1.5 rounded-sm text-[11px] leading-snug">
+                          <span className="font-mono font-bold text-rose-800 dark:text-red-400 mr-1">[{evt.errorCode}]</span>
                           <span>{evt.failureReason || ERROR_CODE_TRANSLATIONS[evt.errorCode]?.explanation || "Authentication failed"}</span>
                         </div>
                       ) : (
-                        <span className="text-slate-500 text-[11px]">{evt.failureReason || "Authentication successful"}</span>
+                        <span className="text-slate-500 dark:text-slate-400 text-[11px]">{evt.failureReason || "Authentication successful"}</span>
                       )}
                     </td>
 
@@ -839,16 +839,16 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                           {evt.reportOnlyFailedPolicies.map((polName, idx) => (
                             <div
                               key={idx}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 border border-amber-300 text-amber-900 text-[11px] font-medium rounded-sm"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-400 text-[11px] font-medium rounded-sm"
                               title={`This policy evaluated to 'reportOnlyFailure'. If enabled, it would block or challenge this login.`}
                             >
-                              <AlertTriangle size={11} className="text-amber-700 flex-shrink-0" />
+                              <AlertTriangle size={11} className="text-amber-700 dark:text-amber-400 flex-shrink-0" />
                               <span className="truncate max-w-[200px]">{polName}</span>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <span className="text-[11px] text-slate-400 flex items-center gap-1 font-mono">
+                        <span className="text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1 font-mono">
                           <CheckCircle2 size={12} className="text-emerald-500" />
                           <span>Passed / None</span>
                         </span>
@@ -863,7 +863,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                           e.stopPropagation();
                           setSelectedEvent(evt);
                         }}
-                        className="p-1 text-slate-400 hover:text-slate-900 rounded-sm"
+                        className="p-1 text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:text-slate-100 rounded-sm"
                       >
                         <ChevronRight size={14} />
                       </button>
@@ -896,10 +896,10 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
             <div
               className={`p-3.5 border rounded-sm ${
                 selectedEvent.status === "success" && !selectedEvent.hasReportOnlyFailure
-                  ? "bg-emerald-50 border-emerald-300 text-emerald-950"
+                  ? "bg-emerald-50 dark:bg-emerald-950 border-emerald-300 dark:border-emerald-800 text-emerald-950"
                   : selectedEvent.status === "ca_blocked" || selectedEvent.errorCode !== 0
-                  ? "bg-rose-50 border-rose-300 text-rose-950"
-                  : "bg-amber-50 border-amber-300 text-amber-950"
+                  ? "bg-rose-50 dark:bg-red-950 border-rose-300 dark:border-red-800 text-rose-950 dark:text-red-400"
+                  : "bg-amber-50 dark:bg-amber-950 border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-400"
               }`}
             >
               <div className="flex items-center justify-between">
@@ -925,60 +925,60 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
             <div className="flex items-center gap-2">
               <button
                 onClick={() => copyToClipboard(selectedEvent.userPrincipalName, "upn")}
-                className="px-2 py-1 text-[11px] font-mono bg-slate-100 hover:bg-slate-200 text-slate-800 rounded border border-slate-300 flex items-center gap-1 transition-colors"
+                className="px-2 py-1 text-[11px] font-mono bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded border border-slate-300 dark:border-slate-600 flex items-center gap-1 transition-colors"
               >
-                {copiedKey === "upn" ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                {copiedKey === "upn" ? <Check size={11} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={11} />}
                 <span>Copy UPN</span>
               </button>
 
               <button
                 onClick={() => copyToClipboard(selectedEvent.ipAddress, "ip")}
-                className="px-2 py-1 text-[11px] font-mono bg-slate-100 hover:bg-slate-200 text-slate-800 rounded border border-slate-300 flex items-center gap-1 transition-colors"
+                className="px-2 py-1 text-[11px] font-mono bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded border border-slate-300 dark:border-slate-600 flex items-center gap-1 transition-colors"
               >
-                {copiedKey === "ip" ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                {copiedKey === "ip" ? <Check size={11} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={11} />}
                 <span>Copy IP ({selectedEvent.ipAddress})</span>
               </button>
 
               <button
                 onClick={() => copyToClipboard(selectedEvent.id, "id")}
-                className="px-2 py-1 text-[11px] font-mono bg-slate-100 hover:bg-slate-200 text-slate-800 rounded border border-slate-300 flex items-center gap-1 transition-colors"
+                className="px-2 py-1 text-[11px] font-mono bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded border border-slate-300 dark:border-slate-600 flex items-center gap-1 transition-colors"
               >
-                {copiedKey === "id" ? <Check size={11} className="text-emerald-600" /> : <Copy size={11} />}
+                {copiedKey === "id" ? <Check size={11} className="text-emerald-600 dark:text-emerald-400" /> : <Copy size={11} />}
                 <span>Copy Session ID</span>
               </button>
             </div>
 
             {/* User & Service Details */}
-            <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 text-xs">
+            <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
               <div>
-                <span className="text-slate-500 block text-[11px]">User (UPN):</span>
-                <span className="font-mono font-semibold text-slate-900">{selectedEvent.userPrincipalName}</span>
-                <span className="text-slate-600 block text-[11px]">{selectedEvent.userDisplayName}</span>
+                <span className="text-slate-500 dark:text-slate-400 block text-[11px]">User (UPN):</span>
+                <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">{selectedEvent.userPrincipalName}</span>
+                <span className="text-slate-600 dark:text-slate-400 block text-[11px]">{selectedEvent.userDisplayName}</span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[11px]">Service (App):</span>
-                <span className="font-semibold text-slate-900">{selectedEvent.appDisplayName}</span>
+                <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Service (App):</span>
+                <span className="font-semibold text-slate-900 dark:text-slate-100">{selectedEvent.appDisplayName}</span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[11px]">Client & OS:</span>
-                <span className="text-slate-800">{selectedEvent.clientApp} ({selectedEvent.deviceDetail?.operatingSystem || "Unknown"})</span>
+                <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Client & OS:</span>
+                <span className="text-slate-800 dark:text-slate-200">{selectedEvent.clientApp} ({selectedEvent.deviceDetail?.operatingSystem || "Unknown"})</span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[11px]">IP & Location:</span>
-                <span className="font-mono text-slate-800">{selectedEvent.ipAddress}</span>
-                <span className="text-slate-600 block text-[11px]">{selectedEvent.location.city || "Unknown"}, {selectedEvent.location.country || "ZA"}</span>
+                <span className="text-slate-500 dark:text-slate-400 block text-[11px]">IP & Location:</span>
+                <span className="font-mono text-slate-800 dark:text-slate-200">{selectedEvent.ipAddress}</span>
+                <span className="text-slate-600 dark:text-slate-400 block text-[11px]">{selectedEvent.location.city || "Unknown"}, {selectedEvent.location.country || "ZA"}</span>
               </div>
             </div>
 
             {/* CA Evaluation Chain */}
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 mb-2 flex items-center gap-1.5">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 mb-2 flex items-center gap-1.5">
                 <Layers size={13} />
                 <span>Applied Conditional Access Policy Evaluations</span>
               </h4>
 
               {selectedEvent.appliedConditionalAccessPolicies.length === 0 ? (
-                <div className="p-3 bg-slate-50 border border-slate-200 text-xs text-slate-500 rounded-sm">
+                <div className="p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400 rounded-sm">
                   No Conditional Access policies were evaluated for this session (e.g. legacy endpoint or excluded application).
                 </div>
               ) : (
@@ -993,27 +993,27 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                         key={idx}
                         className={`p-2.5 border rounded-sm text-xs ${
                           isFail
-                            ? "bg-rose-50 border-rose-300"
+                            ? "bg-rose-50 dark:bg-red-950 border-rose-300 dark:border-red-800"
                             : isSuccess
-                            ? "bg-emerald-50 border-emerald-200"
-                            : "bg-slate-50 border-slate-200"
+                            ? "bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800"
+                            : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700"
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="font-semibold text-slate-900">{pol.displayName}</span>
+                          <span className="font-semibold text-slate-900 dark:text-slate-100">{pol.displayName}</span>
                           <span
                             className={`px-1.5 py-0.5 text-[10px] font-mono font-bold uppercase rounded-xs ${
                               isFail
                                 ? "bg-rose-600 text-white"
                                 : isSuccess
                                 ? "bg-emerald-600 text-white"
-                                : "bg-slate-300 text-slate-700"
+                                : "bg-slate-300 dark:bg-slate-600 text-slate-700 dark:text-slate-300"
                             }`}
                           >
                             {pol.result}
                           </span>
                         </div>
-                        <div className="mt-1 text-[11px] text-slate-600 flex items-center justify-between">
+                        <div className="mt-1 text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between">
                           <span>Mode: {isReportOnly ? "Report-Only (Simulation)" : "Enforced"}</span>
                           <span>Controls: {pol.enforcedGrantControls.join(", ") || "None"}</span>
                         </div>
@@ -1035,7 +1035,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
         maxWidth="2xl"
       >
         <div className="space-y-3">
-          <p className="text-xs text-slate-600">
+          <p className="text-xs text-slate-600 dark:text-slate-400">
             Copy and execute this KQL query in the Microsoft Defender XDR Advanced Hunting portal or Microsoft Sentinel workspace:
           </p>
 
@@ -1046,7 +1046,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
             <button
               onClick={() => setKqlModalOpen(false)}
-              className="px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-100 rounded-sm border border-slate-300"
+              className="px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-sm border border-slate-300 dark:border-slate-600"
             >
               Close
             </button>

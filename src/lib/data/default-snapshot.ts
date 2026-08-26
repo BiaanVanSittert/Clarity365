@@ -41,6 +41,9 @@ export function createBlankSnapshot(tenant: Tenant): TenantSecuritySnapshot {
     },
     mailboxes: [],
     emailForwarding: [],
+    mailflowTransportRules: [],
+    mailflowConnectors: [],
+    domainAuth: [],
     mdoThreat: {
       policies: [],
       tabl: [],
@@ -65,7 +68,6 @@ export function createBlankSnapshot(tenant: Tenant): TenantSecuritySnapshot {
       sites: [],
     },
     highRiskThreatIndicators: {
-      externalForwardingCount: 0,
       openSharePointSitesCount: 0,
       unprotectedAdminsCount: 0,
       highRiskAppRegistrationsCount: 0,

@@ -119,17 +119,17 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
-          <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-sm">
+          <div className="p-2.5 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-xs rounded-sm">
             {error}
           </div>
         )}
 
-        <div className="flex border border-[#CBD5E1] p-1 bg-[#F8FAFC] rounded-sm text-xs font-medium">
+        <div className="flex border border-[#CBD5E1] dark:border-slate-700 p-1 bg-[#F8FAFC] dark:bg-slate-900/50 rounded-sm text-xs font-medium">
           <button
             type="button"
             onClick={() => setMode("live")}
             className={`flex-1 py-1.5 px-3 rounded-sm flex items-center justify-center gap-1.5 transition-colors ${
-              mode === "live" ? "bg-white border border-[#CBD5E1] text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+              mode === "live" ? "bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 text-slate-900 dark:text-slate-100 shadow-sm" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200"
             }`}
           >
             <Server size={14} />
@@ -139,7 +139,7 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
             type="button"
             onClick={() => setMode("demo")}
             className={`flex-1 py-1.5 px-3 rounded-sm flex items-center justify-center gap-1.5 transition-colors ${
-              mode === "demo" ? "bg-white border border-[#CBD5E1] text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+              mode === "demo" ? "bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 text-slate-900 dark:text-slate-100 shadow-sm" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200"
             }`}
           >
             <Globe size={14} />
@@ -149,8 +149,8 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Organization / Company Name <span className="text-red-500">*</span>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Organization / Company Name <span className="text-red-500 dark:text-red-400">*</span>
             </label>
             <input
               type="text"
@@ -158,13 +158,13 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
               placeholder="e.g. Acme Health Corp"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+              className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Default Domain Name <span className="text-red-500">*</span>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Default Domain Name <span className="text-red-500 dark:text-red-400">*</span>
             </label>
             <input
               type="text"
@@ -172,18 +172,18 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
               placeholder="e.g. acmehealth.onmicrosoft.com"
               value={defaultDomainName}
               onChange={(e) => setDefaultDomainName(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-mono"
+              className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono"
             />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Primary License SKU Tier</label>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Primary License SKU Tier</label>
             <select
               value={tier}
               onChange={(e) => setTier(e.target.value as TenantLicenseType)}
-              className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+              className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
             >
               <option value="M365_E5">Microsoft 365 E5 (Full Security Suite)</option>
               <option value="M365_E3">Microsoft 365 E3</option>
@@ -194,27 +194,27 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Primary Security Contact</label>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Primary Security Contact</label>
             <input
               type="email"
               placeholder="secops@acmehealth.com"
               value={primaryContact}
               onChange={(e) => setPrimaryContact(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+              className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
             />
           </div>
         </div>
 
         {mode === "live" && (
-          <div className="border border-[#E2E8F0] bg-[#F8FAFC] p-3 rounded-sm space-y-3">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
-              <Key size={14} className="text-slate-600" />
+          <div className="border border-[#E2E8F0] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-900/50 p-3 rounded-sm space-y-3">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+              <Key size={14} className="text-slate-600 dark:text-slate-400" />
               <span>Microsoft Entra ID App Registration Credentials</span>
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                Directory (Tenant) ID <span className="text-red-500">*</span>
+              <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                Directory (Tenant) ID <span className="text-red-500 dark:text-red-400">*</span>
               </label>
               <input
                 type="text"
@@ -222,14 +222,14 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
                 placeholder="00000000-0000-0000-0000-000000000000"
                 value={organizationId}
                 onChange={(e) => setOrganizationId(e.target.value)}
-                className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-mono"
+                className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                  Application (Client) ID <span className="text-red-500">*</span>
+                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Application (Client) ID <span className="text-red-500 dark:text-red-400">*</span>
                 </label>
                 <input
                   type="text"
@@ -237,13 +237,13 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
                   placeholder="Application ID"
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
-                  className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-mono"
+                  className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                  Client Secret Value <span className="text-red-500">*</span>
+                <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                  Client Secret Value <span className="text-red-500 dark:text-red-400">*</span>
                 </label>
                 <input
                   type="password"
@@ -251,16 +251,15 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
                   placeholder="Secret Value"
                   value={clientSecret}
                   onChange={(e) => setClientSecret(e.target.value)}
-                  className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-mono"
+                  className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-mono"
                 />
               </div>
             </div>
 
-            <p className="text-[11px] text-slate-500">
-              Required Graph Application Permissions:{" "}
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Required Graph Application Permissions (read-only — full audit &amp; reporting, no write access):{" "}
               {[
                 "Policy.Read.All",
-                "Policy.ReadWrite.ConditionalAccess",
                 "User.Read.All",
                 "AuditLog.Read.All",
                 "Reports.Read.All",
@@ -271,24 +270,33 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
                 "SecurityAlert.Read.All",
               ].map((perm, i, arr) => (
                 <React.Fragment key={perm}>
-                  <code className="bg-slate-200 px-1 py-0.5 rounded font-mono">{perm}</code>
+                  <code className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono">{perm}</code>
                   {i < arr.length - 1 ? ", " : "."}
                 </React.Fragment>
               ))}
               {" "}Use the Permissions check after adding this tenant to confirm every scope is granted.
             </p>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <code className="bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-400 border border-amber-400 dark:border-amber-800 px-1 py-0.5 rounded font-mono font-semibold">
+                Policy.ReadWrite.ConditionalAccess
+              </code>{" "}
+              — <strong>optional, write access.</strong> Only grant this if you want Clarity365 to auto-deploy CA
+              baseline policies directly from the app. Without it, the read-only permissions above still give full
+              CA policy audit/reporting, and Clarity365 generates a PowerShell script you can run manually instead.
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
               Defender for Office 365 policy sync (MDO Policies) needs a separate one-time Exchange Online sign-in, not a
-              Graph permission — connect it from the Permissions check after adding this tenant.
+              Graph permission — connect it from the Permissions check after adding this tenant. There, a similar
+              off-by-default toggle controls whether it can write (Tenant Allow/Block List changes) or stays read-only.
             </p>
           </div>
         )}
 
-        <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0]">
+        <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0] dark:border-slate-700">
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 border border-[#CBD5E1] bg-white rounded-sm hover:bg-slate-50 transition-colors"
+            className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
           >
             Cancel
           </button>

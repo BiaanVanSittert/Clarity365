@@ -130,28 +130,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       <div className="space-y-4">
       <form onSubmit={handleSave} className="space-y-4">
         {settingsError && (
-          <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-sm">
+          <div className="p-2.5 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-xs rounded-sm">
             {settingsError}
           </div>
         )}
 
         {/* Localhost Security Notice */}
-        <div className="p-3 bg-slate-50 border border-slate-200 rounded-sm flex items-start gap-2.5">
-          <Shield size={16} className="text-slate-700 shrink-0 mt-0.5" />
-          <div className="text-xs text-slate-700">
-            <p className="font-semibold text-slate-900">Local Security Isolation Enforced</p>
-            <p className="text-slate-600 mt-0.5">
-              Clarity365 is bound strictly to <code className="bg-slate-200 px-1 py-0.5 rounded font-mono text-[11px]">127.0.0.1:3000</code>. No network listeners are exposed to the public Internet or local LAN.
+        <div className="p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-sm flex items-start gap-2.5">
+          <Shield size={16} className="text-slate-700 dark:text-slate-300 shrink-0 mt-0.5" />
+          <div className="text-xs text-slate-700 dark:text-slate-300">
+            <p className="font-semibold text-slate-900 dark:text-slate-100">Local Security Isolation Enforced</p>
+            <p className="text-slate-600 dark:text-slate-400 mt-0.5">
+              Clarity365 is bound strictly to <code className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono text-[11px]">127.0.0.1:3000</code>. No network listeners are exposed to the public Internet or local LAN.
             </p>
           </div>
         </div>
 
         {/* Model Context Protocol (MCP) Server Configuration */}
-        <div className="border border-[#CBD5E1] p-3.5 bg-white rounded-sm space-y-3">
-          <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2">
+        <div className="border border-[#CBD5E1] dark:border-slate-700 p-3.5 bg-white dark:bg-slate-800 rounded-sm space-y-3">
+          <div className="flex items-center justify-between border-b border-[#E2E8F0] dark:border-slate-700 pb-2">
             <div className="flex items-center gap-2">
-              <Cpu size={16} className="text-slate-700" />
-              <h4 className="text-xs font-semibold text-slate-900">Model Context Protocol (MCP) Integration</h4>
+              <Cpu size={16} className="text-slate-700 dark:text-slate-300" />
+              <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100">Model Context Protocol (MCP) Integration</h4>
             </div>
             <StatusPill
               status={settings.enableMcpServer ? "pass" : "disabled"}
@@ -159,52 +159,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             />
           </div>
 
-          <p className="text-xs text-slate-600">
+          <p className="text-xs text-slate-600 dark:text-slate-400">
             Expose Clarity365's internal tools (<code className="font-mono text-[11px]">audit_conditional_access</code>, <code className="font-mono text-[11px]">query_signin_logs</code>, <code className="font-mono text-[11px]">manage_tabl</code>, <code className="font-mono text-[11px]">generate_remediation_plan</code>) to local AI agents or testing tools.
           </p>
 
           <div className="grid grid-cols-2 gap-3 pt-1">
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
               <input
                 type="checkbox"
                 checked={settings.enableMcpServer}
                 onChange={(e) => setSettings({ ...settings, enableMcpServer: e.target.checked })}
-                className="rounded-sm border-slate-300 text-slate-900 focus:ring-0"
+                className="rounded-sm border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 focus:ring-0"
               />
               <span>Enable In-House MCP Server</span>
             </label>
 
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
               <input
                 type="checkbox"
                 checked={settings.allowToolExecution}
                 onChange={(e) => setSettings({ ...settings, allowToolExecution: e.target.checked })}
-                className="rounded-sm border-slate-300 text-slate-900 focus:ring-0"
+                className="rounded-sm border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 focus:ring-0"
               />
               <span>Allow Autonomous Tool Execution</span>
             </label>
           </div>
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
             When disabled, MCP agents can still read tenant data but cannot modify the Tenant Allow/Block List.
           </p>
         </div>
 
         {/* Sync & Retention */}
-        <div className="border border-[#CBD5E1] p-3.5 bg-white rounded-sm space-y-3">
-          <div className="flex items-center gap-2 border-b border-[#E2E8F0] pb-2">
-            <Database size={16} className="text-slate-700" />
-            <h4 className="text-xs font-semibold text-slate-900">Tenant Telemetry & Caching</h4>
+        <div className="border border-[#CBD5E1] dark:border-slate-700 p-3.5 bg-white dark:bg-slate-800 rounded-sm space-y-3">
+          <div className="flex items-center gap-2 border-b border-[#E2E8F0] dark:border-slate-700 pb-2">
+            <Database size={16} className="text-slate-700 dark:text-slate-300" />
+            <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100">Tenant Telemetry & Caching</h4>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                 Auto-Sync Interval (Minutes)
               </label>
               <select
                 value={settings.autoSyncIntervalMinutes}
                 onChange={(e) => setSettings({ ...settings, autoSyncIntervalMinutes: parseInt(e.target.value) })}
-                className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+                className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
               >
                 <option value={15}>15 Minutes</option>
                 <option value={30}>30 Minutes (Recommended)</option>
@@ -214,13 +214,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">
+              <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
                 Audit Log Retention Window
               </label>
               <select
                 value={settings.auditLogRetentionDays}
                 onChange={(e) => setSettings({ ...settings, auditLogRetentionDays: parseInt(e.target.value) })}
-                className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+                className="w-full px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
               >
                 <option value={30}>30 Days</option>
                 <option value={90}>90 Days (Enterprise Standard)</option>
@@ -231,11 +231,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0]">
+        <div className="flex justify-end gap-2 pt-2 border-t border-[#E2E8F0] dark:border-slate-700">
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 border border-[#CBD5E1] bg-white rounded-sm hover:bg-slate-50 transition-colors"
+            className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
           >
             Cancel
           </button>
@@ -251,49 +251,49 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       </form>
 
       {/* Change Operator Password */}
-      <form onSubmit={handleChangePassword} className="border border-[#CBD5E1] p-3.5 bg-white rounded-sm space-y-3">
-        <div className="flex items-center gap-2 border-b border-[#E2E8F0] pb-2">
-          <KeyRound size={16} className="text-slate-700" />
-          <h4 className="text-xs font-semibold text-slate-900">Change Operator Password</h4>
+      <form onSubmit={handleChangePassword} className="border border-[#CBD5E1] dark:border-slate-700 p-3.5 bg-white dark:bg-slate-800 rounded-sm space-y-3">
+        <div className="flex items-center gap-2 border-b border-[#E2E8F0] dark:border-slate-700 pb-2">
+          <KeyRound size={16} className="text-slate-700 dark:text-slate-300" />
+          <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100">Change Operator Password</h4>
         </div>
 
         {passwordError && (
-          <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-sm">
+          <div className="p-2.5 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-xs rounded-sm">
             {passwordError}
           </div>
         )}
 
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block text-[11px] font-medium text-slate-600 mb-1">Current Password</label>
+            <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">Current Password</label>
             <input
               type="password"
               required
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
-              className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+              className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-slate-600 mb-1">New Password</label>
+            <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">New Password</label>
             <input
               type="password"
               required
               minLength={8}
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+              className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
             />
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-slate-600 mb-1">Confirm New Password</label>
+            <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">Confirm New Password</label>
             <input
               type="password"
               required
               minLength={8}
               value={confirmNewPassword}
               onChange={(e) => setConfirmNewPassword(e.target.value)}
-              className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+              className="w-full px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
             />
           </div>
         </div>

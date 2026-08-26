@@ -21,9 +21,14 @@ import {
   addTenantAllowBlockListItem,
   removeTenantAllowBlockListItem,
   applyMdoRemediation,
+  disableForwardingRule as disableForwardingRuleExo,
+  removeMailboxDelegation as removeMailboxDelegationExo,
+  setMailboxAuditingEnabled as setMailboxAuditingEnabledExo,
+  DelegationAccessRight,
 } from "./exo-client";
 import { mapEntryTypeToListType } from "./mdo-mapper";
 import { MDO_BASELINE_STANDARDS } from "../data/mdo-baseline-definitions";
+import { MAILFLOW_BASELINE_STANDARDS } from "../data/mailflow-baseline-definitions";
 
 interface AuthConfigRow {
   passwordHash: string;
@@ -36,6 +41,55 @@ const DEFAULT_SETTINGS: SystemSettings = {
   autoSyncIntervalMinutes: 30,
   auditLogRetentionDays: 90,
 };
+
+// Server-side guard for TABL entries — the Add modal's `required`/`minLength`
+// form rules only stop the human UI, not a direct API call or an MCP agent,
+// and a write-enabled tenant would otherwise forward garbage straight to a
+// live Exchange Online Tenant Allow/Block List write. Both addTablEntry
+// callers (the /tabl API route and the manage_tabl MCP tool) funnel through
+// this one function, so validating here covers both.
+const TABL_DOMAIN_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+const TABL_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const TABL_SHA256_RE = /^[a-f0-9]{64}$/i;
+
+function validateTablEntryInput(entry: {
+  listType?: string;
+  entryType?: string;
+  value?: string;
+  notes?: string;
+}): string | null {
+  if (entry.listType !== "allow" && entry.listType !== "block") {
+    return "listType must be 'allow' or 'block'.";
+  }
+  if (!["domain", "sender", "url", "file_hash"].includes(entry.entryType || "")) {
+    return "entryType must be one of 'domain', 'sender', 'url', 'file_hash'.";
+  }
+  const value = (entry.value || "").trim();
+  if (!value) return "A value is required.";
+  if (entry.entryType === "domain" && !TABL_DOMAIN_RE.test(value)) {
+    return "Value doesn't look like a valid domain (e.g. contoso.com).";
+  }
+  if (entry.entryType === "sender" && !TABL_EMAIL_RE.test(value)) {
+    return "Value doesn't look like a valid sender email address.";
+  }
+  if (entry.entryType === "url") {
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return "URL must use http:// or https://.";
+      }
+    } catch {
+      return "Value isn't a valid URL.";
+    }
+  }
+  if (entry.entryType === "file_hash" && !TABL_SHA256_RE.test(value)) {
+    return "Value must be a 64-character SHA-256 hex hash.";
+  }
+  if ((entry.notes || "").trim().length < 10) {
+    return "A security/audit reason of at least 10 characters is required.";
+  }
+  return null;
+}
 
 // SQLite-backed store for multi-tenant configurations and snapshots. Each entity is
 // still just a JSON blob (same shape the app already used), but as its own row with
@@ -558,14 +612,25 @@ class TenantStore {
   // opt-in (see types/index.ts), since EXO's delegated device-code auth can't
   // be scoped to read-only the way Graph app permissions can. Everything else
   // (no EXO connection, or connected with writes left disabled) keeps the
-  // original local-only tracking behavior untouched, which is safe because
-  // syncTenant() never overwrites mdoThreat in that case (see graph-client.ts).
+  // original local-only tracking behavior, flagged via isLocalOnly below —
+  // syncTenant() merges those back in after every resync rather than
+  // overwriting them (see graph-client.ts's mdoThreat.tabl assignment).
   public async addTablEntry(
     tenantId: string,
     entry: Omit<TenantSecuritySnapshot["mdoThreat"]["tabl"][0], "id" | "dateAdded">
   ): Promise<{ success: boolean; error?: string; entry?: TenantSecuritySnapshot["mdoThreat"]["tabl"][0] }> {
+    const validationError = validateTablEntryInput(entry);
+    if (validationError) return { success: false, error: validationError };
+
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return { success: false, error: "Tenant not found" };
+
+    const value = entry.value.trim();
+    const existingSnap = this.getSnapshotRow(tenantId);
+    const isDuplicate = existingSnap?.mdoThreat.tabl.some(
+      (e) => e.listType === entry.listType && e.entryType === entry.entryType && e.value.toLowerCase() === value.toLowerCase()
+    );
+    if (isDuplicate) return { success: false, error: `A ${entry.listType} entry for '${value}' already exists.` };
 
     if (tenant.credentials.exoRefreshToken && tenant.credentials.exoWriteEnabled) {
       const listType = mapEntryTypeToListType(entry.entryType);
@@ -604,6 +669,7 @@ class TenantStore {
       ...entry,
       id: `tabl-${Date.now().toString(36)}`,
       dateAdded: new Date().toISOString(),
+      isLocalOnly: true,
     };
     snap.mdoThreat.tabl.unshift(newEntry);
     this.putSnapshotRow(tenantId, snap);
@@ -656,7 +722,11 @@ class TenantStore {
   // exoRefreshToken/exoWriteEnabled gate, audit logging, and post-write resync
   // pattern as addTablEntry/removeTablEntry above, just targeting a Set-*Policy
   // cmdlet instead of a TABL cmdlet.
-  public async applyMdoBaselineFix(tenantId: string, code: string): Promise<{ success: boolean; error?: string }> {
+  public async applyMdoBaselineFix(
+    tenantId: string,
+    code: string,
+    extra?: Record<string, string>
+  ): Promise<{ success: boolean; error?: string }> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return { success: false, error: "Tenant not found" };
     if (!tenant.credentials.exoRefreshToken || !tenant.credentials.exoWriteEnabled) {
@@ -669,12 +739,29 @@ class TenantStore {
     }
 
     const snap = this.getSnapshotRow(tenantId);
-    const policy = snap?.mdoThreat.policies.find((p) => p.policyType === standard.policyType);
-    if (!policy) {
+    const matchingPolicies = (snap?.mdoThreat.policies || []).filter((p) => p.policyType === standard.policyType);
+    if (matchingPolicies.length === 0) {
       return { success: false, error: `No ${standard.policyType} policy found to remediate.` };
     }
+    // The UI hides the one-click fix whenever more than one policy of this
+    // type exists (see MdoPoliciesModule.tsx) since auto-remediating one
+    // arbitrary policy while others stay non-compliant would be misleading —
+    // this is a defense-in-depth guard for any caller that bypasses the UI
+    // (a direct API call, or a future MCP tool).
+    if (matchingPolicies.length > 1) {
+      return {
+        success: false,
+        error: `Multiple ${standard.policyType} policies exist — apply this fix manually in Exchange Online.`,
+      };
+    }
+    const policy = matchingPolicies[0];
 
-    const parameters = standard.remediation.buildParameters(policy);
+    const inputField = standard.remediation.requiresInputField;
+    if (inputField && !extra?.[inputField.key]?.trim()) {
+      return { success: false, error: `${inputField.label} is required to apply this fix.` };
+    }
+
+    const parameters = standard.remediation.buildParameters(policy, extra);
     const result = await applyMdoRemediation(tenant, standard.remediation.cmdlet, parameters, (newToken) =>
       this.persistExoRefreshToken(tenantId, newToken)
     );
@@ -691,6 +778,185 @@ class TenantStore {
 
     if (!result.success) return { success: false, error: result.error };
 
+    await this.syncTenant(tenantId);
+    return { success: true };
+  }
+
+  // Disables a detected forwarding vector (inbox rule, transport rule, or
+  // mailbox-level auto-forward) — same exoRefreshToken/exoWriteEnabled gate,
+  // audit logging, and post-write resync pattern as applyMdoBaselineFix above.
+  public async disableForwardingRule(tenantId: string, ruleId: string): Promise<{ success: boolean; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+    if (!tenant.credentials.exoRefreshToken || !tenant.credentials.exoWriteEnabled) {
+      return { success: false, error: "Exchange Online writes are not enabled for this tenant." };
+    }
+
+    const snap = this.getSnapshotRow(tenantId);
+    const rule = snap?.emailForwarding.find((r) => r.id === ruleId);
+    if (!rule) return { success: false, error: "Forwarding rule not found." };
+
+    const result = await disableForwardingRuleExo(
+      tenant,
+      { scope: rule.scope, name: rule.name, mailboxOwner: rule.mailboxOwner },
+      (newToken) => this.persistExoRefreshToken(tenantId, newToken)
+    );
+
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "exo_write",
+      action: `Disable forwarding rule (${rule.scope}): ${rule.name}`,
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: result.success,
+      detail: result.success ? `Disabled '${rule.name}' (was forwarding to ${rule.forwardingAddress}).` : result.error,
+    });
+
+    if (!result.success) return { success: false, error: result.error };
+    await this.syncTenant(tenantId);
+    return { success: true };
+  }
+
+  // Revokes one FullAccess/SendAs/SendOnBehalf delegation from a mailbox —
+  // same gate/audit/resync pattern as the methods above.
+  public async revokeMailboxDelegation(
+    tenantId: string,
+    mailboxId: string,
+    principalUserPrincipalName: string,
+    accessRight: DelegationAccessRight
+  ): Promise<{ success: boolean; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+    if (!tenant.credentials.exoRefreshToken || !tenant.credentials.exoWriteEnabled) {
+      return { success: false, error: "Exchange Online writes are not enabled for this tenant." };
+    }
+
+    const snap = this.getSnapshotRow(tenantId);
+    const mailbox = snap?.mailboxes.find((m) => m.id === mailboxId);
+    if (!mailbox) return { success: false, error: "Mailbox not found." };
+    const delegation = mailbox.delegations.find(
+      (d) => d.principalUserPrincipalName === principalUserPrincipalName && d.accessRight === accessRight
+    );
+    if (!delegation) return { success: false, error: "Delegation not found." };
+
+    const remainingSendOnBehalf =
+      accessRight === "SendOnBehalf"
+        ? mailbox.delegations
+            .filter((d) => d.accessRight === "SendOnBehalf" && d.principalUserPrincipalName !== principalUserPrincipalName)
+            .map((d) => d.principalUserPrincipalName)
+        : undefined;
+
+    const result = await removeMailboxDelegationExo(
+      tenant,
+      { mailboxUpn: mailbox.userPrincipalName, principalUpn: principalUserPrincipalName, accessRight, remainingSendOnBehalf },
+      (newToken) => this.persistExoRefreshToken(tenantId, newToken)
+    );
+
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "exo_write",
+      action: `Revoke ${accessRight} delegation on ${mailbox.userPrincipalName}`,
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: result.success,
+      detail: result.success
+        ? `Removed ${principalUserPrincipalName}'s ${accessRight} access to ${mailbox.userPrincipalName}.`
+        : result.error,
+    });
+
+    if (!result.success) return { success: false, error: result.error };
+    await this.syncTenant(tenantId);
+    return { success: true };
+  }
+
+  // Enables tenant-wide mailbox audit logging — the prerequisite for every
+  // delegation/forwarding finding above being investigable after the fact
+  // (see the mailboxAuditingEnabled comment in types/index.ts).
+  public async setMailboxAuditingEnabled(tenantId: string): Promise<{ success: boolean; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+    if (!tenant.credentials.exoRefreshToken || !tenant.credentials.exoWriteEnabled) {
+      return { success: false, error: "Exchange Online writes are not enabled for this tenant." };
+    }
+
+    const result = await setMailboxAuditingEnabledExo(tenant, (newToken) => this.persistExoRefreshToken(tenantId, newToken));
+
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "exo_write",
+      action: "Enable tenant-wide mailbox audit logging",
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: result.success,
+      detail: result.success ? "Set-OrganizationConfig -AuditDisabled $false" : result.error,
+    });
+
+    if (!result.success) return { success: false, error: result.error };
+    await this.syncTenant(tenantId);
+    return { success: true };
+  }
+
+  // Runs the remediation for one Mail Flow Rules baseline check (MF01/02/04
+  // have one; MF03 is judgment-call-only, same "no auto-fix" convention as
+  // MDO09). MF01/02 target a specific transport rule (ruleId required);
+  // MF04 targets the tenant-wide outbound spam policy (ruleId ignored).
+  // Same gate/audit/resync pattern as applyMdoBaselineFix.
+  public async applyMailflowBaselineFix(
+    tenantId: string,
+    code: string,
+    ruleId?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+    if (!tenant.credentials.exoRefreshToken || !tenant.credentials.exoWriteEnabled) {
+      return { success: false, error: "Exchange Online writes are not enabled for this tenant." };
+    }
+
+    const standard = MAILFLOW_BASELINE_STANDARDS.find((s) => s.code === code);
+    if (!standard || !standard.remediation) {
+      return { success: false, error: "No automated fix is available for this check." };
+    }
+
+    const snap = this.getSnapshotRow(tenantId);
+    let parameters: Record<string, any>;
+    let detailName: string;
+
+    if (code === "MF04") {
+      const outboundPolicy = snap?.mdoThreat.policies.find((p) => p.policyType === "AntiSpamOutbound");
+      parameters = standard.remediation.buildParameters(outboundPolicy?.displayName || "Default");
+      detailName = "tenant-wide auto-forwarding (outbound spam policy)";
+    } else if (code === "MF07") {
+      parameters = standard.remediation.buildParameters("Default");
+      detailName = "tenant-wide auto-forwarding (remote domain)";
+    } else if (code === "MF08") {
+      parameters = standard.remediation.buildParameters("");
+      detailName = "external sender warning tag";
+    } else {
+      // MF01/MF02 target a specific transport rule. MF05/MF06 (connectors)
+      // have no remediation defined at all — the !standard.remediation
+      // guard above already returned before reaching here for those codes.
+      if (!ruleId) return { success: false, error: "Missing ruleId for this fix." };
+      const rule = snap?.mailflowTransportRules.find((r) => r.id === ruleId);
+      if (!rule) return { success: false, error: "Transport rule not found." };
+      parameters = standard.remediation.buildParameters(rule.name);
+      detailName = rule.name;
+    }
+
+    const result = await applyMdoRemediation(tenant, standard.remediation.cmdlet, parameters, (newToken) =>
+      this.persistExoRefreshToken(tenantId, newToken)
+    );
+
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "exo_write",
+      action: `Apply Mail Flow Rules baseline fix ${code} (${standard.remediation.cmdlet})`,
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: result.success,
+      detail: result.success ? `${standard.remediation.summary} (${detailName})` : result.error,
+    });
+
+    if (!result.success) return { success: false, error: result.error };
     await this.syncTenant(tenantId);
     return { success: true };
   }

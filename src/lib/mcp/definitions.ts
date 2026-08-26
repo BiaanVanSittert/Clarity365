@@ -132,6 +132,10 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
             value: { type: "string" },
             notes: { type: "string" },
             addedBy: { type: "string" },
+            expirationDate: {
+              type: "string",
+              description: "ISO date string, or 'Never' for no expiration (not recommended). Defaults to 90 days out if omitted.",
+            },
           },
         },
         entryId: {

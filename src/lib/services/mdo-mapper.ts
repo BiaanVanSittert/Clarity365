@@ -23,9 +23,30 @@ function deriveAssignedScope(raw: any): string {
   return scopedFields.flat().join(", ");
 }
 
-function deriveComplianceRating(enabled: boolean, protectionsActive: boolean): MdoThreatPolicy["complianceRating"] {
+// Each policyType has its own specific baseline-relevant field(s) — the same
+// ones mdo-baseline-matcher.ts scores per MDO0x check. Keying compliance off
+// exactly those fields (rather than a generic OR across anti-phish-shaped
+// booleans) keeps this rating consistent with the Baseline & Posture tab's
+// own verdicts for the identical policy. AntiPhishing backs three checks
+// (MDO01/02/04) so all three must hold for it to count as compliant.
+function deriveComplianceRating(
+  policyType: MdoThreatPolicy["policyType"],
+  enabled: boolean,
+  fields: Pick<
+    MdoThreatPolicy,
+    "impersonationProtection" | "spoofIntelligence" | "zapEnabled" | "realTimeScanning" | "blockingAction" | "commonAttachmentFilter" | "outboundNotify"
+  >
+): MdoThreatPolicy["complianceRating"] {
   if (!enabled) return "critical";
-  return protectionsActive ? "compliant" : "substandard";
+  const protectionsActive: Record<MdoThreatPolicy["policyType"], boolean> = {
+    AntiPhishing: fields.impersonationProtection && fields.spoofIntelligence && fields.zapEnabled,
+    AntiSpamInbound: fields.zapEnabled,
+    AntiSpamOutbound: fields.outboundNotify,
+    AntiMalware: fields.commonAttachmentFilter,
+    SafeLinks: fields.realTimeScanning,
+    SafeAttachments: fields.blockingAction,
+  };
+  return protectionsActive[policyType] ? "compliant" : "substandard";
 }
 
 export function mapMdoPolicy(raw: any, policyType: MdoThreatPolicy["policyType"]): MdoThreatPolicy {
@@ -37,10 +58,6 @@ export function mapMdoPolicy(raw: any, policyType: MdoThreatPolicy["policyType"]
   );
   const spoofIntelligence = !!raw.EnableSpoofIntelligence;
   const zapEnabled = !!(raw.SpamZapEnabled || raw.PhishZapEnabled || raw.ZapEnabled);
-  // Safe Links/Attachments don't have the anti-phish-specific flags above, but
-  // simply having the policy configured at all is itself the protection.
-  const protectionsActive =
-    impersonationProtection || spoofIntelligence || zapEnabled || policyType === "SafeLinks" || policyType === "SafeAttachments";
 
   // Baseline-scoring fields (see mdo-baseline-definitions.ts) — each backs one
   // specific MDO0x check, so unlike the generic booleans above these are only
@@ -49,6 +66,7 @@ export function mapMdoPolicy(raw: any, policyType: MdoThreatPolicy["policyType"]
   const blockingAction = raw.Action === "Block" || raw.Action === "DynamicDelivery";
   const commonAttachmentFilter = !!raw.EnableFileFilter;
   const outboundNotify = !!raw.NotifyOutboundSpam;
+  const autoForwardingBlocked = raw.AutoForwardingMode === "Off";
 
   return {
     id: raw.Guid || raw.Identity || raw.Name || policyType,
@@ -59,12 +77,29 @@ export function mapMdoPolicy(raw: any, policyType: MdoThreatPolicy["policyType"]
     impersonationProtection,
     spoofIntelligence,
     zapEnabled,
-    complianceRating: deriveComplianceRating(enabled, protectionsActive),
+    complianceRating: deriveComplianceRating(policyType, enabled, {
+      impersonationProtection,
+      spoofIntelligence,
+      zapEnabled,
+      realTimeScanning,
+      blockingAction,
+      commonAttachmentFilter,
+      outboundNotify,
+    }),
     realTimeScanning,
     blockingAction,
     commonAttachmentFilter,
     outboundNotify,
+    autoForwardingBlocked,
   };
+}
+
+// Shared 90-day default used both for the human "Add TABL Entry" form
+// (MdoPoliciesModule.tsx) and the MCP manage_tabl tool (mcp/engine.ts), so
+// the "not recommended" no-expiration hygiene rule applies consistently
+// regardless of who/what created the entry.
+export function defaultTablExpirationIso(): string {
+  return new Date(Date.now() + 90 * 86_400_000).toISOString();
 }
 
 export type TablListType = "Sender" | "Url" | "FileHash";

@@ -3,14 +3,11 @@ import { tenantStore } from "@/lib/services/tenant-store";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { id } = params;
     const body = await request.json();
-    const { code, extra } = body;
+    const { code, ruleId } = body;
 
     if (!code) {
       return NextResponse.json({ success: false, error: "Missing code parameter" }, { status: 400 });
@@ -21,7 +18,7 @@ export async function POST(
       return NextResponse.json({ success: false, error: "Tenant not found" }, { status: 404 });
     }
 
-    const result = await tenantStore.applyMdoBaselineFix(id, code, extra);
+    const result = await tenantStore.applyMailflowBaselineFix(id, code, ruleId);
     if (!result.success) {
       return NextResponse.json({ success: false, error: result.error || "Failed to apply fix" }, { status: 500 });
     }

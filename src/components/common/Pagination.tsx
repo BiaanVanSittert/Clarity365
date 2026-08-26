@@ -19,10 +19,10 @@ export const Pagination: React.FC<PaginationProps> = ({ page, pageSize, totalIte
   if (totalItems === 0) return null;
 
   return (
-    <div className="flex items-center justify-between px-4 py-2 border-t border-[#E2E8F0] bg-[#F8FAFC] text-[11px] text-slate-600">
+    <div className="flex items-center justify-between px-4 py-2 border-t border-[#E2E8F0] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-900/50 text-[11px] text-slate-600 dark:text-slate-400">
       <span>
-        Showing <span className="font-semibold text-slate-900">{rangeStart}-{rangeEnd}</span> of{" "}
-        <span className="font-semibold text-slate-900">{totalItems}</span>
+        Showing <span className="font-semibold text-slate-900 dark:text-slate-100">{rangeStart}-{rangeEnd}</span> of{" "}
+        <span className="font-semibold text-slate-900 dark:text-slate-100">{totalItems}</span>
       </span>
       <div className="flex items-center gap-1">
         <button
@@ -30,7 +30,7 @@ export const Pagination: React.FC<PaginationProps> = ({ page, pageSize, totalIte
           onClick={() => onPageChange(Math.max(1, page - 1))}
           disabled={page <= 1}
           aria-label="Previous page"
-          className="p-1 border border-[#CBD5E1] rounded-sm bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="p-1 border border-[#CBD5E1] dark:border-slate-700 rounded-sm bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           <ChevronLeft size={13} />
         </button>
@@ -42,7 +42,7 @@ export const Pagination: React.FC<PaginationProps> = ({ page, pageSize, totalIte
           onClick={() => onPageChange(Math.min(totalPages, page + 1))}
           disabled={page >= totalPages}
           aria-label="Next page"
-          className="p-1 border border-[#CBD5E1] rounded-sm bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="p-1 border border-[#CBD5E1] dark:border-slate-700 rounded-sm bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           <ChevronRight size={13} />
         </button>

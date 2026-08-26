@@ -6,8 +6,8 @@ import { Info } from "lucide-react";
 // Graph — this notice keeps that clear at the point of action rather than
 // implying the change reaches Microsoft 365 immediately.
 export const LocalOnlyNotice: React.FC<{ className?: string }> = ({ className = "" }) => (
-  <div className={`flex items-start gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-sm text-[11px] text-slate-600 ${className}`}>
-    <Info size={13} className="text-slate-400 shrink-0 mt-0.5" />
+  <div className={`flex items-start gap-2 p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-sm text-[11px] text-slate-600 dark:text-slate-400 ${className}`}>
+    <Info size={13} className="text-slate-400 dark:text-slate-500 shrink-0 mt-0.5" />
     <span>Tracked in Clarity365 — not yet pushed to Microsoft 365.</span>
   </div>
 );

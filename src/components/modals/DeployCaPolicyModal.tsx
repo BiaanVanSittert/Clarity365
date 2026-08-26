@@ -93,35 +93,35 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
       <div className="space-y-4">
         {/* Success Alert */}
         {deploySuccess && (
-          <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs rounded-sm flex items-center gap-2 font-medium">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800 text-emerald-950 text-xs rounded-sm flex items-center gap-2 font-medium">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
             <span>{deploySuccess}</span>
           </div>
         )}
 
         {/* Error Alert */}
         {deployError && (
-          <div className="p-3 bg-rose-50 border border-rose-300 text-rose-950 text-xs rounded-sm space-y-1">
-            <div className="flex items-center gap-2 font-semibold text-rose-900">
-              <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+          <div className="p-3 bg-rose-50 dark:bg-red-950 border border-rose-300 dark:border-red-800 text-rose-950 dark:text-red-400 text-xs rounded-sm space-y-1">
+            <div className="flex items-center gap-2 font-semibold text-rose-900 dark:text-red-400">
+              <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-red-400 flex-shrink-0" />
               <span>Auto-Deployment Failed</span>
             </div>
-            <div className="text-[11px] font-mono bg-white p-1.5 border border-rose-200 text-rose-800">
+            <div className="text-[11px] font-mono bg-white dark:bg-slate-800 p-1.5 border border-rose-200 dark:border-red-800 text-rose-800 dark:text-red-400">
               {deployError}
             </div>
-            <p className="text-[10px] text-rose-700 mt-1">
+            <p className="text-[10px] text-rose-700 dark:text-red-400 mt-1">
               Ensure your App Registration has been granted <strong>Policy.ReadWrite.ConditionalAccess</strong> with <strong>Admin Consent</strong> in Microsoft Entra Admin Center.
             </p>
           </div>
         )}
 
         {/* Critical Notice Banner */}
-        <div className="p-3.5 bg-amber-50 border border-amber-300 text-amber-950 text-xs rounded-sm space-y-1.5">
-          <div className="flex items-center gap-2 font-semibold text-amber-900">
-            <AlertTriangle className="w-4 h-4 text-amber-700 flex-shrink-0" />
+        <div className="p-3.5 bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-400 text-xs rounded-sm space-y-1.5">
+          <div className="flex items-center gap-2 font-semibold text-amber-900 dark:text-amber-400">
+            <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-400 flex-shrink-0" />
             <span>Important Deployment Safety Rule: Report-Only Mode</span>
           </div>
-          <p className="text-[11px] leading-relaxed text-amber-900">
+          <p className="text-[11px] leading-relaxed text-amber-900 dark:text-amber-400">
             This deployment will create the policy strictly in <strong>Report-only</strong> mode (<code>state = &quot;enabledForReportingButNotEnforced&quot;</code>). 
             It will <strong>NOT</strong> block or challenge users immediately. You must review the Entra ID Sign-In logs over 7–14 days to confirm expected rule evaluations before manually switching the policy state to <strong>On (Enabled)</strong> in the Microsoft Entra Admin Center.
           </p>
@@ -159,7 +159,7 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
                 type="button"
                 onClick={handleExecuteAutoDeploy}
                 disabled={isDeploying}
-                className="px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-sm flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600 rounded-sm flex items-center gap-1.5 transition-colors disabled:opacity-50"
               >
                 {isDeploying ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
                 <span>{isDeploying ? "Deploying Policy..." : "Confirm & Auto-Deploy (Report-Only)"}</span>
@@ -169,9 +169,9 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
         ) : (
           /* Entra ID P2 Requirement Banner if applicable */
           policy.requiresEntraP2 && (
-            <div className={`p-3 border text-xs rounded-sm ${hasEntraP2 ? "bg-blue-50 border-blue-200 text-blue-900" : "bg-rose-50 border-rose-300 text-rose-950"}`}>
+            <div className={`p-3 border text-xs rounded-sm ${hasEntraP2 ? "bg-blue-50 border-blue-200 text-blue-900" : "bg-rose-50 dark:bg-red-950 border-rose-300 dark:border-red-800 text-rose-950 dark:text-red-400"}`}>
               <div className="flex items-center gap-2 font-semibold">
-                <ShieldAlert className={`w-4 h-4 flex-shrink-0 ${hasEntraP2 ? "text-blue-700" : "text-rose-600"}`} />
+                <ShieldAlert className={`w-4 h-4 flex-shrink-0 ${hasEntraP2 ? "text-blue-700" : "text-rose-600 dark:text-red-400"}`} />
                 <span>License Dependency: Microsoft Entra ID Plan 2 Required</span>
               </div>
               <p className="text-[11px] mt-1 leading-relaxed">
@@ -187,30 +187,30 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
         )}
 
         {/* Policy Metadata Summary */}
-        <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 border border-slate-200 text-xs">
+        <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
           <div>
-            <span className="text-slate-500 block text-[11px]">Target Scope:</span>
-            <span className="font-medium text-slate-800">{policy.targetScope}</span>
+            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Target Scope:</span>
+            <span className="font-medium text-slate-800 dark:text-slate-200">{policy.targetScope}</span>
           </div>
           <div>
-            <span className="text-slate-500 block text-[11px]">Risk Mitigated:</span>
-            <span className="font-medium text-slate-800">{policy.riskMitigated}</span>
+            <span className="text-slate-500 dark:text-slate-400 block text-[11px]">Risk Mitigated:</span>
+            <span className="font-medium text-slate-800 dark:text-slate-200">{policy.riskMitigated}</span>
           </div>
         </div>
 
         {/* PowerShell Script Block & Action Buttons */}
         <div>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-              <Terminal className="w-3.5 h-3.5 text-slate-600" />
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <Terminal className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
               <span>Microsoft Graph PowerShell Script or Direct Auto-Deploy</span>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleCopy}
-                className="flex items-center gap-1.5 px-3 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 text-xs font-medium rounded-sm transition-colors shadow-2xs"
+                className="flex items-center gap-1.5 px-3 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-medium rounded-sm transition-colors shadow-2xs"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                 {copied ? "Copied Script!" : "Copy PowerShell Script"}
               </button>
 
@@ -233,9 +233,9 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
         </div>
 
         {/* Instructions */}
-        <div className="p-3 bg-slate-50 border border-slate-200 text-xs text-slate-600 space-y-1">
-          <div className="font-semibold text-slate-800 flex items-center gap-1">
-            <Info className="w-3.5 h-3.5 text-slate-500" />
+        <div className="p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-400 space-y-1">
+          <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+            <Info className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
             Deployment Options:
           </div>
           <p className="text-[11px]">
@@ -253,7 +253,7 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
               setDeploySuccess(null);
               onClose();
             }}
-            className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-medium rounded-sm"
+            className="px-4 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-medium rounded-sm"
           >
             Close
           </button>

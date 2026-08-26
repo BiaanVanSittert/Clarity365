@@ -25,6 +25,8 @@ const MfaAuditModule = lazy(() => import("../modules/MfaAuditModule").then(m => 
 const UserClassificationModule = lazy(() => import("../modules/UserClassificationModule").then(m => ({ default: m.UserClassificationModule })));
 const MailboxPermissionsModule = lazy(() => import("../modules/MailboxPermissionsModule").then(m => ({ default: m.MailboxPermissionsModule })));
 const EmailForwardingModule = lazy(() => import("../modules/EmailForwardingModule").then(m => ({ default: m.EmailForwardingModule })));
+const MailflowRulesModule = lazy(() => import("../modules/MailflowRulesModule").then(m => ({ default: m.MailflowRulesModule })));
+const DomainAuthModule = lazy(() => import("../modules/DomainAuthModule").then(m => ({ default: m.DomainAuthModule })));
 const MdoPoliciesModule = lazy(() => import("../modules/MdoPoliciesModule").then(m => ({ default: m.MdoPoliciesModule })));
 const AppRegistrationsModule = lazy(() => import("../modules/AppRegistrationsModule").then(m => ({ default: m.AppRegistrationsModule })));
 const IntuneSecurityModule = lazy(() => import("../modules/IntuneSecurityModule").then(m => ({ default: m.IntuneSecurityModule })));
@@ -293,9 +295,9 @@ export const AppShell: React.FC = () => {
         >
           <div className="flex items-center gap-2 font-medium">
             {syncToast.type === "info" && <RefreshCw size={13} className="animate-spin text-emerald-400" />}
-            {syncToast.type === "success" && <CheckCircle size={14} className="text-emerald-600" />}
-            {syncToast.type === "warning" && <AlertTriangle size={14} className="text-amber-600" />}
-            {syncToast.type === "error" && <AlertTriangle size={14} className="text-rose-600" />}
+            {syncToast.type === "success" && <CheckCircle size={14} className="text-emerald-600 dark:text-emerald-400" />}
+            {syncToast.type === "warning" && <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400" />}
+            {syncToast.type === "error" && <AlertTriangle size={14} className="text-rose-600 dark:text-red-400" />}
             <span>{syncToast.message}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -328,7 +330,7 @@ export const AppShell: React.FC = () => {
         />
 
         {/* Dynamic Main Workspace Container */}
-        <main className="flex-1 overflow-y-auto bg-white">
+        <main className="flex-1 overflow-y-auto bg-white dark:bg-slate-800">
           <Suspense fallback={<SkeletonLoader />}>
             <ErrorBoundary moduleName="Overview Dashboard" key={`eb-overview-${activeTenantId}`}>
               {activeView === "overview" && (
@@ -395,7 +397,11 @@ export const AppShell: React.FC = () => {
 
             <ErrorBoundary moduleName="Mailbox Permissions" key={`eb-mailbox-${activeTenantId}`}>
               {activeView === "mailboxes" && snapshot && (
-                <MailboxPermissionsModule snapshot={snapshot} />
+                <MailboxPermissionsModule
+                  snapshot={snapshot}
+                  onLocalRefresh={handleLocalRefresh}
+                  onOpenPermissions={() => setIsPermissionsOpen(true)}
+                />
               )}
               {activeView === "mailboxes" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
@@ -405,9 +411,29 @@ export const AppShell: React.FC = () => {
                 <EmailForwardingModule
                   snapshot={snapshot}
                   onOpenRemediation={handleOpenRemediation}
+                  onLocalRefresh={handleLocalRefresh}
+                  onOpenPermissions={() => setIsPermissionsOpen(true)}
                 />
               )}
               {activeView === "forwarding" && !snapshot && <SkeletonLoader />}
+            </ErrorBoundary>
+
+            <ErrorBoundary moduleName="Transport & Mail Flow Rules" key={`eb-mailflow-rules-${activeTenantId}`}>
+              {activeView === "mailflow_rules" && snapshot && (
+                <MailflowRulesModule
+                  snapshot={snapshot}
+                  onLocalRefresh={handleLocalRefresh}
+                  onOpenPermissions={() => setIsPermissionsOpen(true)}
+                />
+              )}
+              {activeView === "mailflow_rules" && !snapshot && <SkeletonLoader />}
+            </ErrorBoundary>
+
+            <ErrorBoundary moduleName="Domain Authentication" key={`eb-domain-auth-${activeTenantId}`}>
+              {activeView === "domain_auth" && snapshot && (
+                <DomainAuthModule snapshot={snapshot} onOpenPermissions={() => setIsPermissionsOpen(true)} />
+              )}
+              {activeView === "domain_auth" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="MDO Policies & TABL" key={`eb-mdo-${activeTenantId}`}>

@@ -10,8 +10,13 @@ import { MdoBaselineItem, MdoThreatPolicy } from "../types";
 
 export interface MdoRemediationAction {
   cmdlet: string;
-  buildParameters: (policy: MdoThreatPolicy) => Record<string, any>;
+  buildParameters: (policy: MdoThreatPolicy, extra?: Record<string, string>) => Record<string, any>;
   summary: string;
+  // Set when the fix needs more than "the policy itself" to be a complete,
+  // real change — e.g. MDO08's NotifyOutboundSpam flag does nothing without
+  // a recipient to actually notify. When set, the UI collects this value
+  // before allowing the fix to run, and passes it through as `extra`.
+  requiresInputField?: { key: string; label: string; placeholder: string };
 }
 
 export interface MdoBaselinePolicyDefinition extends MdoBaselineItem {
@@ -115,8 +120,16 @@ export const MDO_BASELINE_STANDARDS: MdoBaselinePolicyDefinition[] = [
     riskMitigated: "Compromised mailboxes used to send spam/phishing internally or to external partners, undetected.",
     remediation: {
       cmdlet: "Set-HostedOutboundSpamFilterPolicy",
-      buildParameters: (policy) => ({ Identity: policy.displayName, NotifyOutboundSpam: true }),
-      summary: "Enables outbound spam admin notification on the existing outbound anti-spam policy.",
+      buildParameters: (policy, extra) => ({
+        Identity: policy.displayName,
+        NotifyOutboundSpam: true,
+        // NotifyOutboundSpam alone doesn't deliver anywhere — EXO needs an
+        // explicit recipient list, so the UI collects one via
+        // requiresInputField below before this fix can run.
+        NotifyOutboundSpamRecipients: [extra?.notifyRecipient],
+      }),
+      summary: "Enables outbound spam admin notification, sent to the address you provide, on the existing outbound anti-spam policy.",
+      requiresInputField: { key: "notifyRecipient", label: "Notify email address", placeholder: "secops@yourdomain.com" },
     },
   },
   {

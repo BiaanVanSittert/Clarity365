@@ -11,20 +11,24 @@ import { computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 
 const ORG_WIDE_SCOPE = "Default (Organization-wide)";
 
-function findPolicy(policies: MdoThreatPolicy[], type: MdoThreatPolicy["policyType"]): MdoThreatPolicy | undefined {
-  return policies.find((p) => p.policyType === type);
+function findPolicies(policies: MdoThreatPolicy[], type: MdoThreatPolicy["policyType"]): MdoThreatPolicy[] {
+  return policies.filter((p) => p.policyType === type);
 }
 
 function evaluateCode(code: string, policies: MdoThreatPolicy[]): MdoBaselineResult {
   // MDO09 is the one aggregate check — it spans every core policy type rather
   // than a single one, so it's handled separately from the direct 1:1 lookups below.
+  // A tenant can legitimately run several policies of one core type (a preset
+  // plus custom scoped ones); org-wide coverage only needs at least one of
+  // them to apply to everyone, not all of them — computing whether several
+  // scoped policies' union actually covers 100% of mailboxes is a much
+  // larger problem this check doesn't attempt.
   if (code === "MDO09") {
-    const corePolicies = (["AntiPhishing", "AntiSpamInbound", "SafeLinks", "SafeAttachments"] as const).map((t) =>
-      findPolicy(policies, t)
-    );
-    const policyFound = corePolicies.every((p) => !!p);
-    const met = policyFound && corePolicies.every((p) => p!.assignedScope === ORG_WIDE_SCOPE);
-    return { code, met, policyFound };
+    const coreTypes = ["AntiPhishing", "AntiSpamInbound", "SafeLinks", "SafeAttachments"] as const;
+    const corePolicyGroups = coreTypes.map((t) => findPolicies(policies, t));
+    const policyFound = corePolicyGroups.every((group) => group.length > 0);
+    const met = policyFound && corePolicyGroups.every((group) => group.some((p) => p.assignedScope === ORG_WIDE_SCOPE));
+    return { code, met, policyFound, policyCount: corePolicyGroups.reduce((sum, g) => sum + g.length, 0) };
   }
 
   const CHECKS: Record<string, { type: MdoThreatPolicy["policyType"]; field: keyof MdoThreatPolicy }> = {
@@ -39,16 +43,24 @@ function evaluateCode(code: string, policies: MdoThreatPolicy[]): MdoBaselineRes
   };
 
   const check = CHECKS[code];
-  if (!check) return { code, met: false, policyFound: false };
+  if (!check) return { code, met: false, policyFound: false, policyCount: 0 };
 
-  const policy = findPolicy(policies, check.type);
-  if (!policy) return { code, met: false, policyFound: false };
+  const matchingPolicies = findPolicies(policies, check.type);
+  if (matchingPolicies.length === 0) return { code, met: false, policyFound: false, policyCount: 0 };
+
+  // A tenant can have more than one policy of the same type — the check is
+  // only "met" if every one of them satisfies it, since a single compliant
+  // policy alongside a misconfigured one still leaves a real gap.
+  const unmetPolicies = matchingPolicies.filter((p) => !p[check.field]);
+  const met = unmetPolicies.length === 0;
 
   return {
     code,
-    met: !!policy[check.field],
+    met,
     policyFound: true,
-    currentPolicyName: policy.displayName,
+    policyCount: matchingPolicies.length,
+    currentPolicyName: matchingPolicies.length === 1 ? matchingPolicies[0].displayName : undefined,
+    unmetPolicyNames: matchingPolicies.length > 1 && !met ? unmetPolicies.map((p) => p.displayName) : undefined,
   };
 }
 

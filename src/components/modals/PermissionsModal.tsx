@@ -4,7 +4,7 @@ import { StatusPill } from "../common/StatusPill";
 import { Tenant } from "@/lib/types";
 import { TenantPermissionReport } from "@/lib/services/graph-client";
 import { DeviceCodeStart } from "@/lib/services/exo-client";
-import { ShieldCheck, RefreshCw, AlertTriangle, CheckCircle, ExternalLink, Key, Mail, Copy, Check } from "lucide-react";
+import { ShieldCheck, RefreshCw, AlertTriangle, CheckCircle, ExternalLink, Key, Mail, Copy, Check, Info } from "lucide-react";
 
 interface PermissionsModalProps {
   isOpen: boolean;
@@ -199,21 +199,21 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
     >
       <div className="space-y-4">
         {/* Header Summary */}
-        <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 text-xs">
+        <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
           <div className="flex items-center gap-2">
-            <Key className="w-4 h-4 text-slate-600" />
+            <Key className="w-4 h-4 text-slate-600 dark:text-slate-400" />
             <div>
-              <span className="font-medium text-slate-700">Client ID: </span>
-              <span className="font-mono text-slate-900">{tenant.credentials.clientId || "N/A (Simulated)"}</span>
-              <span className="text-slate-400 mx-2">•</span>
-              <span className="font-medium text-slate-700">Auth Mode: </span>
-              <span className="uppercase text-slate-900 font-semibold">{tenant.credentials.authMode}</span>
+              <span className="font-medium text-slate-700 dark:text-slate-300">Client ID: </span>
+              <span className="font-mono text-slate-900 dark:text-slate-100">{tenant.credentials.clientId || "N/A (Simulated)"}</span>
+              <span className="text-slate-400 dark:text-slate-500 mx-2">•</span>
+              <span className="font-medium text-slate-700 dark:text-slate-300">Auth Mode: </span>
+              <span className="uppercase text-slate-900 dark:text-slate-100 font-semibold">{tenant.credentials.authMode}</span>
             </div>
           </div>
           <button
             onClick={fetchPermissions}
             disabled={loading}
-            className="flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-sm disabled:opacity-50"
+            className="flex items-center gap-1 px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium rounded-sm disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             {loading ? "Testing..." : "Re-Test Permissions"}
@@ -221,8 +221,8 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
         </div>
 
         {error && (
-          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-600" />
+          <div className="p-3 bg-rose-50 dark:bg-red-950 border border-rose-200 dark:border-red-800 text-rose-800 dark:text-red-400 text-xs flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-600 dark:text-red-400" />
             <div>
               <div className="font-semibold">Authentication Error</div>
               <div>{error}</div>
@@ -233,7 +233,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
         {report && (
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-600">
+              <span className="text-slate-600 dark:text-slate-400">
                 Tested against Microsoft Graph API at:{" "}
                 <span className="font-mono">{new Date(report.testedAt).toLocaleTimeString()}</span>
               </span>
@@ -248,10 +248,52 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
               </div>
             </div>
 
+            {/* Write-access legend — only shown when at least one permission in this
+                report actually grants write access, so a fully read-only app
+                registration doesn't see an irrelevant warning. */}
+            {report.permissions.some((p) => p.isWriteAccess) && (
+              <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 rounded-sm text-[11px] text-amber-900 dark:text-amber-400">
+                <AlertTriangle size={13} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <span>
+                  Permissions outlined in amber below let Clarity365 create or modify data in Microsoft 365 —
+                  not just read it. Review these before granting admin consent.
+                </span>
+              </div>
+            )}
+
+            {/* Per-optional-permission summary — makes the read-vs-write mode explicit
+                at a glance, since "All Required Permissions Granted" above deliberately
+                says nothing about optional ones either way. */}
+            {report.permissions
+              .filter((p) => p.optional)
+              .map((p) => (
+                <div
+                  key={p.permission}
+                  className={
+                    p.status === "granted"
+                      ? "flex items-start gap-2 p-2 bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800 rounded-sm text-[11px] text-emerald-900 dark:text-emerald-400"
+                      : "flex items-start gap-2 p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-sm text-[11px] text-slate-600 dark:text-slate-400"
+                  }
+                >
+                  {p.status === "granted" ? (
+                    <CheckCircle size={13} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <Info size={13} className="text-slate-400 dark:text-slate-500 shrink-0 mt-0.5" />
+                  )}
+                  <span>
+                    {p.status === "granted" ? (
+                      <>Write access enabled for <strong>{p.requiredFor.replace(/^Optional:\s*/, "")}</strong>.</>
+                    ) : (
+                      <>Running in read-only/reporting mode — <strong>{p.requiredFor.replace(/^Optional:\s*/, "")}</strong> isn't available. Grant <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded font-mono">{p.permission}</code> in Entra to enable it.</>
+                    )}
+                  </span>
+                </div>
+              ))}
+
             {/* Permission Table */}
-            <div className="border border-slate-200 overflow-x-auto">
+            <div className="border border-slate-200 dark:border-slate-700 overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse table-fixed">
-                <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-semibold uppercase text-[10px] tracking-wider">
+                <thead className="bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold uppercase text-[10px] tracking-wider">
                   <tr>
                     <th className="p-2.5 w-[38%]">Microsoft Graph Permission</th>
                     <th className="p-2.5 w-[12%]">Type</th>
@@ -259,31 +301,54 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                     <th className="p-2.5 w-[20%] text-right">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200">
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
                   {report.permissions.map((p, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
+                    <tr
+                      key={idx}
+                      className={
+                        p.isWriteAccess
+                          ? "border-l-4 border-l-amber-500 bg-amber-50/60 dark:bg-amber-950 hover:bg-amber-100/70 dark:hover:bg-amber-900"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-700"
+                      }
+                    >
                       <td className="p-2.5 align-top">
-                        <div className="font-mono font-medium text-slate-900 break-words">{p.permission}</div>
-                        <div className="text-[11px] text-slate-500 break-words">{p.description}</div>
-                        {p.errorMessage && (
-                          <div className="text-[10px] font-mono text-rose-700 mt-1 bg-rose-50 p-1 border border-rose-200 break-words">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono font-medium text-slate-900 dark:text-slate-100 break-words">{p.permission}</span>
+                          {p.isWriteAccess && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-400 border border-amber-400 dark:border-amber-800 font-semibold text-[9px] uppercase tracking-wide rounded-sm">
+                              <AlertTriangle size={9} /> Write Access{p.optional ? " (Optional)" : ""}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 break-words">{p.description}</div>
+                        {p.isWriteAccess && !p.optional && (
+                          <div className="text-[10px] text-amber-800 dark:text-amber-400 mt-1 break-words">
+                            Grants Clarity365 the ability to create, modify, or delete data in Microsoft 365 using this permission — not just view it.
+                          </div>
+                        )}
+                        {p.errorMessage && !(p.optional && p.status !== "granted") && (
+                          <div className="text-[10px] font-mono text-rose-700 dark:text-red-400 mt-1 bg-rose-50 dark:bg-red-950 p-1 border border-rose-200 dark:border-red-800 break-words">
                             {p.errorMessage}
                           </div>
                         )}
                       </td>
                       <td className="p-2.5 align-top">
-                        <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 font-mono text-[10px]">
+                        <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-mono text-[10px]">
                           {p.scope}
                         </span>
                       </td>
-                      <td className="p-2.5 text-slate-600 align-top break-words">{p.requiredFor}</td>
+                      <td className="p-2.5 text-slate-600 dark:text-slate-400 align-top break-words">{p.requiredFor}</td>
                       <td className="p-2.5 text-right align-top">
                         {p.status === "granted" ? (
-                          <span className="inline-flex items-center gap-1 text-emerald-700 font-medium bg-emerald-50 px-2 py-0.5 border border-emerald-200 text-[11px]">
+                          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 border border-emerald-200 dark:border-emerald-800 text-[11px]">
                             <CheckCircle className="w-3.5 h-3.5" /> Granted
                           </span>
+                        ) : p.optional ? (
+                          <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-700 px-2 py-0.5 border border-slate-300 dark:border-slate-600 text-[11px]">
+                            Not Granted — Read-Only Mode
+                          </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-rose-700 font-medium bg-rose-50 px-2 py-0.5 border border-rose-200 text-[11px]">
+                          <span className="inline-flex items-center gap-1 text-rose-700 dark:text-red-400 font-medium bg-rose-50 dark:bg-red-950 px-2 py-0.5 border border-rose-200 dark:border-red-800 text-[11px]">
                             <AlertTriangle className="w-3.5 h-3.5" /> Missing (HTTP {p.statusCode || 403})
                           </span>
                         )}
@@ -295,12 +360,12 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
             </div>
 
             {/* Guidance for missing permissions */}
-            <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
+            <div className="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-400 text-xs space-y-1">
               <div className="font-semibold flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4 text-amber-700" />
+                <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-400" />
                 How to Grant Missing Permissions in Azure Portal:
               </div>
-              <p className="text-[11px] text-amber-800 leading-relaxed">
+              <p className="text-[11px] text-amber-800 dark:text-amber-400 leading-relaxed">
                 1. Navigate to <strong>Microsoft Entra Admin Center</strong> &gt; <strong>App registrations</strong> &gt; Select your App Registration.
                 <br />
                 2. Go to <strong>API permissions</strong> &gt; <strong>Add a permission</strong> &gt; <strong>Microsoft Graph</strong> &gt; <strong>Application permissions</strong>.
@@ -312,10 +377,10 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
         )}
 
         {/* Exchange Online (MDO Policies) — delegated device-code auth flow */}
-        <div className="border border-slate-200 p-3 space-y-3">
+        <div className="border border-slate-200 dark:border-slate-700 p-3 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
-              <Mail className="w-4 h-4 text-slate-600" />
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+              <Mail className="w-4 h-4 text-slate-600 dark:text-slate-400" />
               <span>Exchange Online (MDO Policies)</span>
             </div>
             {exoConnected && exoPollStatus === "idle" && (
@@ -323,14 +388,14 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                 <button
                   onClick={testExoConnectivity}
                   disabled={exoTesting}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-sm disabled:opacity-50"
+                  className="flex items-center gap-1 px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium rounded-sm disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${exoTesting ? "animate-spin" : ""}`} />
                   {exoTesting ? "Testing..." : "Test Connection"}
                 </button>
                 <button
                   onClick={startExoConnect}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-sm"
+                  className="flex items-center gap-1 px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium rounded-sm"
                 >
                   Reconnect
                 </button>
@@ -341,7 +406,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
           {exoPollStatus === "idle" ? (
             !exoConnected ? (
               <div className="space-y-2.5">
-                <p className="text-[11px] text-slate-500">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
                   Optional — required only to sync Defender for Office 365 policies (anti-phish, anti-spam, Safe
                   Links, Safe Attachments) and the Tenant Allow/Block List. Exchange admin APIs don't accept the
                   client secret above, so this uses a one-time sign-in instead — no certificate or app registration
@@ -364,17 +429,17 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                     <div className="space-y-1">
                       <StatusPill status="fail" label="Connection Failed" />
                       {exoResult.error && (
-                        <div className="text-[10px] font-mono text-rose-700 bg-rose-50 p-1.5 border border-rose-200">
+                        <div className="text-[10px] font-mono text-rose-700 dark:text-red-400 bg-rose-50 dark:bg-red-950 p-1.5 border border-rose-200 dark:border-red-800">
                           {exoResult.error}
                         </div>
                       )}
                     </div>
                   )
                 ) : (
-                  <span className="text-[11px] text-slate-400">Testing connection...</span>
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">Testing connection...</span>
                 )}
 
-                <div className="border-t border-[#E2E8F0] pt-3">
+                <div className="border-t border-[#E2E8F0] dark:border-slate-700 pt-3">
                   <label className="flex items-start gap-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -383,12 +448,12 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                       onChange={(e) => toggleExoWrite(e.target.checked)}
                       className="mt-0.5"
                     />
-                    <span className="text-xs font-medium text-slate-700">
+                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
                       Allow Clarity365 to write changes to Exchange Online
                     </span>
                   </label>
-                  <div className="mt-2 p-2.5 bg-amber-50 border border-amber-300 text-amber-950 text-[11px] rounded-sm space-y-1">
-                    <div className="flex items-center gap-1.5 font-semibold text-amber-900">
+                  <div className="mt-2 p-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-400 text-[11px] rounded-sm space-y-1">
+                    <div className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-400">
                       <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
                       <span>What enabling this means</span>
                     </div>
@@ -413,41 +478,41 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
               </div>
             )
           ) : exoPollStatus === "starting" ? (
-            <span className="text-[11px] text-slate-400">Starting sign-in...</span>
+            <span className="text-[11px] text-slate-400 dark:text-slate-500">Starting sign-in...</span>
           ) : exoPollStatus === "pending" && exoDeviceInfo ? (
             <div className="space-y-2.5">
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Go to{" "}
                 <a
                   href={exoDeviceInfo.verificationUri}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-slate-800 underline font-medium"
+                  className="text-slate-800 dark:text-slate-200 underline font-medium"
                 >
                   {exoDeviceInfo.verificationUri}
                 </a>{" "}
                 and enter this code, signed in as an account with Exchange admin / Security admin rights:
               </p>
               <div className="flex items-center gap-2">
-                <span className="px-3 py-1.5 bg-slate-100 border border-slate-300 rounded-sm text-sm font-mono font-semibold tracking-widest text-slate-900">
+                <span className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-sm text-sm font-mono font-semibold tracking-widest text-slate-900 dark:text-slate-100">
                   {exoDeviceInfo.userCode}
                 </span>
                 <button
                   onClick={copyExoCode}
                   title="Copy code"
-                  className="flex items-center gap-1 px-2 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-sm"
+                  className="flex items-center gap-1 px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium rounded-sm"
                 >
                   {exoCodeCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>
               </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                 <RefreshCw className="w-3 h-3 animate-spin" />
                 Waiting for you to approve access...
               </div>
             </div>
           ) : (
             <div className="space-y-2">
-              <div className="p-2 bg-rose-50 border border-rose-200 text-rose-800 text-[11px]">
+              <div className="p-2 bg-rose-50 dark:bg-red-950 border border-rose-200 dark:border-red-800 text-rose-800 dark:text-red-400 text-[11px]">
                 {exoPollError || "Exchange Online sign-in failed."}
               </div>
               <button

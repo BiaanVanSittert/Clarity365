@@ -58,23 +58,23 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Header */}
-      <div className="bg-[#F8FAFC] border border-[#CBD5E1] p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <HardDrive size={18} className="text-slate-800" />
-            <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+            <HardDrive size={18} className="text-slate-800 dark:text-slate-200" />
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               Module 10: Intune Endpoint Security (Antivirus & EDR Fleet Onboarding)
             </h2>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Fleet compliance, BitLocker/FileVault encryption, Microsoft Defender Antivirus status, and EDR onboarding state.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <div className="text-right">
-            <div className="text-xs font-semibold text-slate-700">Fleet Compliance</div>
-            <div className="text-lg font-bold font-mono text-slate-900 tabular-nums">
+            <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">Fleet Compliance</div>
+            <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums">
               {intune.totalDevices === 0 ? "0%" : `${Math.round((intune.compliantDevices / intune.totalDevices) * 100)}%`} ({intune.compliantDevices} / {intune.totalDevices})
             </div>
           </div>
@@ -83,50 +83,50 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
 
       {/* Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-        <div className="p-3 bg-white border border-[#CBD5E1] rounded-sm">
-          <div className="text-[10px] uppercase font-mono text-slate-500 font-semibold">Total Fleet Devices</div>
-          <div className="text-xl font-bold font-mono text-slate-900 tabular-nums mt-0.5">{intune.totalDevices}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">Enrolled in Intune</div>
+        <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
+          <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 font-semibold">Total Fleet Devices</div>
+          <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">{intune.totalDevices}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Enrolled in Intune</div>
         </div>
 
-        <div className="p-3 bg-[#ECFDF5] border border-[#10B981] rounded-sm">
-          <div className="text-[10px] uppercase font-mono text-[#065F46] font-semibold">Compliant Endpoints</div>
-          <div className="text-xl font-bold font-mono text-[#065F46] tabular-nums mt-0.5">{intune.compliantDevices}</div>
-          <div className="text-[11px] text-[#065F46] mt-0.5">Passes compliance rules</div>
+        <div className="p-3 bg-[#ECFDF5] dark:bg-emerald-950 border border-[#10B981] dark:border-emerald-800 rounded-sm">
+          <div className="text-[10px] uppercase font-mono text-[#065F46] dark:text-emerald-400 font-semibold">Compliant Endpoints</div>
+          <div className="text-xl font-bold font-mono text-[#065F46] dark:text-emerald-400 tabular-nums mt-0.5">{intune.compliantDevices}</div>
+          <div className="text-[11px] text-[#065F46] dark:text-emerald-400 mt-0.5">Passes compliance rules</div>
         </div>
 
-        <div className="p-3 bg-[#FEF2F2] border border-[#EF4444] rounded-sm">
-          <div className="text-[10px] uppercase font-mono text-[#991B1B] font-semibold">Non-Compliant Endpoints</div>
-          <div className="text-xl font-bold font-mono text-[#991B1B] tabular-nums mt-0.5">{intune.nonCompliantDevices}</div>
-          <div className="text-[11px] text-[#991B1B] mt-0.5">Failing baseline</div>
+        <div className="p-3 bg-[#FEF2F2] dark:bg-red-950 border border-[#EF4444] dark:border-red-800 rounded-sm">
+          <div className="text-[10px] uppercase font-mono text-[#991B1B] dark:text-red-400 font-semibold">Non-Compliant Endpoints</div>
+          <div className="text-xl font-bold font-mono text-[#991B1B] dark:text-red-400 tabular-nums mt-0.5">{intune.nonCompliantDevices}</div>
+          <div className="text-[11px] text-[#991B1B] dark:text-red-400 mt-0.5">Failing baseline</div>
         </div>
 
-        <div className="p-3 bg-white border border-[#CBD5E1] rounded-sm">
-          <div className="text-[10px] uppercase font-mono text-slate-500 font-semibold">EDR Policy Profiles</div>
-          <div className="text-xl font-bold font-mono text-slate-900 tabular-nums mt-0.5">{intune.edrPoliciesCount}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">{intune.antivirusPoliciesCount} AV Profiles Active</div>
+        <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
+          <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 font-semibold">EDR Policy Profiles</div>
+          <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">{intune.edrPoliciesCount}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{intune.antivirusPoliciesCount} AV Profiles Active</div>
         </div>
       </div>
 
       {/* Filter and Search */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 border border-[#CBD5E1] rounded-sm">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-800 p-3 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
         <div className="relative w-full sm:w-80">
-          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400 dark:text-slate-500" />
           <input
             type="text"
             placeholder="Search device name, user, or OS..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
           />
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter size={14} className="text-slate-500" />
+          <Filter size={14} className="text-slate-500 dark:text-slate-400" />
           <select
             value={osFilter}
             onChange={(e) => setOsFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-medium"
+            className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium"
           >
             <option value="all">All Platforms (Windows, macOS, iOS, Android, Linux)</option>
             <option value="windows">Windows</option>
@@ -139,21 +139,21 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
           <button
             onClick={handleExportCSV}
             title="Export filtered devices to CSV"
-            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
           >
-            <Download size={13} className="text-slate-500" />
+            <Download size={13} className="text-slate-500 dark:text-slate-400" />
             <span>Export CSV</span>
           </button>
         </div>
       </div>
 
       {/* Device Table */}
-      <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-xs">
-        <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+      <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
+        <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
             Managed Endpoint Inventory & Telemetry Status
           </h3>
-          <span className="text-[11px] font-mono text-slate-500">{filteredDevices.length} Devices Listed</span>
+          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{filteredDevices.length} Devices Listed</span>
         </div>
 
         <div className="overflow-x-auto">
@@ -181,18 +181,18 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
                     tabIndex={0}
                     role="button"
                     onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSelectedDevice(dev))}
-                    className={`cursor-pointer hover:bg-slate-50 transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2 ${
-                      dev.complianceState === "noncompliant" ? "bg-red-50/20" : ""
+                    className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2 ${
+                      dev.complianceState === "noncompliant" ? "bg-red-50/20 dark:bg-red-950" : ""
                     }`}
                   >
                     <td>
-                      <div className="font-semibold text-xs text-slate-900 flex items-center gap-1.5">
-                        <Laptop size={13} className="text-slate-500" />
+                      <div className="font-semibold text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                        <Laptop size={13} className="text-slate-500 dark:text-slate-400" />
                         <span>{dev.deviceName}</span>
                       </div>
                     </td>
-                    <td className="font-mono text-[11px] text-slate-600">{dev.userPrincipalName}</td>
-                    <td className="text-xs font-mono text-slate-700">
+                    <td className="font-mono text-[11px] text-slate-600 dark:text-slate-400">{dev.userPrincipalName}</td>
+                    <td className="text-xs font-mono text-slate-700 dark:text-slate-300">
                       {dev.operatingSystem} ({dev.osVersion})
                     </td>
                     <td>
@@ -230,7 +230,7 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
                           e.stopPropagation();
                           setSelectedDevice(dev);
                         }}
-                        className="p-1 text-slate-400 hover:text-slate-900 rounded-sm"
+                        className="p-1 text-slate-400 dark:text-slate-500 hover:text-slate-900 dark:text-slate-100 rounded-sm"
                       >
                         <ChevronRight size={14} />
                       </button>
@@ -253,8 +253,8 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
           width="lg"
         >
           <div className="space-y-4">
-            <div className="border border-[#CBD5E1] p-3 rounded-sm bg-[#F8FAFC] space-y-2">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Compliance & Security</h4>
+            <div className="border border-[#CBD5E1] dark:border-slate-700 p-3 rounded-sm bg-[#F8FAFC] dark:bg-slate-900/50 space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Compliance & Security</h4>
               <div className="grid grid-cols-2 gap-2">
                 <StatusPill
                   status={selectedDevice.complianceState === "compliant" ? "pass" : "fail"}
@@ -278,32 +278,32 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
                 />
               </div>
               {selectedDevice.jailBroken && selectedDevice.jailBroken.toLowerCase() === "true" && (
-                <div className="text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 p-1.5 rounded-sm">
+                <div className="text-[11px] font-semibold text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 p-1.5 rounded-sm">
                   This device is reported as jailbroken/rooted.
                 </div>
               )}
               {selectedDevice.complianceState === "inGracePeriod" && (
-                <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 p-1.5 rounded-sm">
+                <div className="text-[11px] text-amber-800 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 p-1.5 rounded-sm">
                   Grace period expires: {formatDate(selectedDevice.complianceGracePeriodExpirationDateTime)}
                 </div>
               )}
             </div>
 
-            <div className="border border-[#CBD5E1] p-3 rounded-sm bg-white space-y-2">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Hardware</h4>
+            <div className="border border-[#CBD5E1] dark:border-slate-700 p-3 rounded-sm bg-white dark:bg-slate-800 space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Hardware</h4>
               <dl className="grid grid-cols-2 gap-y-1.5 text-xs">
-                <dt className="text-slate-500">Manufacturer</dt>
-                <dd className="text-slate-900 font-medium">{selectedDevice.manufacturer || "—"}</dd>
-                <dt className="text-slate-500">Model</dt>
-                <dd className="text-slate-900 font-medium">{selectedDevice.model || "—"}</dd>
-                <dt className="text-slate-500">Serial Number</dt>
-                <dd className="text-slate-900 font-mono">{selectedDevice.serialNumber || "—"}</dd>
-                <dt className="text-slate-500">IMEI</dt>
-                <dd className="text-slate-900 font-mono">{selectedDevice.imei || "—"}</dd>
-                <dt className="text-slate-500">Wi-Fi MAC</dt>
-                <dd className="text-slate-900 font-mono">{selectedDevice.wiFiMacAddress || "—"}</dd>
-                <dt className="text-slate-500">Storage</dt>
-                <dd className="text-slate-900 font-medium">
+                <dt className="text-slate-500 dark:text-slate-400">Manufacturer</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.manufacturer || "—"}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">Model</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.model || "—"}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">Serial Number</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-mono">{selectedDevice.serialNumber || "—"}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">IMEI</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-mono">{selectedDevice.imei || "—"}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">Wi-Fi MAC</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-mono">{selectedDevice.wiFiMacAddress || "—"}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">Storage</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">
                   {selectedDevice.freeStorageBytes !== undefined && selectedDevice.totalStorageBytes !== undefined
                     ? `${formatBytes(selectedDevice.freeStorageBytes)} free of ${formatBytes(selectedDevice.totalStorageBytes)}`
                     : "—"}
@@ -311,23 +311,23 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
               </dl>
             </div>
 
-            <div className="border border-[#CBD5E1] p-3 rounded-sm bg-[#F8FAFC] space-y-2">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Management & Enrollment</h4>
+            <div className="border border-[#CBD5E1] dark:border-slate-700 p-3 rounded-sm bg-[#F8FAFC] dark:bg-slate-900/50 space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Management & Enrollment</h4>
               <dl className="grid grid-cols-2 gap-y-1.5 text-xs">
-                <dt className="text-slate-500">Enrollment Type</dt>
-                <dd className="text-slate-900 font-medium">{selectedDevice.deviceEnrollmentType || "—"}</dd>
-                <dt className="text-slate-500">Management Agent</dt>
-                <dd className="text-slate-900 font-medium">{selectedDevice.managementAgent || "—"}</dd>
-                <dt className="text-slate-500">Owner Type</dt>
-                <dd className="text-slate-900 font-medium capitalize">{selectedDevice.ownerType || "—"}</dd>
-                <dt className="text-slate-500">Device Category</dt>
-                <dd className="text-slate-900 font-medium">{selectedDevice.deviceCategory || "—"}</dd>
-                <dt className="text-slate-500">Azure AD Device ID</dt>
-                <dd className="text-slate-900 font-mono text-[10px] break-all">{selectedDevice.azureADDeviceId || "—"}</dd>
-                <dt className="text-slate-500">Enrolled</dt>
-                <dd className="text-slate-900 font-medium">{formatDate(selectedDevice.enrolledDateTime)}</dd>
-                <dt className="text-slate-500">Last Sync</dt>
-                <dd className="text-slate-900 font-medium">{formatDate(selectedDevice.lastSyncDateTime)}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">Enrollment Type</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.deviceEnrollmentType || "—"}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">Management Agent</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.managementAgent || "—"}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">Owner Type</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium capitalize">{selectedDevice.ownerType || "—"}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">Device Category</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">{selectedDevice.deviceCategory || "—"}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">Azure AD Device ID</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-mono text-[10px] break-all">{selectedDevice.azureADDeviceId || "—"}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">Enrolled</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">{formatDate(selectedDevice.enrolledDateTime)}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">Last Sync</dt>
+                <dd className="text-slate-900 dark:text-slate-100 font-medium">{formatDate(selectedDevice.lastSyncDateTime)}</dd>
               </dl>
             </div>
           </div>

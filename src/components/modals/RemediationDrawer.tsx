@@ -40,35 +40,35 @@ export const RemediationDrawer: React.FC<RemediationDrawerProps> = ({
     >
       <div className="space-y-6">
         {plans.length === 0 ? (
-          <div className="p-8 text-center border border-dashed border-[#CBD5E1] rounded-sm bg-[#F8FAFC]">
-            <p className="text-xs text-slate-500">No critical remediation actions pending for this category.</p>
+          <div className="p-8 text-center border border-dashed border-[#CBD5E1] dark:border-slate-700 rounded-sm bg-[#F8FAFC] dark:bg-slate-900/50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">No critical remediation actions pending for this category.</p>
           </div>
         ) : (
           plans.map((plan, idx) => (
-            <div key={idx} className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden space-y-3">
+            <div key={idx} className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden space-y-3">
               {/* Plan Header */}
-              <div className="p-3.5 bg-[#F8FAFC] border-b border-[#E2E8F0] flex items-start justify-between gap-3">
+              <div className="p-3.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#E2E8F0] dark:border-slate-700 flex items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <StatusPill status={plan.severity} label={plan.severity.toUpperCase()} />
-                    <span className="text-[11px] font-mono text-slate-500 uppercase">{plan.category}</span>
+                    <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400 uppercase">{plan.category}</span>
                   </div>
-                  <h4 className="text-xs font-semibold text-slate-900">{plan.title}</h4>
+                  <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100">{plan.title}</h4>
                 </div>
               </div>
 
               {/* Summary */}
-              <div className="px-3.5 text-xs text-slate-700 leading-relaxed">
+              <div className="px-3.5 text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
                 {plan.summary}
               </div>
 
               {/* Steps */}
               <div className="px-3.5 space-y-1.5">
-                <div className="text-[11px] font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
-                  <FileText size={12} className="text-slate-600" />
+                <div className="text-[11px] font-semibold text-slate-900 dark:text-slate-100 uppercase tracking-wide flex items-center gap-1.5">
+                  <FileText size={12} className="text-slate-600 dark:text-slate-400" />
                   <span>Execution Checklist</span>
                 </div>
-                <ol className="list-decimal list-inside text-xs text-slate-600 space-y-1 pl-1">
+                <ol className="list-decimal list-inside text-xs text-slate-600 dark:text-slate-400 space-y-1 pl-1">
                   {plan.steps.map((step, sIdx) => (
                     <li key={sIdx} className="leading-snug">{step}</li>
                   ))}
@@ -97,10 +97,10 @@ export const RemediationDrawer: React.FC<RemediationDrawerProps> = ({
 
               {/* Rollback */}
               <div className="px-3.5 pb-3.5">
-                <div className="p-2 bg-slate-50 border border-slate-200 rounded-sm flex items-start gap-2 text-[11px] text-slate-600">
-                  <Undo2 size={13} className="text-slate-500 shrink-0 mt-0.5" />
+                <div className="p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-sm flex items-start gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+                  <Undo2 size={13} className="text-slate-500 dark:text-slate-400 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-semibold text-slate-800">Rollback Procedure: </span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">Rollback Procedure: </span>
                     <span>{plan.rollbackPlan}</span>
                   </div>
                 </div>

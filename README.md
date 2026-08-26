@@ -12,7 +12,7 @@ Designed following strict, high-density sysadmin and cybersecurity principles (i
 * **Live Graph Sync** — Manual "Sync Tenant" and a background auto-sync scheduler (configurable interval) pull real data via Microsoft Graph, with resilient retry/backoff on throttling (HTTP 429/503), per-request timeouts, and pagination across large tenants.
 * **Sync Health Transparency** — Partial sync failures (e.g. one endpoint unreachable due to a missing permission) surface as a specific warning rather than a silent fallback; a total sync failure is reported as an error with the last-known-good data clearly labeled as stale, and every sync failure is recorded in the Audit Log.
 * **Executive Overview Dashboard** — Six priority widgets in one screen: Microsoft Secure Score (with 30/90-day deltas and industry benchmark), a live critical sign-in event stream, an identity & asset count matrix, a license/capability detection matrix (Entra ID P1/P2, Intune, Defender for Endpoint, Defender for Office 365), a Conditional Access baseline health gauge (CA01–CA10), and high-risk threat indicators.
-* **14 Security Modules** — see the full list below.
+* **16 Security Modules** — see the full list below.
 * **In-House Model Context Protocol (MCP) Server** — exposes 8 tools for AI agents and SOC automation, with an interactive in-app Playground to test calls before wiring up an external agent.
 * **Operator Authentication** — a single-operator password gate (first-run setup flow, HMAC-signed session cookies, 12-hour sessions) protects the whole app via Next.js middleware.
 * **Encrypted Secrets at Rest** — tenant client secrets are encrypted with AES-256-GCM before being written to disk; operator passwords are hashed with scrypt. Nothing sensitive is ever sent back to the browser unmasked.
@@ -33,15 +33,17 @@ Designed following strict, high-density sysadmin and cybersecurity principles (i
 | 3 | **Defender Secure Score & Historical Timeline** | Score trend over time, category breakdown, and categorized improvement actions with remediation guidance. |
 | 4 | **MFA Enforcement & Auth Methods Audit** | Per-user authentication method classification (Passkey/FIDO2, Microsoft Authenticator push/TOTP, SMS, voice, email OTP), flags weak or missing MFA, CSV export. |
 | 5 | **User & Account Classification** | Licensed, unlicensed-active (orphan risk), disabled, and guest account breakdowns. |
-| 6 | **Exchange Mailbox Permissions & Delegation** | Full Access / Send As delegation audit and licensed-shared-mailbox cost waste detection. |
-| 7 | **Email Forwarding Rules Audit** | Transport rules, inbox rules, and SMTP forwarding addresses, with critical alerts for external-domain targets. |
-| 8 | **Defender for Office 365 (MDO) & TABL Manager** | Threat policy review plus an interactive Tenant Allow/Block List editor (domains, senders, URLs, file hashes). |
-| 9 | **Enterprise Apps & App Registrations** | High-privilege Graph API scopes and expiring/expired credentials across app registrations. |
-| 10 | **Intune Endpoint Security** | Fleet antivirus and EDR onboarding coverage across Windows/macOS/Linux devices. |
-| 11 | **Microsoft Groups & Distribution Management** | Security groups, Microsoft 365 Unified groups, and distribution lists, with an interactive group creator. |
-| 12 | **SharePoint & Storage Policies** | Storage quota tracking and external sharing tier management. |
-| 13 | **MCP Tools & Playground** | Interactively invoke any of the 8 MCP tools against a live or demo tenant and inspect the JSON response. |
-| 14 | **Audit Log** | Searchable, filterable record of CA policy deployments, MCP tool calls, and sync failures across all tenants, with CSV export. |
+| 6 | **Exchange Mailbox Permissions & Delegation** | Live Full Access / Send As / Send on Behalf delegation audit, licensed-shared-mailbox cost waste detection, a mailbox audit-logging gate (the prerequisite for investigating any finding here after the fact), and one-click delegation revocation. |
+| 7 | **Email Forwarding Rules Audit** | Live transport rules, inbox rules (including hidden ones), and mailbox-level SMTP forwarding, with critical alerts for external-domain targets and one-click per-rule remediation. |
+| 8 | **Defender for Office 365 (MDO) & TABL Manager** | Threat policy review plus an interactive Tenant Allow/Block List editor (domains, senders, URLs, file hashes). One-click remediation for baseline gaps. |
+| 9 | **Transport & Mail Flow Rules Baseline** | Scores every org-wide transport rule and connector against known abuse patterns (external redirects, spam-filter bypasses, unscoped permanent rules, anonymous-trusting connectors, missing TLS) plus the two tenant-wide auto-forward kill switches and the external-sender warning tag — with one-click remediation where a safe default exists. |
+| 10 | **Domain Authentication (SPF / DKIM / DMARC)** | Per accepted domain: DKIM signing status via Exchange Online, and SPF/DMARC record validity via live public DNS lookups — with exact DNS record text to publish when a check fails, since neither Microsoft 365 nor this app can write to a domain's DNS. |
+| 11 | **Enterprise Apps & App Registrations** | High-privilege Graph API scopes and expiring/expired credentials across app registrations. |
+| 12 | **Intune Endpoint Security** | Fleet antivirus and EDR onboarding coverage across Windows/macOS/Linux devices. |
+| 13 | **Microsoft Groups & Distribution Management** | Security groups, Microsoft 365 Unified groups, and distribution lists, with an interactive group creator. |
+| 14 | **SharePoint & Storage Policies** | Storage quota tracking and external sharing tier management. |
+| 15 | **MCP Tools & Playground** | Interactively invoke any of the 8 MCP tools against a live or demo tenant and inspect the JSON response. |
+| 16 | **Audit Log** | Searchable, filterable record of CA policy deployments, MCP tool calls, and sync failures across all tenants, with CSV export. |
 
 ---
 

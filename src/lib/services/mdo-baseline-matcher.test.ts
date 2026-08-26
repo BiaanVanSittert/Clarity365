@@ -56,6 +56,35 @@ describe("evaluateMdoBaseline", () => {
     expect(mdo02.policyFound).toBe(true);
   });
 
+  it("requires every policy of a type to satisfy a check, not just one of several", () => {
+    const bothCompliant: MdoThreatPolicy[] = [
+      policy({ policyType: "AntiMalware", displayName: "Strict Preset", commonAttachmentFilter: true }),
+      policy({ policyType: "AntiMalware", displayName: "Custom Finance Policy", commonAttachmentFilter: true }),
+    ];
+    const bothResult = evaluateMdoBaseline(bothCompliant).results.find((r) => r.code === "MDO07")!;
+    expect(bothResult.met).toBe(true);
+    expect(bothResult.policyCount).toBe(2);
+    expect(bothResult.unmetPolicyNames).toBeUndefined();
+
+    const oneNonCompliant: MdoThreatPolicy[] = [
+      policy({ policyType: "AntiMalware", displayName: "Strict Preset", commonAttachmentFilter: true }),
+      policy({ policyType: "AntiMalware", displayName: "Custom Finance Policy", commonAttachmentFilter: false }),
+    ];
+    const mixedResult = evaluateMdoBaseline(oneNonCompliant).results.find((r) => r.code === "MDO07")!;
+    expect(mixedResult.met).toBe(false);
+    expect(mixedResult.policyFound).toBe(true);
+    expect(mixedResult.policyCount).toBe(2);
+    expect(mixedResult.unmetPolicyNames).toEqual(["Custom Finance Policy"]);
+    expect(mixedResult.currentPolicyName).toBeUndefined();
+  });
+
+  it("reports policyCount and currentPolicyName correctly for the single-policy case", () => {
+    const single: MdoThreatPolicy[] = [policy({ policyType: "SafeLinks", displayName: "Default Safe Links", realTimeScanning: true })];
+    const result = evaluateMdoBaseline(single).results.find((r) => r.code === "MDO05")!;
+    expect(result.policyCount).toBe(1);
+    expect(result.currentPolicyName).toBe("Default Safe Links");
+  });
+
   it("MDO09 requires all four core policies to be org-wide scoped", () => {
     const orgWide: MdoThreatPolicy[] = [
       policy({ policyType: "AntiPhishing" }),

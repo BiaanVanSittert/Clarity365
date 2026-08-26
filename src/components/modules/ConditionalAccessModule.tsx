@@ -146,23 +146,23 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Header & Coverage Summary */}
-      <div className="bg-[#F8FAFC] border border-[#CBD5E1] p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <Lock size={18} className="text-slate-800" />
-            <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+            <Lock size={18} className="text-slate-800 dark:text-slate-200" />
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               Module 1: Conditional Access Policy Baseline Scanner (CA01–CA10)
             </h2>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Strict verification against the CIS Microsoft 365 Foundations & Zero-Trust standard baseline (CA01 through CA10).
           </p>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
           <div className="text-right">
-            <div className="text-xs font-semibold text-slate-700">Baseline Compliance</div>
-            <div className="text-lg font-bold font-mono text-slate-900 tabular-nums">
+            <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">Baseline Compliance</div>
+            <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums">
               {coveragePercent}% ({baselineDefinitions.length - missingBaselineCount}/{baselineDefinitions.length})
             </div>
           </div>
@@ -172,18 +172,18 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
             <button
               onClick={handleRestoreAlerts}
               title="Restore baseline warning badge on sidebar"
-              className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+              className="px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
             >
-              <RotateCcw size={13} className="text-slate-500" />
+              <RotateCcw size={13} className="text-slate-500 dark:text-slate-400" />
               <span>Restore Badge</span>
             </button>
           ) : (
             <button
               onClick={handleClearAlerts}
               title="Acknowledge baseline warnings and clear the sidebar number badge"
-              className="px-2.5 py-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+              className="px-2.5 py-1.5 text-xs font-medium text-emerald-800 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 dark:hover:bg-emerald-900 border border-emerald-300 dark:border-emerald-800 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
             >
-              <CheckCheck size={14} className="text-emerald-600" />
+              <CheckCheck size={14} className="text-emerald-600 dark:text-emerald-400" />
               <span>Mark Reviewed (Clear Alert)</span>
             </button>
           )}
@@ -192,9 +192,9 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
             <button
               onClick={() => onNavigate("signin_logs")}
               title="Inspect real-time Sign-in logs evaluating these CA policies"
-              className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+              className="px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
             >
-              <Key size={13} className="text-slate-600" />
+              <Key size={13} className="text-slate-600 dark:text-slate-400" />
               <span>View Sign-In Logs</span>
             </button>
           )}
@@ -210,24 +210,24 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 border border-[#CBD5E1] rounded-sm">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-800 p-3 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
         <div className="relative w-full sm:w-80">
-          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400 dark:text-slate-500" />
           <input
             type="text"
             placeholder="Search baseline standards or policies..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
           />
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter size={14} className="text-slate-500" />
+          <Filter size={14} className="text-slate-500 dark:text-slate-400" />
           <select
             value={filterState}
             onChange={(e) => setFilterState(e.target.value)}
-            className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+            className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
           >
             <option value="all">All Standards (CA01 - CA10)</option>
             <option value="deployed">Deployed Only</option>
@@ -238,21 +238,21 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
           <button
             onClick={handleExportBaselineCSV}
             title="Export filtered baseline standards to CSV"
-            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
           >
-            <Download size={13} className="text-slate-500" />
+            <Download size={13} className="text-slate-500 dark:text-slate-400" />
             <span>Export CSV</span>
           </button>
         </div>
       </div>
 
       {/* CA Baseline Audit Table */}
-      <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-xs">
-        <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+      <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
+        <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
             Standard Baseline Specification & Deployed Policy Alignment
           </h3>
-          <span className="text-[11px] font-mono text-slate-500">
+          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
             {filteredBaseline.length} Standards Shown
           </span>
         </div>
@@ -278,12 +278,12 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                 const isReportOnly = policy?.state === "enabledForReportingButNotEnforced";
 
                 return (
-                  <tr key={baseline.code} className={!isDeployed ? "bg-amber-50/20" : ""}>
-                    <td className="font-mono font-bold text-slate-900 text-xs">
+                  <tr key={baseline.code} className={!isDeployed ? "bg-amber-50/20 dark:bg-amber-950" : ""}>
+                    <td className="font-mono font-bold text-slate-900 dark:text-slate-100 text-xs">
                       {baseline.code}
                     </td>
                     <td>
-                      <div className="font-semibold text-slate-900 text-xs flex items-center gap-1.5 flex-wrap">
+                      <div className="font-semibold text-slate-900 dark:text-slate-100 text-xs flex items-center gap-1.5 flex-wrap">
                         <span>{baseline.name}</span>
                         {baseline.requiresEntraP2 && (
                           <span
@@ -295,23 +295,23 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                           </span>
                         )}
                       </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">{baseline.description}</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{baseline.description}</div>
                       {baseline.requiresEntraP2 && !hasEntraP2 && (
-                        <div className="text-[10px] font-medium text-rose-700 mt-1 bg-rose-50 p-1 border border-rose-200 rounded-sm">
+                        <div className="text-[10px] font-medium text-rose-700 dark:text-red-400 mt-1 bg-rose-50 dark:bg-red-950 p-1 border border-rose-200 dark:border-red-800 rounded-sm">
                           License Advisory: Obtain at least one Entra ID Plan 2 license to enable risk-based policies.
                         </div>
                       )}
                     </td>
-                    <td className="text-[11px] text-slate-600 font-mono">
+                    <td className="text-[11px] text-slate-600 dark:text-slate-400 font-mono">
                       {baseline.targetScope}
                     </td>
-                    <td className="text-[11px] text-slate-600">
+                    <td className="text-[11px] text-slate-600 dark:text-slate-400">
                       {baseline.riskMitigated}
                     </td>
                     <td>
                       {isDeployed ? (
                         <div className="space-y-0.5">
-                          <div className="text-[11px] font-mono text-slate-800 font-semibold truncate max-w-[180px]" title={policy.name}>
+                          <div className="text-[11px] font-mono text-slate-800 dark:text-slate-200 font-semibold truncate max-w-[180px]" title={policy.name}>
                             {policy.name}
                           </div>
                           <StatusPill
@@ -321,7 +321,7 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                           />
                         </div>
                       ) : (
-                        <span className="text-[11px] text-amber-700 font-medium italic">
+                        <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium italic">
                           Not Deployed
                         </span>
                       )}
@@ -340,11 +340,11 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                         onClick={() => setDeployModalPolicy(baseline)}
                         className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-sm transition-colors border ${
                           isDeployed && isEnabled
-                            ? "bg-white border-slate-300 text-slate-700 hover:bg-slate-50"
-                            : "bg-slate-900 border-slate-900 text-white hover:bg-slate-800"
+                            ? "bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+                            : "bg-slate-900 border-slate-900 dark:border-slate-100 text-white hover:bg-slate-800"
                         }`}
                       >
-                        <Code2 size={12} className={isDeployed && isEnabled ? "text-slate-500" : "text-emerald-400"} />
+                        <Code2 size={12} className={isDeployed && isEnabled ? "text-slate-500 dark:text-slate-400" : "text-emerald-400"} />
                         <span>{isDeployed ? "View Command" : "Deploy (Report-Only)"}</span>
                       </button>
                     </td>
@@ -357,21 +357,21 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
       </div>
 
       {/* Custom & Non-Baseline Policies Table */}
-      <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-xs">
-        <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+      <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
+        <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
             Tenant Custom / Legacy Conditional Access Policies
           </h3>
           <div className="flex items-center gap-3">
-            <span className="text-[11px] font-mono text-slate-500">
+            <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
               {customPolicies.length} Policies Detected
             </span>
             <button
               onClick={handleExportCustomPoliciesCSV}
               title="Export custom policies to CSV"
-              className="px-2 py-1 text-[11px] font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1 transition-colors"
+              className="px-2 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1 transition-colors"
             >
-              <Download size={12} className="text-slate-500" />
+              <Download size={12} className="text-slate-500 dark:text-slate-400" />
               <span>Export CSV</span>
             </button>
           </div>
@@ -390,7 +390,7 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
             <tbody>
               {customPolicies.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-4 text-center text-xs text-slate-500">
+                  <td colSpan={4} className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">
                     All deployed Conditional Access policies strictly match the standard CA01 through CA10 naming baseline.
                   </td>
                 </tr>
@@ -398,14 +398,14 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                 customPolicies
                   .map((pol) => (
                     <tr key={pol.id}>
-                      <td className="font-semibold text-xs text-slate-900">{pol.name}</td>
-                      <td className="text-[11px] font-mono text-slate-600">
+                      <td className="font-semibold text-xs text-slate-900 dark:text-slate-100">{pol.name}</td>
+                      <td className="text-[11px] font-mono text-slate-600 dark:text-slate-400">
                         {pol.grantControls.length > 0 ? pol.grantControls.join(", ") : "None / Block"}
                       </td>
                       <td>
                         <StatusPill status={pol.state} label={pol.state} size="sm" />
                       </td>
-                      <td className="text-[11px] text-slate-600">
+                      <td className="text-[11px] text-slate-600 dark:text-slate-400">
                         Custom policy. Recommend validating scope against standard CA01–CA10 controls.
                       </td>
                     </tr>

@@ -82,7 +82,7 @@ export const Header: React.FC<HeaderProps> = ({
               <Server size={13} className="text-emerald-600 dark:text-emerald-400" />
             )}
             <span className="font-semibold">{activeTenant?.displayName || "Select Organization"}</span>
-            <span className="text-slate-400 text-[11px] font-mono hidden sm:inline">
+            <span className="text-slate-400 dark:text-slate-500 text-[11px] font-mono hidden sm:inline">
               ({activeTenant?.defaultDomainName})
             </span>
             <ChevronDown size={13} className="text-slate-500 dark:text-slate-400 ml-0.5" />
@@ -92,7 +92,7 @@ export const Header: React.FC<HeaderProps> = ({
             <>
               <div className="fixed inset-0 z-20" onClick={() => setDropdownOpen(false)} />
               <div className="absolute left-0 mt-1 w-80 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 shadow-lg rounded-sm py-1 z-30 divide-y divide-slate-100 dark:divide-slate-700">
-                <div className="px-3 py-1.5 text-[10px] font-mono uppercase text-slate-400 bg-slate-50 dark:bg-slate-900/50">
+                <div className="px-3 py-1.5 text-[10px] font-mono uppercase text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-900/50">
                   Managed M365 Customer Tenants ({tenants.length})
                 </div>
 
@@ -123,7 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
                             )}
                             <span className="truncate">{t.displayName}</span>
                           </div>
-                          <div className="text-[11px] font-mono text-slate-400 truncate mt-0.5">
+                          <div className="text-[11px] font-mono text-slate-400 dark:text-slate-500 truncate mt-0.5">
                             {t.defaultDomainName} • {t.tier}
                           </div>
                         </div>
@@ -152,7 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
                         onOpenDeleteTenant();
                       }}
                       title="Remove active tenant"
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950 rounded-sm transition-colors"
+                      className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 rounded-sm transition-colors"
                     >
                       <Trash2 size={13} />
                     </button>
@@ -171,7 +171,7 @@ export const Header: React.FC<HeaderProps> = ({
               label={activeTenant.connectionStatus === "healthy" ? "Sync Healthy" : "Degraded"}
               size="sm"
             />
-            <span className="text-[11px] font-mono text-slate-400 tabular-nums">
+            <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 tabular-nums">
               Synced {formatTimestamp(activeTenant.lastSyncTimestamp)}
             </span>
           </div>
@@ -185,9 +185,9 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onOpenSearch}
           className="flex items-center gap-2 px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-800 hover:bg-[#F1F5F9] dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 rounded-sm transition-colors"
         >
-          <Search size={13} className="text-slate-400" />
+          <Search size={13} className="text-slate-400 dark:text-slate-500" />
           <span className="hidden sm:inline">Quick Jump...</span>
-          <kbd className="hidden sm:inline-block text-[10px] font-mono bg-white dark:bg-slate-900 border border-[#CBD5E1] dark:border-slate-700 px-1 rounded-sm text-slate-400">
+          <kbd className="hidden sm:inline-block text-[10px] font-mono bg-white dark:bg-slate-900 border border-[#CBD5E1] dark:border-slate-700 px-1 rounded-sm text-slate-400 dark:text-slate-500">
             Ctrl+K
           </kbd>
         </button>

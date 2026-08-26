@@ -79,15 +79,15 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Header */}
-      <div className="bg-[#F8FAFC] border border-[#CBD5E1] p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <ShieldCheck size={18} className="text-slate-800" />
-            <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+            <ShieldCheck size={18} className="text-slate-800 dark:text-slate-200" />
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               Module 4: MFA Enforcement & Authentication Method Audit
             </h2>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Audit user authentication strengths: Passkeys, Microsoft Authenticator, and weak vectors (SMS, Voice, Email OTP).
           </p>
         </div>
@@ -108,13 +108,13 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
           role="button"
           tabIndex={0}
           onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setFilterType("all"))}
-          className={`p-3 bg-white border rounded-sm cursor-pointer transition-colors hover:bg-slate-50 ${
-            filterType === "all" ? "border-slate-900 ring-1 ring-slate-900" : "border-[#CBD5E1]"
+          className={`p-3 bg-white dark:bg-slate-800 border rounded-sm cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-slate-700 ${
+            filterType === "all" ? "border-slate-900 dark:border-slate-100 ring-1 ring-slate-900" : "border-[#CBD5E1] dark:border-slate-700"
           }`}
         >
-          <div className="text-[10px] uppercase font-mono text-slate-500 font-semibold">Total Audited Users</div>
-          <div className="text-xl font-bold font-mono text-slate-900 tabular-nums mt-0.5">{totalUsers}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">Directory accounts</div>
+          <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 font-semibold">Total Audited Users</div>
+          <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">{totalUsers}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Directory accounts</div>
         </div>
 
         <div
@@ -122,15 +122,15 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
           role="button"
           tabIndex={0}
           onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setFilterType("phishing_resistant"))}
-          className={`p-3 bg-[#ECFDF5] border rounded-sm cursor-pointer transition-colors hover:bg-emerald-100/60 ${
-            filterType === "phishing_resistant" ? "border-[#10B981] ring-1 ring-[#10B981]" : "border-[#10B981]"
+          className={`p-3 bg-[#ECFDF5] dark:bg-emerald-950 border rounded-sm cursor-pointer transition-colors hover:bg-emerald-100/60 dark:hover:bg-emerald-900 ${
+            filterType === "phishing_resistant" ? "border-[#10B981] dark:border-emerald-800 ring-1 ring-[#10B981]" : "border-[#10B981] dark:border-emerald-800"
           }`}
         >
-          <div className="text-[10px] uppercase font-mono text-[#065F46] font-semibold">Phishing-Resistant (FIDO2)</div>
-          <div className="text-xl font-bold font-mono text-[#065F46] tabular-nums mt-0.5">
+          <div className="text-[10px] uppercase font-mono text-[#065F46] dark:text-emerald-400 font-semibold">Phishing-Resistant (FIDO2)</div>
+          <div className="text-xl font-bold font-mono text-[#065F46] dark:text-emerald-400 tabular-nums mt-0.5">
             {phishingResistantUsers.length}
           </div>
-          <div className="text-[11px] text-[#065F46] mt-0.5">FIDO2 / Security Keys</div>
+          <div className="text-[11px] text-[#065F46] dark:text-emerald-400 mt-0.5">FIDO2 / Security Keys</div>
         </div>
 
         <div
@@ -138,18 +138,18 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
           role="button"
           tabIndex={0}
           onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setFilterType("weak_only"))}
-          className={`p-3 bg-[#FEF2F2] border rounded-sm cursor-pointer transition-colors hover:bg-red-100/50 ${
-            filterType === "weak_only" ? "border-[#EF4444] ring-1 ring-[#EF4444]" : "border-[#EF4444]"
+          className={`p-3 bg-[#FEF2F2] dark:bg-red-950 border rounded-sm cursor-pointer transition-colors hover:bg-red-100/50 dark:hover:bg-red-900 ${
+            filterType === "weak_only" ? "border-[#EF4444] dark:border-red-800 ring-1 ring-[#EF4444]" : "border-[#EF4444] dark:border-red-800"
           }`}
         >
-          <div className="text-[10px] uppercase font-mono text-[#991B1B] font-semibold flex items-center gap-1">
+          <div className="text-[10px] uppercase font-mono text-[#991B1B] dark:text-red-400 font-semibold flex items-center gap-1">
             <AlertTriangle size={11} />
             <span>Weak Authentication (SMS/OTP)</span>
           </div>
-          <div className="text-xl font-bold font-mono text-[#991B1B] tabular-nums mt-0.5">
+          <div className="text-xl font-bold font-mono text-[#991B1B] dark:text-red-400 tabular-nums mt-0.5">
             {weakAuthUsers.length}
           </div>
-          <div className="text-[11px] text-[#991B1B] mt-0.5">Susceptible to SIM Swap</div>
+          <div className="text-[11px] text-[#991B1B] dark:text-red-400 mt-0.5">Susceptible to SIM Swap</div>
         </div>
 
         <div
@@ -157,40 +157,40 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
           role="button"
           tabIndex={0}
           onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setFilterType("missing"))}
-          className={`p-3 bg-[#FEF2F2] border rounded-sm cursor-pointer transition-colors hover:bg-red-100/50 ${
-            filterType === "missing" ? "border-[#EF4444] ring-1 ring-[#EF4444]" : "border-[#EF4444]"
+          className={`p-3 bg-[#FEF2F2] dark:bg-red-950 border rounded-sm cursor-pointer transition-colors hover:bg-red-100/50 dark:hover:bg-red-900 ${
+            filterType === "missing" ? "border-[#EF4444] dark:border-red-800 ring-1 ring-[#EF4444]" : "border-[#EF4444] dark:border-red-800"
           }`}
         >
-          <div className="text-[10px] uppercase font-mono text-[#991B1B] font-semibold flex items-center gap-1">
+          <div className="text-[10px] uppercase font-mono text-[#991B1B] dark:text-red-400 font-semibold flex items-center gap-1">
             <AlertTriangle size={11} />
             <span>Missing MFA Registration</span>
           </div>
-          <div className="text-xl font-bold font-mono text-[#991B1B] tabular-nums mt-0.5">
+          <div className="text-xl font-bold font-mono text-[#991B1B] dark:text-red-400 tabular-nums mt-0.5">
             {missingMfaUsers.length}
           </div>
-          <div className="text-[11px] text-[#991B1B] mt-0.5">Zero MFA Enrolled</div>
+          <div className="text-[11px] text-[#991B1B] dark:text-red-400 mt-0.5">Zero MFA Enrolled</div>
         </div>
       </div>
 
       {/* Filter and Search */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 border border-[#CBD5E1] rounded-sm">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-800 p-3 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
         <div className="relative w-full sm:w-80">
-          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400 dark:text-slate-500" />
           <input
             type="text"
             placeholder="Search users by name, UPN, or department..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
           />
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter size={14} className="text-slate-500" />
+          <Filter size={14} className="text-slate-500 dark:text-slate-400" />
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
-            className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-medium"
+            className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium"
           >
             <option value="all">All Users ({mfaAudit.length})</option>
             <option value="weak">Weak / Missing MFA Flags</option>
@@ -203,21 +203,21 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
           <button
             onClick={handleExportCSV}
             title="Export filtered users to CSV"
-            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
           >
-            <Download size={13} className="text-slate-500" />
+            <Download size={13} className="text-slate-500 dark:text-slate-400" />
             <span>Export CSV</span>
           </button>
         </div>
       </div>
 
       {/* User Table */}
-      <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-xs">
-        <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+      <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
+        <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
             User Authentication Method Audit & Policy Compliance
           </h3>
-          <span className="text-[11px] font-mono text-slate-500">{filteredUsers.length} Accounts Listed</span>
+          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{filteredUsers.length} Accounts Listed</span>
         </div>
 
         <div className="overflow-x-auto">
@@ -241,29 +241,29 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
                   const isWeak = user.isWeakAuth || !user.mfaRegistered;
 
                   return (
-                    <tr key={user.id} className={isWeak ? "bg-red-50/20" : ""}>
+                    <tr key={user.id} className={isWeak ? "bg-red-50/20 dark:bg-red-950" : ""}>
                       <td>
-                        <div className="font-semibold text-xs text-slate-900">{user.displayName}</div>
-                        <div className="text-[11px] font-mono text-slate-500">{user.userPrincipalName}</div>
+                        <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{user.displayName}</div>
+                        <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{user.userPrincipalName}</div>
                       </td>
                       <td>
                         {user.isAdmin ? (
-                          <span className="inline-flex items-center gap-1 font-mono text-[10px] font-bold px-1.5 py-0.5 bg-red-100 text-red-900 border border-red-300 rounded-sm">
+                          <span className="inline-flex items-center gap-1 font-mono text-[10px] font-bold px-1.5 py-0.5 bg-red-100 dark:bg-red-950 text-red-900 dark:text-red-400 border border-red-300 dark:border-red-800 rounded-sm">
                             <Shield size={10} />
                             <span>{user.adminRoles?.[0] || "Directory Admin"}</span>
                           </span>
                         ) : (
-                          <span className="text-[11px] text-slate-600 font-medium">{user.department || "Standard User"}</span>
+                          <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">{user.department || "Standard User"}</span>
                         )}
                       </td>
                       <td>
-                        <div className="text-xs font-medium text-slate-800 flex items-center gap-1.5">
+                        <div className="text-xs font-medium text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                           {methodMeta.name}
                         </div>
                       </td>
-                      <td className="font-mono text-[11px] text-slate-600">
+                      <td className="font-mono text-[11px] text-slate-600 dark:text-slate-400">
                         {user.registeredMethods.length === 0 ? (
-                          <span className="text-red-700 italic">None</span>
+                          <span className="text-red-700 dark:text-red-400 italic">None</span>
                         ) : (
                           user.registeredMethods.map((m) => METHOD_LABELS[m]?.name || m).join(", ")
                         )}

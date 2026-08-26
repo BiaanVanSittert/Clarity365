@@ -44,46 +44,46 @@ export const AppRegistrationsModule: React.FC<AppRegistrationsModuleProps> = ({ 
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Header */}
-      <div className="bg-[#F8FAFC] border border-[#CBD5E1] p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <Server size={18} className="text-slate-800" />
-            <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+            <Server size={18} className="text-slate-800 dark:text-slate-200" />
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               Module 9: Enterprise Applications, App Registrations & OAuth Permissions
             </h2>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Audit high-privilege Microsoft Graph API permissions, expiring client secrets, and third-party SaaS integrations.
           </p>
         </div>
 
         <div className="text-right">
-          <div className="text-xs font-semibold text-slate-700">Total Applications</div>
-          <div className="text-lg font-bold font-mono text-slate-900 tabular-nums">
+          <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">Total Applications</div>
+          <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums">
             {appRegistrations.length} Connected
           </div>
         </div>
       </div>
 
       {/* Filter and Search */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 border border-[#CBD5E1] rounded-sm">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-800 p-3 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
         <div className="relative w-full sm:w-80">
-          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400 dark:text-slate-500" />
           <input
             type="text"
             placeholder="Search applications, publishers, or permissions..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white"
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
           />
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Filter size={14} className="text-slate-500" />
+          <Filter size={14} className="text-slate-500 dark:text-slate-400" />
           <select
             value={riskFilter}
             onChange={(e) => setRiskFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] rounded-sm focus:outline-none focus:border-slate-800 bg-white font-medium"
+            className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium"
           >
             <option value="all">All Applications ({appRegistrations.length})</option>
             <option value="critical">Critical Risk Only</option>
@@ -93,21 +93,21 @@ export const AppRegistrationsModule: React.FC<AppRegistrationsModuleProps> = ({ 
           <button
             onClick={handleExportCSV}
             title="Export filtered applications to CSV"
-            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-[#CBD5E1] rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
           >
-            <Download size={13} className="text-slate-500" />
+            <Download size={13} className="text-slate-500 dark:text-slate-400" />
             <span>Export CSV</span>
           </button>
         </div>
       </div>
 
       {/* App Registration Table */}
-      <div className="border border-[#CBD5E1] bg-white rounded-sm overflow-hidden shadow-xs">
-        <div className="px-4 py-2.5 bg-[#F8FAFC] border-b border-[#CBD5E1] flex items-center justify-between">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+      <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
+        <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
             Registered Application Inventory & Permission Grants
           </h3>
-          <span className="text-[11px] font-mono text-slate-500">{filteredApps.length} Apps Listed</span>
+          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{filteredApps.length} Apps Listed</span>
         </div>
 
         <div className="overflow-x-auto">
@@ -124,29 +124,29 @@ export const AppRegistrationsModule: React.FC<AppRegistrationsModuleProps> = ({ 
             <tbody>
               {filteredApps.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-4 text-center text-xs text-slate-500">
+                  <td colSpan={5} className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">
                     No application registrations found.
                   </td>
                 </tr>
               ) : (
                 filteredApps.map((app) => (
-                  <tr key={app.id} className={app.riskCategory === "critical" ? "bg-red-50/20" : ""}>
+                  <tr key={app.id} className={app.riskCategory === "critical" ? "bg-red-50/20 dark:bg-red-950" : ""}>
                     <td>
-                      <div className="font-semibold text-xs text-slate-900">{app.displayName}</div>
-                      <div className="text-[11px] text-slate-500 font-medium">Publisher: {app.publisher}</div>
+                      <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{app.displayName}</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Publisher: {app.publisher}</div>
                     </td>
-                    <td className="font-mono text-[11px] text-slate-600 truncate max-w-[140px]">
+                    <td className="font-mono text-[11px] text-slate-600 dark:text-slate-400 truncate max-w-[140px]">
                       {app.appId}
                     </td>
                     <td>
                       {app.highPrivilegePermissions.length === 0 ? (
-                        <span className="text-slate-400 text-[11px] italic">Standard / Low Privilege</span>
+                        <span className="text-slate-400 dark:text-slate-500 text-[11px] italic">Standard / Low Privilege</span>
                       ) : (
                         <div className="flex flex-wrap gap-1">
                           {app.highPrivilegePermissions.map((perm, pIdx) => (
                             <span
                               key={pIdx}
-                              className="font-mono text-[10px] font-bold px-1.5 py-0.5 bg-red-50 text-red-800 border border-red-200 rounded-sm"
+                              className="font-mono text-[10px] font-bold px-1.5 py-0.5 bg-red-50 dark:bg-red-950 text-red-800 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-sm"
                             >
                               {perm}
                             </span>
@@ -154,10 +154,10 @@ export const AppRegistrationsModule: React.FC<AppRegistrationsModuleProps> = ({ 
                         </div>
                       )}
                     </td>
-                    <td className="text-xs font-mono text-slate-700">
+                    <td className="text-xs font-mono text-slate-700 dark:text-slate-300">
                       <div>{app.secretsCount} Secrets • {app.certificatesCount} Certs</div>
                       {app.expiringCredentialsCount > 0 && (
-                        <span className="text-[10px] text-amber-700 font-bold block">
+                        <span className="text-[10px] text-amber-700 dark:text-amber-400 font-bold block">
                           {app.expiringCredentialsCount} Expiring Soon
                         </span>
                       )}

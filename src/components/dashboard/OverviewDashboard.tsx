@@ -2,6 +2,7 @@ import React from "react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Skeleton } from "../common/SkeletonLoader";
+import { computeExchangeMailflowScore } from "@/lib/services/exchange-mailflow-score";
 import {
   Shield,
   ShieldAlert,
@@ -54,7 +55,13 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
     );
   }
 
-  const { tenant, secureScore, conditionalAccess, signIns, accountClassification, mailboxes, intune, capabilities, highRiskThreatIndicators } = snapshot;
+  const { tenant, secureScore, conditionalAccess, signIns, accountClassification, mailboxes, emailForwarding, intune, capabilities, highRiskThreatIndicators } = snapshot;
+
+  // Derived live from emailForwarding — see types/index.ts's removal comment
+  // for why this is no longer a separate stored counter.
+  const externalForwardingCount = emailForwarding.filter((r) => r.isExternal && r.state === "Enabled").length;
+
+  const exchangeMailflowScore = computeExchangeMailflowScore(snapshot);
 
   const deployedCodes = new Set<string>();
   conditionalAccess.policies.forEach((p) => {
@@ -75,18 +82,18 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Top Banner / Tenant Posture Bar */}
-      <div className="bg-[#F8FAFC] border border-[#CBD5E1] p-3.5 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-3.5 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold text-slate-900 tracking-tight">
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">
               {tenant.displayName} Posture Overview
             </h2>
-            <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 bg-slate-200 text-slate-800 rounded-sm font-semibold">
+            <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-sm font-semibold">
               {tenant.tier.replace("_", " ")}
             </span>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Primary Domain: <code className="font-mono text-slate-700">{tenant.defaultDomainName}</code> • Org ID: <code className="font-mono text-[11px] text-slate-600">{tenant.organizationId}</code>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Primary Domain: <code className="font-mono text-slate-700 dark:text-slate-300">{tenant.defaultDomainName}</code> • Org ID: <code className="font-mono text-[11px] text-slate-600 dark:text-slate-400">{tenant.organizationId}</code>
           </p>
         </div>
 
@@ -106,18 +113,18 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       {/* ROW 1: Core Metrics (Widgets 1, 3, 5) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* WIDGET 1: Microsoft Defender Secure Score Card */}
-        <div className="border border-[#CBD5E1] bg-white rounded-sm p-4 flex flex-col justify-between shadow-xs">
+        <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm p-4 flex flex-col justify-between shadow-xs">
           <div>
-            <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2 mb-3">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0] dark:border-slate-700 pb-2 mb-3">
               <div className="flex items-center gap-2">
-                <ShieldCheck size={16} className="text-slate-800" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                <ShieldCheck size={16} className="text-slate-800 dark:text-slate-200" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                   1. Microsoft Secure Score
                 </h3>
               </div>
               <button
                 onClick={() => onNavigate("sec_score")}
-                className="text-[11px] text-slate-500 hover:text-slate-900 font-medium flex items-center gap-0.5"
+                className="text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 font-medium flex items-center gap-0.5"
               >
                 <span>Details</span>
                 <ArrowUpRight size={12} />
@@ -126,10 +133,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
             <div className="flex items-baseline justify-between">
               <div className="space-y-0.5">
-                <div className="text-2xl font-bold font-mono text-slate-900 tabular-nums">
+                <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums">
                   {secureScore.percentage.toFixed(1)}%
                 </div>
-                <div className="text-xs font-mono text-slate-500">
+                <div className="text-xs font-mono text-slate-500 dark:text-slate-400">
                   {secureScore.currentScore} / {secureScore.maxScore} Attainable Points
                 </div>
               </div>
@@ -137,43 +144,43 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               <div className="text-right space-y-1">
                 <div className="flex items-center gap-1 text-xs font-mono">
                   {secureScore.delta30Days >= 0 ? (
-                    <span className="text-emerald-700 flex items-center gap-0.5 font-semibold">
+                    <span className="text-emerald-700 dark:text-emerald-400 flex items-center gap-0.5 font-semibold">
                       <ArrowUpRight size={13} /> +{secureScore.delta30Days.toFixed(1)}% (30d)
                     </span>
                   ) : (
-                    <span className="text-red-700 flex items-center gap-0.5 font-semibold">
+                    <span className="text-red-700 dark:text-red-400 flex items-center gap-0.5 font-semibold">
                       <ArrowDownRight size={13} /> {secureScore.delta30Days.toFixed(1)}% (30d)
                     </span>
                   )}
                 </div>
-                <div className="text-[11px] text-slate-500">
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">
                   Benchmark: <span className="font-mono font-medium">{secureScore.industryBenchmark}%</span>
                 </div>
               </div>
             </div>
 
             {/* Progress bar */}
-            <div className="w-full bg-[#E2E8F0] h-2 rounded-sm overflow-hidden mt-3">
+            <div className="w-full bg-[#E2E8F0] dark:bg-slate-700 h-2 rounded-sm overflow-hidden mt-3">
               <div
                 className={`h-full ${
                   secureScore.percentage >= 75
                     ? "bg-emerald-600"
                     : secureScore.percentage >= 50
-                    ? "bg-amber-500"
-                    : "bg-red-500"
+                    ? "bg-amber-600 dark:bg-amber-500"
+                    : "bg-red-600 dark:bg-red-500"
                 }`}
                 style={{ width: `${Math.min(100, secureScore.percentage)}%` }}
               />
             </div>
           </div>
 
-          <div className="mt-3 pt-2.5 border-t border-[#E2E8F0] flex items-center justify-between text-[11px]">
-            <span className="text-slate-600">
+          <div className="mt-3 pt-2.5 border-t border-[#E2E8F0] dark:border-slate-700 flex items-center justify-between text-[11px]">
+            <span className="text-slate-600 dark:text-slate-400">
               Unresolved actions: <strong>{secureScore.controls.filter((c) => c.status === "Unresolved").length}</strong>
             </span>
             <button
               onClick={() => onOpenRemediation("conditional_access")}
-              className="text-slate-800 font-semibold hover:underline"
+              className="text-slate-800 dark:text-slate-200 font-semibold hover:underline"
             >
               Remediate Top Impact &rarr;
             </button>
@@ -181,18 +188,18 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         </div>
 
         {/* WIDGET 3: Identity & Asset Count Matrix */}
-        <div className="border border-[#CBD5E1] bg-white rounded-sm p-4 flex flex-col justify-between shadow-xs">
+        <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm p-4 flex flex-col justify-between shadow-xs">
           <div>
-            <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2 mb-3">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0] dark:border-slate-700 pb-2 mb-3">
               <div className="flex items-center gap-2">
-                <Users size={16} className="text-slate-800" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                <Users size={16} className="text-slate-800 dark:text-slate-200" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                   3. Identity & Asset Matrix
                 </h3>
               </div>
               <button
                 onClick={() => onNavigate("user_class")}
-                className="text-[11px] text-slate-500 hover:text-slate-900 font-medium flex items-center gap-0.5"
+                className="text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 font-medium flex items-center gap-0.5"
               >
                 <span>Directory</span>
                 <ArrowUpRight size={12} />
@@ -201,35 +208,35 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
             <div className="grid grid-cols-2 gap-2">
               {/* Licensed Users */}
-              <div className="p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-sm">
-                <div className="text-[10px] uppercase font-mono text-slate-500 font-semibold">Licensed Users</div>
-                <div className="text-lg font-bold font-mono text-slate-900 tabular-nums mt-0.5">
+              <div className="p-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#E2E8F0] dark:border-slate-700 rounded-sm">
+                <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 font-semibold">Licensed Users</div>
+                <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">
                   {accountClassification.licensedUsersCount}
                 </div>
-                <div className="text-[10px] text-emerald-700 font-medium mt-0.5">Active SKU Assigned</div>
+                <div className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium mt-0.5">Active SKU Assigned</div>
               </div>
 
               {/* Unlicensed Active Accounts */}
-              <div className="p-2.5 bg-[#FFFBEB] border border-[#F59E0B] rounded-sm">
-                <div className="text-[10px] uppercase font-mono text-[#92400E] font-semibold flex items-center gap-1">
+              <div className="p-2.5 bg-[#FFFBEB] dark:bg-amber-950 border border-[#F59E0B] dark:border-amber-800 rounded-sm">
+                <div className="text-[10px] uppercase font-mono text-[#92400E] dark:text-amber-400 font-semibold flex items-center gap-1">
                   <AlertTriangle size={11} />
                   <span>Unlicensed Active</span>
                 </div>
-                <div className="text-lg font-bold font-mono text-[#92400E] tabular-nums mt-0.5">
+                <div className="text-lg font-bold font-mono text-[#92400E] dark:text-amber-400 tabular-nums mt-0.5">
                   {accountClassification.unlicensedActiveCount}
                 </div>
-                <div className="text-[10px] text-[#92400E] font-medium mt-0.5">Orphaned Risk Flag</div>
+                <div className="text-[10px] text-[#92400E] dark:text-amber-400 font-medium mt-0.5">Orphaned Risk Flag</div>
               </div>
 
               {/* Shared Mailboxes */}
-              <div className="p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-sm">
-                <div className="text-[10px] uppercase font-mono text-slate-500 font-semibold">Shared Mailboxes</div>
-                <div className="text-lg font-bold font-mono text-slate-900 tabular-nums mt-0.5">
+              <div className="p-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#E2E8F0] dark:border-slate-700 rounded-sm">
+                <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 font-semibold">Shared Mailboxes</div>
+                <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">
                   {sharedMailboxesCount}
                 </div>
-                <div className="text-[10px] text-slate-600 font-medium mt-0.5">
+                <div className="text-[10px] text-slate-600 dark:text-slate-400 font-medium mt-0.5">
                   {licensedSharedMailboxWasteCount > 0 ? (
-                    <span className="text-amber-700 font-semibold">{licensedSharedMailboxWasteCount} paid licenses</span>
+                    <span className="text-amber-700 dark:text-amber-400 font-semibold">{licensedSharedMailboxWasteCount} paid licenses</span>
                   ) : (
                     "0 license waste"
                   )}
@@ -237,14 +244,14 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               </div>
 
               {/* Intune Managed Devices */}
-              <div className="p-2.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-sm">
-                <div className="text-[10px] uppercase font-mono text-slate-500 font-semibold">Intune Devices</div>
-                <div className="text-lg font-bold font-mono text-slate-900 tabular-nums mt-0.5">
+              <div className="p-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#E2E8F0] dark:border-slate-700 rounded-sm">
+                <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 font-semibold">Intune Devices</div>
+                <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">
                   {intune.totalDevices}
                 </div>
-                <div className="text-[10px] font-mono text-slate-600 mt-0.5">
-                  <span className="text-emerald-700 font-semibold">{intune.compliantDevices} Pass</span> •{" "}
-                  <span className="text-red-700 font-semibold">{intune.nonCompliantDevices} Fail</span>
+                <div className="text-[10px] font-mono text-slate-600 dark:text-slate-400 mt-0.5">
+                  <span className="text-emerald-700 dark:text-emerald-400 font-semibold">{intune.compliantDevices} Pass</span> •{" "}
+                  <span className="text-red-700 dark:text-red-400 font-semibold">{intune.nonCompliantDevices} Fail</span>
                 </div>
               </div>
             </div>
@@ -252,18 +259,18 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         </div>
 
         {/* WIDGET 5: Conditional Access Baseline Health (CA01–CA10) */}
-        <div className="border border-[#CBD5E1] bg-white rounded-sm p-4 flex flex-col justify-between shadow-xs">
+        <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm p-4 flex flex-col justify-between shadow-xs">
           <div>
-            <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2 mb-3">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0] dark:border-slate-700 pb-2 mb-3">
               <div className="flex items-center gap-2">
-                <Lock size={16} className="text-slate-800" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                <Lock size={16} className="text-slate-800 dark:text-slate-200" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                   5. CA Baseline Health
                 </h3>
               </div>
               <button
                 onClick={() => onNavigate("ca_baseline")}
-                className="text-[11px] text-slate-500 hover:text-slate-900 font-medium flex items-center gap-0.5"
+                className="text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 font-medium flex items-center gap-0.5"
               >
                 <span>All CA01-10</span>
                 <ArrowUpRight size={12} />
@@ -272,10 +279,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-2xl font-bold font-mono text-slate-900 tabular-nums">
+                <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums">
                   {deployedCodes.size} / 10
                 </div>
-                <div className="text-xs text-slate-500">Baseline Standards Deployed</div>
+                <div className="text-xs text-slate-500 dark:text-slate-400">Baseline Standards Deployed</div>
               </div>
 
               <StatusPill
@@ -285,7 +292,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             </div>
 
             {/* Grid of CA01 to CA10 pills */}
-            <div className="grid grid-cols-5 gap-1.5 mt-3 pt-2 border-t border-[#E2E8F0]">
+            <div className="grid grid-cols-5 gap-1.5 mt-3 pt-2 border-t border-[#E2E8F0] dark:border-slate-700">
               {baselineDefinitions.map((std) => {
                 const policy = conditionalAccess.policies.find((p) => p.baselineCode === std.code || p.name.toUpperCase().includes(std.code));
                 const isPass = policy && policy.state === "enabled";
@@ -296,10 +303,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                     title={`${std.code}: ${std.name} (${policy ? (isPass ? "Enabled (Enforced)" : isReportOnly ? "Report-Only" : "Disabled") : "Not Deployed"})`}
                     className={`py-1 text-center font-mono text-[11px] font-bold border rounded-sm transition-transform hover:scale-105 cursor-default ${
                       isPass
-                        ? "bg-[#ECFDF5] border-[#10B981] text-[#065F46]"
+                        ? "bg-[#ECFDF5] dark:bg-emerald-950 border-[#10B981] dark:border-emerald-800 text-[#065F46] dark:text-emerald-400"
                         : isReportOnly
-                        ? "bg-[#FFFBEB] border-[#F59E0B] text-[#92400E]"
-                        : "bg-[#FEF2F2] border-[#EF4444] text-[#991B1B]"
+                        ? "bg-[#FFFBEB] dark:bg-amber-950 border-[#F59E0B] dark:border-amber-800 text-[#92400E] dark:text-amber-400"
+                        : "bg-[#FEF2F2] dark:bg-red-950 border-[#EF4444] dark:border-red-800 text-[#991B1B] dark:text-red-400"
                     }`}
                   >
                     {std.code}
@@ -309,9 +316,9 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             </div>
           </div>
 
-          <div className="mt-3 text-[11px] text-slate-500 flex justify-between items-center">
-            <span>Standard: <code className="font-mono text-slate-700">CA01-CA10 Baseline</code></span>
-            <span className="text-slate-400">Strict Prefix Matching</span>
+          <div className="mt-3 text-[11px] text-slate-500 dark:text-slate-400 flex justify-between items-center">
+            <span>Standard: <code className="font-mono text-slate-700 dark:text-slate-300">CA01-CA10 Baseline</code></span>
+            <span className="text-slate-400 dark:text-slate-500">Strict Prefix Matching</span>
           </div>
         </div>
       </div>
@@ -319,18 +326,18 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       {/* ROW 2: Threat & Activity (Widgets 2, 4, 6) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* WIDGET 2: Recent Critical Security & Sign-In Events (Streamer) */}
-        <div className="border border-[#CBD5E1] bg-white rounded-sm p-4 flex flex-col justify-between shadow-xs lg:col-span-1">
+        <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm p-4 flex flex-col justify-between shadow-xs lg:col-span-1">
           <div>
-            <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2 mb-2">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0] dark:border-slate-700 pb-2 mb-2">
               <div className="flex items-center gap-2">
-                <Clock size={16} className="text-slate-800" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                <Clock size={16} className="text-slate-800 dark:text-slate-200" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                   2. Critical Sign-In Events
                 </h3>
               </div>
               <button
                 onClick={() => onNavigate("signin_logs")}
-                className="text-[11px] text-slate-500 hover:text-slate-900 font-medium flex items-center gap-0.5"
+                className="text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 font-medium flex items-center gap-0.5"
               >
                 <span>Live Logs</span>
                 <ArrowUpRight size={12} />
@@ -339,12 +346,12 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
             <div className="space-y-2 max-h-56 overflow-y-auto divide-y divide-slate-100">
               {signIns.length === 0 ? (
-                <div className="p-4 text-center text-xs text-slate-400">No recent sign-in telemetry available.</div>
+                <div className="p-4 text-center text-xs text-slate-400 dark:text-slate-500">No recent sign-in telemetry available.</div>
               ) : (
                 signIns.slice(0, 4).map((event) => (
                   <div key={event.id} className="pt-2 first:pt-0 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs font-semibold text-slate-900 truncate max-w-[170px]">
+                      <span className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100 truncate max-w-[170px]">
                         {event.userPrincipalName}
                       </span>
                       <StatusPill
@@ -367,9 +374,9 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                         size="sm"
                       />
                     </div>
-                    <div className="text-[11px] text-slate-600 flex items-center justify-between">
+                    <div className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between">
                       <span className="font-medium truncate max-w-[160px]">{event.appDisplayName}</span>
-                      <span className="font-mono text-[10px] text-slate-400">
+                      <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
                         {event.location.city || "Unknown"}, {event.location.country || "ZA"}
                       </span>
                     </div>
@@ -379,11 +386,11 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             </div>
           </div>
 
-          <div className="mt-3 pt-2 border-t border-[#E2E8F0] flex items-center justify-between text-[11px]">
-            <span className="text-slate-500 font-mono">Streamer Active</span>
+          <div className="mt-3 pt-2 border-t border-[#E2E8F0] dark:border-slate-700 flex items-center justify-between text-[11px]">
+            <span className="text-slate-500 dark:text-slate-400 font-mono">Streamer Active</span>
             <button
               onClick={() => onNavigate("signin_logs")}
-              className="text-slate-800 font-semibold hover:underline"
+              className="text-slate-800 dark:text-slate-200 font-semibold hover:underline"
             >
               Analyze Risky Sign-ins &rarr;
             </button>
@@ -391,16 +398,16 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         </div>
 
         {/* WIDGET 4: Tenant License & Capability Matrix */}
-        <div className="border border-[#CBD5E1] bg-white rounded-sm p-4 flex flex-col justify-between shadow-xs lg:col-span-1">
+        <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm p-4 flex flex-col justify-between shadow-xs lg:col-span-1">
           <div>
-            <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2 mb-3">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0] dark:border-slate-700 pb-2 mb-3">
               <div className="flex items-center gap-2">
-                <Layers size={16} className="text-slate-800" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                <Layers size={16} className="text-slate-800 dark:text-slate-200" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                   4. License & Capability Matrix
                 </h3>
               </div>
-              <span className="text-[10px] font-mono uppercase bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded-sm border border-slate-200">
+              <span className="text-[10px] font-mono uppercase bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded-sm border border-slate-200 dark:border-slate-700">
                 SKU Detected
               </span>
             </div>
@@ -409,11 +416,11 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               {capabilities.map((cap) => (
                 <div
                   key={cap.id}
-                  className="flex items-center justify-between p-2 border border-[#E2E8F0] rounded-sm bg-[#F8FAFC]"
+                  className="flex items-center justify-between p-2 border border-[#E2E8F0] dark:border-slate-700 rounded-sm bg-[#F8FAFC] dark:bg-slate-900/50"
                 >
                   <div className="truncate pr-2">
-                    <div className="text-xs font-semibold text-slate-900 truncate">{cap.name}</div>
-                    <div className="text-[11px] text-slate-500 truncate">{cap.description}</div>
+                    <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{cap.name}</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{cap.description}</div>
                   </div>
                   <div className="shrink-0">
                     <StatusPill
@@ -429,18 +436,18 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         </div>
 
         {/* WIDGET 6: High-Risk Threat Indicators */}
-        <div className="border border-[#CBD5E1] bg-white rounded-sm p-4 flex flex-col justify-between shadow-xs lg:col-span-1">
+        <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm p-4 flex flex-col justify-between shadow-xs lg:col-span-1">
           <div>
-            <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2 mb-3">
+            <div className="flex items-center justify-between border-b border-[#E2E8F0] dark:border-slate-700 pb-2 mb-3">
               <div className="flex items-center gap-2">
-                <ShieldAlert size={16} className="text-red-600" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                <ShieldAlert size={16} className="text-red-600 dark:text-red-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                   6. High-Risk Threat Indicators
                 </h3>
               </div>
               <button
                 onClick={() => onOpenRemediation("all")}
-                className="text-[11px] text-red-700 hover:underline font-semibold"
+                className="text-[11px] text-red-700 dark:text-red-400 hover:underline font-semibold"
               >
                 Remediate All
               </button>
@@ -448,27 +455,48 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
             <div className="space-y-2.5">
               {/* External Forwarding Rules */}
-              <div className="flex items-center justify-between p-2.5 border border-[#E2E8F0] rounded-sm">
+              <div className="flex items-center justify-between p-2.5 border border-[#E2E8F0] dark:border-slate-700 rounded-sm">
                 <div className="flex items-center gap-2">
-                  <Share2 size={15} className="text-slate-600" />
+                  <Share2 size={15} className="text-slate-600 dark:text-slate-400" />
                   <div>
-                    <div className="text-xs font-semibold text-slate-900">External Forwarding Rules</div>
-                    <div className="text-[11px] text-slate-500">Inbox & Transport redirect vectors</div>
+                    <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">External Forwarding Rules</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">Inbox & Transport redirect vectors</div>
                   </div>
                 </div>
                 <StatusPill
-                  status={highRiskThreatIndicators.externalForwardingCount > 0 ? "fail" : "pass"}
-                  label={`${highRiskThreatIndicators.externalForwardingCount} Active`}
+                  status={externalForwardingCount > 0 ? "fail" : "pass"}
+                  label={`${externalForwardingCount} Active`}
                 />
               </div>
 
+              {/* Exchange & Mailflow Security Score — rollup of MDO's baseline,
+                  the Mail Flow Rules baseline, Domain Auth, and the mailbox
+                  audit-logging gate into one trackable percentage. */}
+              {exchangeMailflowScore.totalCount > 0 && (
+                <div className="flex items-center justify-between p-2.5 border border-[#E2E8F0] dark:border-slate-700 rounded-sm">
+                  <div className="flex items-center gap-2">
+                    <Mail size={15} className="text-slate-600 dark:text-slate-400" />
+                    <div>
+                      <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">Exchange & Mailflow Security Score</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                        MDO, mail flow rules, domain auth & mailbox auditing combined
+                      </div>
+                    </div>
+                  </div>
+                  <StatusPill
+                    status={exchangeMailflowScore.percent >= 75 ? "pass" : exchangeMailflowScore.percent >= 50 ? "warn" : "fail"}
+                    label={`${exchangeMailflowScore.percent}% (${exchangeMailflowScore.metCount}/${exchangeMailflowScore.totalCount})`}
+                  />
+                </div>
+              )}
+
               {/* Open SharePoint Links */}
-              <div className="flex items-center justify-between p-2.5 border border-[#E2E8F0] rounded-sm">
+              <div className="flex items-center justify-between p-2.5 border border-[#E2E8F0] dark:border-slate-700 rounded-sm">
                 <div className="flex items-center gap-2">
-                  <FileSpreadsheet size={15} className="text-slate-600" />
+                  <FileSpreadsheet size={15} className="text-slate-600 dark:text-slate-400" />
                   <div>
-                    <div className="text-xs font-semibold text-slate-900">Open SharePoint Links</div>
-                    <div className="text-[11px] text-slate-500">Sites with 'Anyone' anonymous links</div>
+                    <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">Open SharePoint Links</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">Sites with 'Anyone' anonymous links</div>
                   </div>
                 </div>
                 <StatusPill
@@ -478,12 +506,12 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               </div>
 
               {/* Unprotected Global Admins */}
-              <div className="flex items-center justify-between p-2.5 border border-[#E2E8F0] rounded-sm">
+              <div className="flex items-center justify-between p-2.5 border border-[#E2E8F0] dark:border-slate-700 rounded-sm">
                 <div className="flex items-center gap-2">
-                  <Lock size={15} className="text-slate-600" />
+                  <Lock size={15} className="text-slate-600 dark:text-slate-400" />
                   <div>
-                    <div className="text-xs font-semibold text-slate-900">Unprotected Global Admins</div>
-                    <div className="text-[11px] text-slate-500">Admins missing CA01 or FIDO2</div>
+                    <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">Unprotected Global Admins</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">Admins missing CA01 or FIDO2</div>
                   </div>
                 </div>
                 <StatusPill
@@ -494,9 +522,9 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             </div>
           </div>
 
-          <div className="mt-3 pt-2 border-t border-[#E2E8F0] text-[11px] text-slate-500 flex justify-between items-center">
+          <div className="mt-3 pt-2 border-t border-[#E2E8F0] dark:border-slate-700 text-[11px] text-slate-500 dark:text-slate-400 flex justify-between items-center">
             <span>Audit Standard: NIST / CIS M365 v3.0</span>
-            <span className="font-mono font-bold text-slate-700">Real-Time Sync</span>
+            <span className="font-mono font-bold text-slate-700 dark:text-slate-300">Real-Time Sync</span>
           </div>
         </div>
       </div>

@@ -12,7 +12,7 @@ interface EmptyStateRowProps {
 
 export const EmptyStateRow: React.FC<EmptyStateRowProps> = ({ colSpan, entityLabel, isFiltered }) => (
   <tr>
-    <td colSpan={colSpan} className="p-4 text-center text-xs text-slate-500">
+    <td colSpan={colSpan} className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">
       {isFiltered
         ? `No ${entityLabel} found — try adjusting your filters.`
         : `No ${entityLabel} yet — sync this tenant to pull live data.`}

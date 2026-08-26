@@ -67,7 +67,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           </button>
           {this.state.error && (
             <details className="mt-4 text-left w-full max-w-lg">
-              <summary className="text-[11px] text-slate-400 cursor-pointer hover:text-slate-600 dark:hover:text-slate-300">
+              <summary className="text-[11px] text-slate-400 dark:text-slate-500 cursor-pointer hover:text-slate-600 dark:hover:text-slate-300">
                 Technical details
               </summary>
               <pre className="mt-2 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-sm text-[10px] text-slate-600 dark:text-slate-300 font-mono overflow-x-auto whitespace-pre-wrap">

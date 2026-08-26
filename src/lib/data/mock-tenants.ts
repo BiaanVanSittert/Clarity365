@@ -670,6 +670,89 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         alertLevel: "info",
       },
     ],
+    mailflowTransportRules: [
+      {
+        id: "tr-01",
+        name: "Redirect Confidential Clinical Reports to External Legal Counsel",
+        state: "Enabled",
+        redirectsExternally: true,
+        externalRedirectAddress: "discovery-litigation@externallegalpartners.com",
+        overridesSpamConfidence: false,
+        hasNoScopingConditions: false,
+        hasExpiry: false,
+      },
+      {
+        id: "tr-02",
+        name: "Trust Mail From Legacy Billing Partner",
+        state: "Enabled",
+        redirectsExternally: false,
+        overridesSpamConfidence: true,
+        hasNoScopingConditions: false,
+        hasExpiry: false,
+      },
+      {
+        id: "tr-03",
+        name: "Company-Wide Disclaimer",
+        state: "Enabled",
+        redirectsExternally: false,
+        overridesSpamConfidence: false,
+        hasNoScopingConditions: true,
+        hasExpiry: false,
+      },
+    ],
+    mailflowConnectors: [
+      {
+        id: "conn-01",
+        name: "Legacy On-Prem Hybrid Connector",
+        direction: "Inbound",
+        enabled: true,
+        trustsAnonymousSenders: true,
+        requiresTls: false,
+      },
+      {
+        id: "conn-02",
+        name: "Partner - Contract Research Org",
+        direction: "Outbound",
+        enabled: true,
+        trustsAnonymousSenders: false,
+        requiresTls: true,
+      },
+    ],
+    remoteDomainAutoForwardBlocked: false,
+    externalSenderTagEnabled: true,
+    domainAuth: [
+      {
+        domain: "contosopharm.com",
+        isDefaultDomain: true,
+        dkim: { status: "pass", detail: "DKIM signing is enabled and its DNS records are valid." },
+        spf: { status: "pass", detail: 'SPF record found and enforced: "v=spf1 include:spf.protection.outlook.com -all"' },
+        dmarc: {
+          status: "warn",
+          detail: 'DMARC record found but set to monitoring-only (p=none) — spoofed mail is reported on, not blocked or quarantined: "v=DMARC1; p=none; rua=mailto:dmarc@contosopharm.com"',
+          recommendation: "Move to 'p=quarantine' once reporting shows no legitimate mail would be affected, then to 'p=reject'.",
+        },
+      },
+      {
+        domain: "contosopharm-labs.com",
+        isDefaultDomain: false,
+        dkim: {
+          status: "fail",
+          detail: "DKIM has never been configured for this domain.",
+          recommendation: "Run Enable-DkimSigningConfig, then publish the two CNAME selector records Exchange provides at your DNS host.",
+        },
+        spf: {
+          status: "fail",
+          detail: "No SPF record found for this domain.",
+          recommendation: "Add a TXT record at the domain root: v=spf1 include:spf.protection.outlook.com -all",
+        },
+        dmarc: {
+          status: "fail",
+          detail: "No DMARC record found for this domain.",
+          recommendation: "Add a TXT record at _dmarc.<domain>: v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@<domain>",
+        },
+      },
+    ],
+    mailboxAuditingEnabled: false,
     mdoThreat: {
       policies: [
         {
@@ -761,6 +844,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           blockingAction: false,
           commonAttachmentFilter: false,
           outboundNotify: true,
+          autoForwardingBlocked: false,
         },
       ],
       tabl: [
@@ -1012,7 +1096,6 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       ],
     },
     highRiskThreatIndicators: {
-      externalForwardingCount: 2,
       openSharePointSitesCount: 1,
       unprotectedAdminsCount: 0,
       highRiskAppRegistrationsCount: 1,
@@ -1289,6 +1372,12 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         alertLevel: "critical",
       },
     ],
+    mailflowTransportRules: [],
+    mailflowConnectors: [],
+    remoteDomainAutoForwardBlocked: true,
+    externalSenderTagEnabled: true,
+    domainAuth: [],
+    mailboxAuditingEnabled: true,
     mdoThreat: {
       policies: [
         {
@@ -1420,7 +1509,6 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       ],
     },
     highRiskThreatIndicators: {
-      externalForwardingCount: 1,
       openSharePointSitesCount: 0,
       unprotectedAdminsCount: 0,
       highRiskAppRegistrationsCount: 0,
@@ -1603,6 +1691,12 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         alertLevel: "critical",
       },
     ],
+    mailflowTransportRules: [],
+    mailflowConnectors: [],
+    remoteDomainAutoForwardBlocked: false,
+    externalSenderTagEnabled: false,
+    domainAuth: [],
+    mailboxAuditingEnabled: false,
     mdoThreat: {
       policies: [],
       tabl: [],
@@ -1656,7 +1750,6 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       ],
     },
     highRiskThreatIndicators: {
-      externalForwardingCount: 2,
       openSharePointSitesCount: 1,
       unprotectedAdminsCount: 1,
       highRiskAppRegistrationsCount: 1,
@@ -1785,6 +1878,12 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
     },
     mailboxes: [],
     emailForwarding: [],
+    mailflowTransportRules: [],
+    mailflowConnectors: [],
+    remoteDomainAutoForwardBlocked: true,
+    externalSenderTagEnabled: true,
+    domainAuth: [],
+    mailboxAuditingEnabled: true,
     mdoThreat: {
       policies: [
         {
@@ -1893,7 +1992,6 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       sites: [],
     },
     highRiskThreatIndicators: {
-      externalForwardingCount: 0,
       openSharePointSitesCount: 0,
       unprotectedAdminsCount: 0,
       highRiskAppRegistrationsCount: 0,

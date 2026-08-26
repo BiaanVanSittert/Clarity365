@@ -39,6 +39,8 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
     { id: "nav-users", title: "User & Account Classification (Licensed / Unlicensed Active)", category: "Navigation", view: "user_class", icon: Users },
     { id: "nav-mailboxes", title: "Exchange Mailbox Permissions & Shared Mailbox Waste", category: "Navigation", view: "mailboxes", icon: Mail },
     { id: "nav-forwarding", title: "Email Forwarding Vectors & Exfiltration Rules", category: "Navigation", view: "forwarding", icon: Mail },
+    { id: "nav-mailflow-rules", title: "Transport & Mail Flow Rules Baseline", category: "Navigation", view: "mailflow_rules", icon: Mail },
+    { id: "nav-domain-auth", title: "Domain Authentication (SPF / DKIM / DMARC)", category: "Navigation", view: "domain_auth", icon: Mail },
     { id: "nav-mdo", title: "Defender for Office 365 (MDO) & TABL Manager", category: "Navigation", view: "mdo_tabl", icon: Shield },
     { id: "nav-apps", title: "Connected Services & High-Privilege App Registrations", category: "Navigation", view: "app_regs", icon: Server },
     { id: "nav-intune", title: "Intune Endpoint Security (Antivirus & EDR Fleet)", category: "Navigation", view: "intune", icon: HardDrive },
@@ -104,7 +106,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
     >
       <div className="space-y-3">
         <div className="relative">
-          <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
+          <Search size={15} className="absolute left-3 top-2.5 text-slate-400 dark:text-slate-500" />
           <input
             type="text"
             autoFocus
@@ -118,7 +120,7 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
 
         <div className="max-h-64 overflow-y-auto space-y-1 divide-y divide-slate-100 dark:divide-slate-700">
           {filteredItems.length === 0 ? (
-            <div className="p-4 text-center text-xs text-slate-500">No matching views or tenants found.</div>
+            <div className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">No matching views or tenants found.</div>
           ) : (
             filteredItems.map((item, idx) => {
               const Icon = item.icon;
@@ -133,10 +135,10 @@ export const SearchDialog: React.FC<SearchDialogProps> = ({
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <Icon size={14} className={isSelected ? "text-slate-900 dark:text-slate-100" : "text-slate-500 group-hover:text-slate-900 dark:group-hover:text-slate-100"} />
+                    <Icon size={14} className={isSelected ? "text-slate-900 dark:text-slate-100" : "text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-slate-100"} />
                     <span>{item.title}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500 font-mono">
                     <span>{item.category}</span>
                     <ArrowRight size={12} className={`transition-opacity ${isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`} />
                   </div>

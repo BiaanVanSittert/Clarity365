@@ -21,9 +21,12 @@ import {
   History,
   ChevronsLeft,
   ChevronsRight,
+  GitBranch,
+  Fingerprint,
 } from "lucide-react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
+import { evaluateMailflowBaseline } from "@/lib/services/mailflow-baseline-matcher";
 
 interface SidebarProps {
   activeView: string;
@@ -45,6 +48,11 @@ interface NavGroup {
     icon: React.ElementType;
     badgeCount?: number;
     badgeStatus?: "warn" | "fail" | "info" | "pass";
+    // Optional breakdown shown as the hover tooltip alongside the label —
+    // useful when badgeCount sums signals of different kinds (e.g. MDO's
+    // config-gap count plus its active-threat count) that read as one
+    // ambiguous number otherwise.
+    badgeDetail?: string;
   }[];
 }
 
@@ -114,7 +122,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       signin_logs: true,
       mfa_audit: true,
       user_class: true,
+      mailboxes: true,
       forwarding: true,
+      mailflow_rules: true,
+      domain_auth: true,
       groups: true,
       mdo_tabl: true,
     });
@@ -147,7 +158,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const orphanedUsersCount = snapshot ? snapshot.accountClassification.unlicensedActiveCount : 0;
 
-  const externalForwardingCount = snapshot ? snapshot.highRiskThreatIndicators.externalForwardingCount : 0;
+  // Derived live from emailForwarding rather than a separate stored counter —
+  // the old highRiskThreatIndicators.externalForwardingCount was mock-only
+  // and never updated by a live sync (see types/index.ts's removal comment).
+  const externalForwardingCount = snapshot
+    ? snapshot.emailForwarding.filter((r) => r.isExternal && r.state === "Enabled").length
+    : 0;
+
+  const mailboxAuditGapCount = snapshot && snapshot.mailboxAuditingEnabled === false ? 1 : 0;
+
+  const mailflowRuleGapCount = snapshot
+    ? evaluateMailflowBaseline({
+        transportRules: snapshot.mailflowTransportRules,
+        policies: snapshot.mdoThreat.policies,
+        connectors: snapshot.mailflowConnectors,
+        remoteDomainAutoForwardBlocked: snapshot.remoteDomainAutoForwardBlocked,
+        externalSenderTagEnabled: snapshot.externalSenderTagEnabled,
+      }).results.filter((r) => !r.met).length
+    : 0;
+
+  const domainAuthGapCount = snapshot
+    ? snapshot.domainAuth.filter((d) => d.dkim.status !== "pass" || d.spf.status !== "pass" || d.dmarc.status !== "pass").length
+    : 0;
 
   const groupsCount = snapshot ? snapshot.groups.length : 0;
 
@@ -165,6 +197,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     (weakMfaCount > 0 ? weakMfaCount : 0) +
     (orphanedUsersCount > 0 ? orphanedUsersCount : 0) +
     (externalForwardingCount > 0 ? externalForwardingCount : 0) +
+    mailboxAuditGapCount +
+    (mailflowRuleGapCount > 0 ? mailflowRuleGapCount : 0) +
+    (domainAuthGapCount > 0 ? domainAuthGapCount : 0) +
     (mdoIssueCount > 0 ? mdoIssueCount : 0);
 
   const navGroups: NavGroup[] = [
@@ -224,22 +259,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: "Intune Security (AV & EDR)",
           icon: HardDrive,
         },
+      ],
+    },
+    {
+      // Everything in this group is sourced from the same Exchange Online
+      // admin connection (MDO's device-code EXO connection, established for
+      // Module 8, is reused by every check below it) — consolidated into one
+      // group so a security admin has a single place to go for "everything
+      // about my mail security" rather than it being split across groups.
+      label: "Exchange & Mailflow",
+      items: [
         {
           id: "mdo_tabl",
           label: "MDO Policies & TABL",
           icon: Layers,
           badgeCount: mdoIssueCount > 0 ? mdoIssueCount : undefined,
           badgeStatus: mdoUnresolvedHighAlertCount > 0 ? "fail" : "warn",
+          badgeDetail:
+            mdoIssueCount > 0
+              ? `${mdoBaselineGapCount} baseline gap(s), ${mdoUnresolvedHighAlertCount} unresolved high-severity alert(s)`
+              : undefined,
         },
-      ],
-    },
-    {
-      label: "Exchange & Mailflow",
-      items: [
         {
           id: "mailboxes",
           label: "Mailbox Delegations",
           icon: Mail,
+          badgeCount: mailboxAuditGapCount > 0 ? mailboxAuditGapCount : undefined,
+          badgeStatus: "warn",
+          badgeDetail: mailboxAuditGapCount > 0 ? "Mailbox audit logging is off — delegation findings can't be investigated after the fact" : undefined,
         },
         {
           id: "forwarding",
@@ -247,6 +294,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: Share2,
           badgeCount: externalForwardingCount > 0 ? externalForwardingCount : undefined,
           badgeStatus: "fail",
+        },
+        {
+          id: "mailflow_rules",
+          label: "Transport & Mail Flow Rules",
+          icon: GitBranch,
+          badgeCount: mailflowRuleGapCount > 0 ? mailflowRuleGapCount : undefined,
+          badgeStatus: "warn",
+        },
+        {
+          id: "domain_auth",
+          label: "Domain Authentication (SPF/DKIM/DMARC)",
+          icon: Fingerprint,
+          badgeCount: domainAuthGapCount > 0 ? domainAuthGapCount : undefined,
+          badgeStatus: "warn",
         },
       ],
     },
@@ -302,7 +363,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center justify-between text-[11px]">
           <div className="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
             {allCleared ? (
-              <BellOff size={13} className="text-slate-400" />
+              <BellOff size={13} className="text-slate-400 dark:text-slate-500" />
             ) : totalRawAlertCount > 0 ? (
               <BellRing size={13} className="text-amber-600 dark:text-amber-400 animate-pulse" />
             ) : (
@@ -327,7 +388,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 title="Clear and mute all sidebar alert number badges"
                 className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-slate-100 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200/80 dark:hover:bg-slate-600 rounded border border-slate-300 dark:border-slate-600 transition-colors"
               >
-                <CheckCheck size={11} className="text-slate-500" />
+                <CheckCheck size={11} className="text-slate-500 dark:text-slate-400" />
                 <span>Clear Badges</span>
               </button>
             )}
@@ -357,7 +418,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <button
                     key={item.id}
                     onClick={() => onSelectView(item.id)}
-                    title={isCollapsed ? item.label : undefined}
+                    title={item.badgeDetail ? `${item.label} — ${item.badgeDetail}` : isCollapsed ? item.label : undefined}
                     className={`w-full text-left px-2.5 py-1.5 text-xs flex items-center rounded-sm transition-colors ${
                       isCollapsed ? "justify-center" : "justify-between"
                     } ${
@@ -373,12 +434,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <span
                           className={`absolute -top-1.5 -right-1.5 min-w-[13px] h-[13px] px-0.5 rounded-full text-[8px] font-mono font-bold flex items-center justify-center tabular-nums ${
                             item.badgeStatus === "fail"
-                              ? "bg-red-500 text-white"
+                              ? "bg-red-600 dark:bg-red-500 text-white"
                               : item.badgeStatus === "warn"
-                              ? "bg-amber-500 text-white"
+                              ? "bg-amber-600 dark:bg-amber-500 text-white"
                               : item.badgeStatus === "pass"
-                              ? "bg-emerald-500 text-white"
-                              : "bg-slate-400 text-white"
+                              ? "bg-emerald-600 dark:bg-emerald-500 text-white"
+                              : "bg-slate-400 dark:bg-slate-500 text-white"
                           }`}
                         >
                           {item.badgeCount! > 99 ? "99+" : item.badgeCount}
@@ -390,7 +451,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       isDismissed ? (
                         <span
                           title="Alert badge acknowledged/cleared"
-                          className="text-[9px] font-mono text-slate-400 opacity-60"
+                          className="text-[9px] font-mono text-slate-400 dark:text-slate-500 opacity-60"
                         >
                           ✓
                         </span>
