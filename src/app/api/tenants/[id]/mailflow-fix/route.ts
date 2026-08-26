@@ -4,7 +4,7 @@ import { tenantStore } from "@/lib/services/tenant-store";
 export const dynamic = "force-dynamic";
 
 // Single route for the three Module 6/7 write actions (disable a forwarding
-// rule, revoke a mailbox delegation, enable tenant-wide mailbox auditing) —
+// rule, revoke a mailbox delegation, enable tenant-wide mailbox auditing) -
 // same shape as mdo-fix/route.ts, dispatched on an `action` discriminator
 // rather than three separate route files.
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
