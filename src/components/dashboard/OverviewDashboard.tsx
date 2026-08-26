@@ -55,11 +55,15 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
     );
   }
 
-  const { tenant, secureScore, conditionalAccess, signIns, accountClassification, mailboxes, emailForwarding, intune, capabilities, highRiskThreatIndicators } = snapshot;
+  const { tenant, secureScore, conditionalAccess, signIns, accountClassification, mailboxes, emailForwarding, intune, capabilities, highRiskThreatIndicators, sharePoint } = snapshot;
 
   // Derived live from emailForwarding — see types/index.ts's removal comment
   // for why this is no longer a separate stored counter.
   const externalForwardingCount = emailForwarding.filter((r) => r.isExternal && r.state === "Enabled").length;
+
+  // Derived live from sharePoint.sites — same removal reasoning as
+  // externalForwardingCount above (see types/index.ts).
+  const openSharePointSitesCount = sharePoint.sites.filter((s) => s.sharingCapability === "Anyone").length;
 
   const exchangeMailflowScore = computeExchangeMailflowScore(snapshot);
 
@@ -500,8 +504,8 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                   </div>
                 </div>
                 <StatusPill
-                  status={highRiskThreatIndicators.openSharePointSitesCount > 0 ? "warn" : "pass"}
-                  label={`${highRiskThreatIndicators.openSharePointSitesCount} Sites`}
+                  status={openSharePointSitesCount > 0 ? "warn" : "pass"}
+                  label={`${openSharePointSitesCount} Sites`}
                 />
               </div>
 

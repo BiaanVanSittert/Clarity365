@@ -525,6 +525,15 @@ export interface SharePointTenantPolicy {
   sites: SharePointSiteItem[];
 }
 
+// Per-check result of scoring live SharePointTenantPolicy data against
+// SHAREPOINT_BASELINE_STANDARDS (sharepoint-baseline-definitions.ts) — same
+// shape as GroupsBaselineResult/MailflowBaselineResult.
+export interface SharePointBaselineResult {
+  code: string;
+  met: boolean;
+  offendingSiteNames?: string[];
+}
+
 // Per-section result of the most recent live Graph sync. Absent entirely for
 // demo/mock tenants and for snapshots that predate this field.
 export interface SyncHealth {
@@ -596,11 +605,12 @@ export interface TenantSecuritySnapshot {
   groupNamingPolicyEnabled?: boolean;
   sharePoint: SharePointTenantPolicy;
   highRiskThreatIndicators: {
-    // externalForwardingCount intentionally removed: it was a second, separate
-    // mock-only counter that never derived from emailForwarding and was never
-    // populated by a live sync — every reader now computes it directly from
-    // emailForwarding instead (see e.g. MdoPoliciesModule's own count pattern).
-    openSharePointSitesCount: number;
+    // externalForwardingCount and openSharePointSitesCount intentionally
+    // removed: both were second, separate mock-only counters that never
+    // derived from their real source (emailForwarding / sharePoint.sites) and
+    // were never populated by a live sync — every reader now computes them
+    // directly from that source instead (see e.g. MdoPoliciesModule's own
+    // count pattern, and OverviewDashboard's openSharePointSitesCount).
     unprotectedAdminsCount: number;
     highRiskAppRegistrationsCount: number;
   };

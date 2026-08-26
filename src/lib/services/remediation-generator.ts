@@ -153,13 +153,10 @@ Write-Host "Orphaned accounts blocked and sessions revoked." -ForegroundColor Gr
 
   // Check 5: Open SharePoint/OneDrive Sharing Links ("Anyone" links)
   const openSharingSites = snapshot.sharePoint.sites.filter((s) => s.sharingCapability === "Anyone");
-  if (
-    (openSharingSites.length > 0 || snapshot.highRiskThreatIndicators.openSharePointSitesCount > 0) &&
-    (!findingType || findingType === "sharepoint_sharing")
-  ) {
+  if (openSharingSites.length > 0 && (!findingType || findingType === "sharepoint_sharing")) {
     const siteList = openSharingSites.map((s) => s.siteName).join(", ") || "one or more sites";
     plans.push({
-      title: `Restrict "Anyone" External Sharing Links (${openSharingSites.length || snapshot.highRiskThreatIndicators.openSharePointSitesCount} site(s) affected)`,
+      title: `Restrict "Anyone" External Sharing Links (${openSharingSites.length} site(s) affected)`,
       category: "Collaboration & Governance",
       severity: "high",
       summary: `${siteList} allow anonymous "Anyone" sharing links, which require no sign-in and can be forwarded indefinitely — a common data exfiltration and unauthorized-access vector.`,

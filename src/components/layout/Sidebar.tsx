@@ -28,6 +28,7 @@ import { TenantSecuritySnapshot } from "@/lib/types";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
 import { evaluateMailflowBaseline } from "@/lib/services/mailflow-baseline-matcher";
 import { evaluateGroupsBaseline } from "@/lib/services/groups-baseline-matcher";
+import { evaluateSharePointBaseline } from "@/lib/services/sharepoint-baseline-matcher";
 
 interface SidebarProps {
   activeView: string;
@@ -128,6 +129,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       mailflow_rules: true,
       domain_auth: true,
       groups: true,
+      sharepoint: true,
       mdo_tabl: true,
     });
     if (propOnClearAllAlerts) propOnClearAllAlerts();
@@ -197,6 +199,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
     : [];
   const groupsBaselineGapCount = groupsBaselineResults.filter((r) => !r.met).length;
 
+  const sharePointSitesCount = snapshot ? snapshot.sharePoint.sites.length : 0;
+  const sharePointBaselineResults = snapshot
+    ? evaluateSharePointBaseline({
+        policy: snapshot.sharePoint,
+        inactiveUserPrincipalNamesLower: new Set(
+          snapshot.accountClassification.users
+            .filter((u) => u.classification === "disabled" || u.classification === "unlicensed_active")
+            .map((u) => u.userPrincipalName.toLowerCase())
+        ),
+      }).results
+    : [];
+  const sharePointBaselineGapCount = sharePointBaselineResults.filter((r) => !r.met).length;
+
   const mdoBaselineGapCount = snapshot
     ? evaluateMdoBaseline(snapshot.mdoThreat.policies).results.filter((r) => !r.met).length
     : 0;
@@ -215,6 +230,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     (mailflowRuleGapCount > 0 ? mailflowRuleGapCount : 0) +
     (domainAuthGapCount > 0 ? domainAuthGapCount : 0) +
     (groupsBaselineGapCount > 0 ? groupsBaselineGapCount : 0) +
+    (sharePointBaselineGapCount > 0 ? sharePointBaselineGapCount : 0) +
     (mdoIssueCount > 0 ? mdoIssueCount : 0);
 
   const navGroups: NavGroup[] = [
@@ -344,6 +360,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: "sharepoint",
           label: "SharePoint & Storage",
           icon: FileSpreadsheet,
+          badgeCount: sharePointBaselineGapCount > 0 ? sharePointBaselineGapCount : undefined,
+          badgeStatus: "warn",
+          badgeDetail:
+            sharePointBaselineGapCount > 0
+              ? `${sharePointBaselineGapCount} of ${sharePointBaselineResults.length} governance checks below recommended (${sharePointSitesCount} sites total)`
+              : undefined,
         },
       ],
     },

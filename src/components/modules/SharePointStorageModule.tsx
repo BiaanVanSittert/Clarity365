@@ -5,6 +5,8 @@ import { LocalOnlyNotice } from "../common/LocalOnlyNotice";
 import { EmptyStateRow } from "../common/EmptyStateRow";
 import { FileSpreadsheet, HardDrive, Share2, AlertTriangle, Search, Filter, ShieldCheck, Check, Download } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
+import { evaluateSharePointBaseline } from "@/lib/services/sharepoint-baseline-matcher";
+import { SHAREPOINT_BASELINE_STANDARDS } from "@/lib/data/sharepoint-baseline-definitions";
 
 interface SharePointStorageModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -12,7 +14,7 @@ interface SharePointStorageModuleProps {
 }
 
 export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = ({ snapshot, onLocalRefresh }) => {
-  const { sharePoint, tenant } = snapshot;
+  const { sharePoint, tenant, accountClassification } = snapshot;
   const [searchQuery, setSearchQuery] = useState("");
   const [sharingFilter, setSharingFilter] = useState<string>("all");
   const [tenantSharingLevel, setTenantSharingLevel] = useState(sharePoint.tenantSharingLevel);
@@ -20,6 +22,18 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const sites = sharePoint.sites;
+
+  const inactiveUserPrincipalNamesLower = new Set(
+    accountClassification.users
+      .filter((u) => u.classification === "disabled" || u.classification === "unlicensed_active")
+      .map((u) => u.userPrincipalName.toLowerCase())
+  );
+  const { results: baselineResults, coveragePercent } = evaluateSharePointBaseline({
+    policy: sharePoint,
+    inactiveUserPrincipalNamesLower,
+  });
+  const checksBelowCount = baselineResults.filter((r) => !r.met).length;
+  const resultFor = (code: string) => baselineResults.find((r) => r.code === code)!;
 
   const handleUpdateTenantPolicy = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,7 +68,7 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
   });
 
   const handleExportCSV = () => {
-    const headers = ["SiteName", "SiteUrl", "Template", "StorageUsedGB", "StorageAllocatedGB", "OwnerUPN", "SharingCapability"];
+    const headers = ["SiteName", "SiteUrl", "Template", "StorageUsedGB", "StorageAllocatedGB", "OwnerUPN", "SharingCapability", "SensitiveDataHeuristic"];
     const rows = filteredSites.map((site) => [
       site.siteName,
       site.siteUrl,
@@ -63,6 +77,7 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
       site.storageAllocatedGB,
       site.ownerUPN,
       site.sharingCapability,
+      site.isSensitiveDataPresent ? "Yes" : "No",
     ]);
     exportToCsv(csvFilename("SharePointSites", tenant.defaultDomainName), headers, rows);
   };
@@ -100,7 +115,8 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
         <div className="text-right">
           <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">Storage Consumption</div>
           <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums">
-            {sharePoint.totalStorageUsedTB.toFixed(1)} TB / {sharePoint.totalStorageAllocatedTB.toFixed(1)} TB ({Math.round((sharePoint.totalStorageUsedTB / sharePoint.totalStorageAllocatedTB) * 100)}%)
+            {sharePoint.totalStorageUsedTB.toFixed(1)} TB / {sharePoint.totalStorageAllocatedTB.toFixed(1)} TB (
+            {sharePoint.totalStorageAllocatedTB > 0 ? Math.round((sharePoint.totalStorageUsedTB / sharePoint.totalStorageAllocatedTB) * 100) : 0}%)
           </div>
         </div>
       </div>
@@ -141,6 +157,60 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
           </button>
         </form>
         <LocalOnlyNotice />
+      </div>
+
+      {/* Baseline & Posture */}
+      <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
+        <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+            SharePoint & Storage Governance Baseline
+          </h3>
+          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+            {coveragePercent}% ({baselineResults.length - checksBelowCount}/{baselineResults.length})
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse table-dense">
+            <thead>
+              <tr>
+                <th className="w-16">Code</th>
+                <th>Baseline Check</th>
+                <th className="w-32">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {SHAREPOINT_BASELINE_STANDARDS.map((standard) => {
+                const result = resultFor(standard.code);
+                return (
+                  <tr key={standard.code}>
+                    <td className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100">{standard.code}</td>
+                    <td>
+                      <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{standard.name}</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{standard.description}</div>
+                      <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">Mitigates: {standard.riskMitigated}</div>
+                    </td>
+                    <td>
+                      {result.met ? (
+                        <StatusPill status="pass" label="Met" size="sm" />
+                      ) : (
+                        <StatusPill
+                          status="fail"
+                          label={result.offendingSiteNames ? `${result.offendingSiteNames.length} site(s) flagged` : "Below Recommended"}
+                          size="sm"
+                        />
+                      )}
+                      {!result.met && result.offendingSiteNames && (
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 max-w-md">
+                          {result.offendingSiteNames.join(", ")}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Site Filter & Search */}
@@ -206,11 +276,31 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
                 <EmptyStateRow colSpan={5} entityLabel="site collections" isFiltered={searchQuery.trim().length > 0 || sharingFilter !== "all"} />
               ) : (
                 filteredSites.map((site) => {
-                  const percentUsed = Math.round((site.storageUsedGB / site.storageAllocatedGB) * 100);
+                  const percentUsed = site.storageAllocatedGB > 0 ? Math.round((site.storageUsedGB / site.storageAllocatedGB) * 100) : 0;
+                  const ownerInactive = !!site.ownerUPN && inactiveUserPrincipalNamesLower.has(site.ownerUPN.toLowerCase());
+                  const compoundRisk = site.isSensitiveDataPresent && (site.sharingCapability === "Anyone" || site.sharingCapability === "NewAndExistingGuests");
                   return (
                     <tr key={site.id} className={site.sharingCapability === "Anyone" ? "bg-red-50/20 dark:bg-red-950" : ""}>
                       <td>
-                        <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{site.siteName}</div>
+                        <div className="font-semibold text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                          {site.siteName}
+                          {site.isSensitiveDataPresent && (
+                            <span
+                              title={compoundRisk ? "Likely contains sensitive data AND allows open sharing — compound risk" : "Likely contains sensitive data (name/URL heuristic, not a Purview signal)"}
+                              className={`text-[9px] font-mono uppercase px-1 rounded-sm font-bold border ${compoundRisk ? "bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-400 border-red-300 dark:border-red-800" : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600"}`}
+                            >
+                              Sensitive
+                            </span>
+                          )}
+                          {ownerInactive && (
+                            <span
+                              title={`Owner ${site.ownerUPN} is disabled or unlicensed-active`}
+                              className="text-[9px] font-mono uppercase px-1 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-400 border border-amber-300 dark:border-amber-800 rounded-sm font-bold"
+                            >
+                              Owner Inactive
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate max-w-[320px]">
                           {site.siteUrl}
                         </div>
@@ -228,7 +318,7 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
                           </div>
                           <div className="w-full bg-[#E2E8F0] dark:bg-slate-700 h-1.5 rounded-sm overflow-hidden">
                             <div
-                              className={`h-full ${percentUsed > 85 ? "bg-red-50 dark:bg-red-9500" : percentUsed > 60 ? "bg-amber-50 dark:bg-amber-9500" : "bg-slate-700"}`}
+                              className={`h-full ${percentUsed > 85 ? "bg-red-600 dark:bg-red-500" : percentUsed > 60 ? "bg-amber-600 dark:bg-amber-500" : "bg-slate-700"}`}
                               style={{ width: `${Math.min(100, percentUsed)}%` }}
                             />
                           </div>

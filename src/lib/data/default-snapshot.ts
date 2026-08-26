@@ -68,7 +68,6 @@ export function createBlankSnapshot(tenant: Tenant): TenantSecuritySnapshot {
       sites: [],
     },
     highRiskThreatIndicators: {
-      openSharePointSitesCount: 0,
       unprotectedAdminsCount: 0,
       highRiskAppRegistrationsCount: 0,
     },

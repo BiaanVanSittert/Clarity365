@@ -1,4 +1,4 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { matchCaBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
@@ -15,11 +15,15 @@ import {
   mapGroupSelfServiceCreationRestricted,
   mapGroupNamingPolicyEnabled,
 } from "./groups-mapper";
+import { mapSharePointSite, mapTenantSharingSettings } from "./sharepoint-mapper";
 import { graphFetch } from "./graph-fetch";
 
 // No bulk "every group's owners/members" Graph endpoint exists — capped for
 // the same reason the mailflow mailbox scan is capped (see exo-client.ts).
 const MAX_GROUPS_FOR_MEMBER_SCAN = 250;
+// No bulk "every site's storage quota" Graph endpoint exists either — capped
+// for the same reason.
+const MAX_SITES_FOR_STORAGE_SCAN = 250;
 
 interface CachedToken {
   token: string;
@@ -189,6 +193,13 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       description: "Read Microsoft 365 groups, security groups, and distribution lists — membership, owners, and tenant-wide group settings.",
       endpoint: "https://graph.microsoft.com/v1.0/groups?$top=1",
       requiredFor: "Module 11: Groups & Distribution Management",
+    },
+    {
+      permission: "Sites.Read.All",
+      scope: "Application",
+      description: "Read SharePoint site collections, OneDrive storage quotas, and tenant-wide external sharing settings.",
+      endpoint: "https://graph.microsoft.com/v1.0/sites?search=*&$top=1",
+      requiredFor: "Module 12: SharePoint & OneDrive Storage",
     },
     {
       permission: "Policy.ReadWrite.ConditionalAccess",
@@ -1056,6 +1067,64 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`Groups: ${err.message || "Unexpected error while processing groups."}`);
   }
 
+  // 8.9. SharePoint, OneDrive & Storage — depends on groupsLive (fetched
+  // above) to resolve a team site's owner via its linked M365 group. No bulk
+  // "every site's storage quota" Graph endpoint exists any more than for
+  // groups' owners/members, so the same N+1-with-a-cap shape applies: one
+  // extra drive-quota round trip per site, capped for sync performance.
+  let sharePointLive: SharePointTenantPolicy | null = null;
+  try {
+    let tenantSharingLevel: SharePointTenantPolicy["tenantSharingLevel"] = "NewAndExistingGuests";
+    let defaultLinkType: SharePointTenantPolicy["defaultLinkType"] = "Internal";
+    let anonymousLinkExpirationDays = 0;
+
+    const settingsRes = await graphFetch("https://graph.microsoft.com/v1.0/admin/sharepoint/settings", { headers });
+    if (settingsRes.ok) {
+      const settingsRaw = await settingsRes.json();
+      ({ tenantSharingLevel, defaultLinkType, anonymousLinkExpirationDays } = mapTenantSharingSettings(settingsRaw));
+    } else {
+      syncErrors.push(`SharePoint Settings: HTTP ${settingsRes.status} while reading tenant sharing settings.`);
+    }
+
+    const sitesResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/v1.0/sites?search=*&$select=id,displayName,name,webUrl,createdDateTime,lastModifiedDateTime,sharepointIds",
+      headers
+    );
+    if (sitesResult.error) syncErrors.push(`SharePoint Sites: ${sitesResult.error}`);
+
+    const cappedSites = sitesResult.items.slice(0, MAX_SITES_FOR_STORAGE_SCAN);
+    if (sitesResult.items.length > MAX_SITES_FOR_STORAGE_SCAN) {
+      syncErrors.push(
+        `SharePoint Sites: Storage scan capped at the first ${MAX_SITES_FOR_STORAGE_SCAN} sites for sync performance — this tenant may have more.`
+      );
+    }
+
+    const groupsById = new Map<string, TenantGroup>((groupsLive || []).map((g) => [g.id, g]));
+
+    const sites = await Promise.all(
+      cappedSites.map(async (raw: any) => {
+        const driveRes = await graphFetch(`https://graph.microsoft.com/v1.0/sites/${raw.id}/drive?$select=quota`, { headers }, { maxRetries: 1 });
+        const driveQuota = driveRes.ok ? (await driveRes.json())?.quota : undefined;
+        return mapSharePointSite(raw, driveQuota, tenantSharingLevel, groupsById);
+      })
+    );
+
+    const totalStorageUsedTB = sites.reduce((sum, s) => sum + s.storageUsedGB, 0) / 1024;
+    const totalStorageAllocatedTB = sites.reduce((sum, s) => sum + s.storageAllocatedGB, 0) / 1024;
+
+    sharePointLive = {
+      tenantSharingLevel,
+      defaultLinkType,
+      anonymousLinkExpirationDays,
+      totalStorageAllocatedTB,
+      totalStorageUsedTB,
+      sites,
+    };
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching SharePoint data:", err);
+    syncErrors.push(`SharePoint: ${err.message || "Unexpected error while processing SharePoint sites."}`);
+  }
+
   // 9. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = computeBaselineCoveragePercent(deployedBaselineCodes.size, CA_BASELINE_STANDARDS.length);
@@ -1154,6 +1223,9 @@ export async function fetchLiveTenantSnapshot(
   }
   if (groupNamingPolicyEnabled !== undefined) {
     base.groupNamingPolicyEnabled = groupNamingPolicyEnabled;
+  }
+  if (sharePointLive !== null) {
+    base.sharePoint = sharePointLive;
   }
   // Distinguish "never synced" (leave whatever the snapshot already had,
   // including undefined) from "synced but the Get-OrganizationConfig call

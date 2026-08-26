@@ -1103,7 +1103,6 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       ],
     },
     highRiskThreatIndicators: {
-      openSharePointSitesCount: 1,
       unprotectedAdminsCount: 0,
       highRiskAppRegistrationsCount: 1,
     },
@@ -1518,7 +1517,6 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       ],
     },
     highRiskThreatIndicators: {
-      openSharePointSitesCount: 0,
       unprotectedAdminsCount: 0,
       highRiskAppRegistrationsCount: 0,
     },
@@ -1759,7 +1757,6 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       ],
     },
     highRiskThreatIndicators: {
-      openSharePointSitesCount: 1,
       unprotectedAdminsCount: 1,
       highRiskAppRegistrationsCount: 1,
     },
@@ -2001,7 +1998,6 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       sites: [],
     },
     highRiskThreatIndicators: {
-      openSharePointSitesCount: 0,
       unprotectedAdminsCount: 0,
       highRiskAppRegistrationsCount: 0,
     },
