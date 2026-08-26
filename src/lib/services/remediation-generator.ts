@@ -159,7 +159,7 @@ Write-Host "Orphaned accounts blocked and sessions revoked." -ForegroundColor Gr
       title: `Restrict "Anyone" External Sharing Links (${openSharingSites.length} site(s) affected)`,
       category: "Collaboration & Governance",
       severity: "high",
-      summary: `${siteList} allow anonymous "Anyone" sharing links, which require no sign-in and can be forwarded indefinitely — a common data exfiltration and unauthorized-access vector.`,
+      summary: `${siteList} allow anonymous "Anyone" sharing links, which require no sign-in and can be forwarded indefinitely - a common data exfiltration and unauthorized-access vector.`,
       steps: [
         "Review each flagged site's active sharing links and revoke any that are no longer needed.",
         "Lower the site-level sharing capability from 'Anyone' to 'New and existing guests' or 'Only people in your organization'.",
@@ -211,7 +211,7 @@ Write-Host "ACTION REQUIRED: Register MFA for admin account ${u.userPrincipalNam
 
 # Deploy/confirm CA03: Require MFA for admins is enabled and enforced (not report-only)
 Write-Host "Review CA03 baseline policy state and transition to 'enabled' once verified." -ForegroundColor Yellow`,
-      rollbackPlan: "No rollback needed — this hardens an existing gap rather than changing current tenant behavior. If a CA policy is deployed as part of remediation, it can be set back to 'disabled' if it causes unexpected lockouts.",
+      rollbackPlan: "No rollback needed - this hardens an existing gap rather than changing current tenant behavior. If a CA policy is deployed as part of remediation, it can be set back to 'disabled' if it causes unexpected lockouts.",
     });
   }
 
