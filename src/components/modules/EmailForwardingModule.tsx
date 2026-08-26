@@ -304,7 +304,7 @@ export const EmailForwardingModule: React.FC<EmailForwardingModuleProps> = ({
                   : fixRule.scope === "inbox_rule"
                   ? "the inbox rule"
                   : "mailbox-level auto-forward"}{" "}
-                that forwards mail to <strong>{fixRule.forwardingAddress}</strong>. This takes effect right away —
+                that forwards mail to <strong>{fixRule.forwardingAddress}</strong>. This takes effect right away -
                 there is no undo from here (the rule can be manually re-enabled in Exchange Online if needed).
               </p>
               <div className="p-2 bg-slate-950 border border-slate-800 text-[11px] font-mono text-slate-300 rounded-sm">
