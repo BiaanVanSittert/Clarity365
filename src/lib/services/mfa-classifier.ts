@@ -2,8 +2,8 @@ import { AuthMethodType } from "../types";
 
 // Classifies a user's MFA registration into Clarity365's method/strength taxonomy.
 // Pulled out of graph-client.ts's inline mapping so the classification rules
-// themselves — which method strings count as which method, which methods are
-// "weak", how default method and overall strength are picked — are unit-testable
+// themselves - which method strings count as which method, which methods are
+// "weak", how default method and overall strength are picked - are unit-testable
 // without needing a live Graph response to drive them.
 
 const METHOD_KEYWORD_RULES: [pattern: (lower: string) => boolean, method: AuthMethodType][] = [
