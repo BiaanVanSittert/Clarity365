@@ -18,10 +18,10 @@ import {
 import { mapSharePointSite, mapTenantSharingSettings } from "./sharepoint-mapper";
 import { graphFetch } from "./graph-fetch";
 
-// No bulk "every group's owners/members" Graph endpoint exists — capped for
+// No bulk "every group's owners/members" Graph endpoint exists - capped for
 // the same reason the mailflow mailbox scan is capped (see exo-client.ts).
 const MAX_GROUPS_FOR_MEMBER_SCAN = 250;
-// No bulk "every site's storage quota" Graph endpoint exists either — capped
+// No bulk "every site's storage quota" Graph endpoint exists either - capped
 // for the same reason.
 const MAX_SITES_FOR_STORAGE_SCAN = 250;
 
@@ -57,10 +57,10 @@ export interface PermissionTestResult {
   errorMessage?: string;
   requiredFor: string;
   // True only for permissions that let Clarity365 create/modify/delete data in
-  // the live tenant, not just read it — flagged distinctly in the Permissions
+  // the live tenant, not just read it - flagged distinctly in the Permissions
   // UI so granting it is a conscious choice, not lost among read-only scopes.
   isWriteAccess?: boolean;
-  // True for a permission the app doesn't need to function — it unlocks one
+  // True for a permission the app doesn't need to function - it unlocks one
   // additional write-capable feature on top of the read-only reporting this
   // app already provides without it. Excluded from the pass/fail rollup in
   // overallStatus so declining it (choosing read-only/reporting-only mode)
@@ -102,7 +102,7 @@ export async function getGraphAccessToken(credentials: Tenant["credentials"]): P
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body,
       },
-      { timeoutMs: 10_000 } // fail fast — the whole sync is worthless without a token
+      { timeoutMs: 10_000 } // fail fast - the whole sync is worthless without a token
     );
 
     const data = await res.json();
@@ -124,12 +124,12 @@ export async function getGraphAccessToken(credentials: Tenant["credentials"]): P
 }
 
 export async function testAppRegistrationPermissions(tenant: Tenant): Promise<TenantPermissionReport> {
-  // Ordered read-only first, write-capable last — Policy.ReadWrite.ConditionalAccess
+  // Ordered read-only first, write-capable last - Policy.ReadWrite.ConditionalAccess
   // is the only write permission this app ever requests, and it's optional: every
   // other permission below already gives Clarity365 full audit/reporting coverage
   // (including generating a copy-pasteable PowerShell script for CA baseline gaps)
-  // without it. Granting it additionally enables one specific feature — in-app
-  // one-click auto-deployment — rather than being required for the app to work.
+  // without it. Granting it additionally enables one specific feature - in-app
+  // one-click auto-deployment - rather than being required for the app to work.
   const permissionsToTest: Omit<PermissionTestResult, "status">[] = [
     {
       permission: "Policy.Read.All",
@@ -190,7 +190,7 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
     {
       permission: "Group.Read.All",
       scope: "Application",
-      description: "Read Microsoft 365 groups, security groups, and distribution lists — membership, owners, and tenant-wide group settings.",
+      description: "Read Microsoft 365 groups, security groups, and distribution lists - membership, owners, and tenant-wide group settings.",
       endpoint: "https://graph.microsoft.com/v1.0/groups?$top=1",
       requiredFor: "Module 11: Groups & Distribution Management",
     },
@@ -205,7 +205,7 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       permission: "Policy.ReadWrite.ConditionalAccess",
       scope: "Application",
       description:
-        "Optional — only needed to auto-deploy CA baseline policies directly from Clarity365. Without it, Policy.Read.All above still gives full audit/reporting coverage, and Clarity365 generates a PowerShell script you can run manually instead.",
+        "Optional - only needed to auto-deploy CA baseline policies directly from Clarity365. Without it, Policy.Read.All above still gives full audit/reporting coverage, and Clarity365 generates a PowerShell script you can run manually instead.",
       endpoint: "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
       requiredFor: "Optional: Direct In-App CA Auto-Deployment & Baseline Remediation",
       isWriteAccess: true,
@@ -274,7 +274,7 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
   }
 
   // Optional permissions (currently just Policy.ReadWrite.ConditionalAccess) are
-  // excluded from this rollup entirely — declining an optional write permission
+  // excluded from this rollup entirely - declining an optional write permission
   // is a valid, deliberate choice (read-only/reporting mode), not a problem.
   const requiredResults = results.filter((r) => !r.optional);
   return {
@@ -469,7 +469,7 @@ export async function deployConditionalAccessPolicy(
         },
         body: JSON.stringify(payload),
       },
-      // A network exception here is ambiguous — the POST may have already reached
+      // A network exception here is ambiguous - the POST may have already reached
       // Graph and created the policy before the response was lost. Only retry a
       // structured 429/503 HTTP response, where Graph is explicitly confirming it
       // did not process the request.
@@ -827,7 +827,7 @@ export async function fetchLiveTenantSnapshot(
   }
 
   // 6. Fetch Intune Endpoint Security policy counts (tenant-wide aggregates,
-  // not per-device). Endpoint Security "Intents" is a Graph beta surface —
+  // not per-device). Endpoint Security "Intents" is a Graph beta surface -
   // category matching here is best-effort and worth confirming against a
   // real tenant; a failure here doesn't block the device inventory above.
   let antivirusPoliciesCount = 0;
@@ -897,11 +897,11 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`Secure Score: ${err.message || "Unexpected error while processing secure score."}`);
   }
 
-  // 8. Fetch MDO Policies & TABL via Exchange Online (see exo-client.ts —
+  // 8. Fetch MDO Policies & TABL via Exchange Online (see exo-client.ts -
   // Defender for Office 365 policies aren't reachable via standard Graph).
   // Skipped silently (not pushed as a sync error) if Exchange Online hasn't
   // been connected yet, since that's a separate, optional credential from
-  // the Graph client secret used everywhere else — its absence isn't a
+  // the Graph client secret used everywhere else - its absence isn't a
   // fault, just a not-yet-configured feature. If it IS connected, a fetch
   // failure IS surfaced as a real sync error.
   let mdoPolicies: MdoThreatPolicy[] | null = null;
@@ -921,11 +921,11 @@ export async function fetchLiveTenantSnapshot(
 
   // 8.5. Fetch MDO-sourced threat detections via Microsoft Graph's Security
   // Alerts API. Independent of the Exchange Online connection above (this is
-  // a plain Graph client-secret call, same as Secure Score/Intune) — useful
+  // a plain Graph client-secret call, same as Secure Score/Intune) - useful
   // even for a tenant that hasn't connected EXO at all. Scoped to the last 30
   // days to match the "Threats Detected (30d)" framing in the UI. Exact OData
   // filter syntax/field names below are based on the documented alerts_v2
-  // schema — worth confirming against a live tenant, same caveat as
+  // schema - worth confirming against a live tenant, same caveat as
   // mdo-mapper.ts's other Exchange-shape assumptions.
   let mdoAlerts: MdoThreatAlert[] | null = null;
   try {
@@ -944,7 +944,7 @@ export async function fetchLiveTenantSnapshot(
 
   // 8.6. Fetch live mailbox delegations, forwarding rules, and mailbox-audit
   // status via the same Exchange Online connection MDO uses (Module 6/7).
-  // Gated the same way as MDO policies above — skipped silently if EXO isn't
+  // Gated the same way as MDO policies above - skipped silently if EXO isn't
   // connected, surfaced as a real sync error (prefixed "Mailflow:") if it is
   // connected but the fetch fails.
   let mailboxesLive: MailboxItem[] | null = null;
@@ -960,7 +960,7 @@ export async function fetchLiveTenantSnapshot(
       result.errors.forEach((e) => syncErrors.push(`Mailflow: ${e}`));
       // Cross-reference the Graph license data already fetched for Module 5
       // (usersList, step 2) rather than making a second call for the same
-      // information — Get-Mailbox itself has no license concept.
+      // information - Get-Mailbox itself has no license concept.
       const licensedUpns = new Set(
         usersList.filter((u) => u.classification === "licensed").map((u) => u.userPrincipalName.toLowerCase())
       );
@@ -982,7 +982,7 @@ export async function fetchLiveTenantSnapshot(
 
   // 8.7. Domain Authentication (SPF/DKIM/DMARC). DKIM comes from the EXO
   // connection above; SPF/DMARC are plain public DNS TXT lookups run for
-  // every accepted domain, independent of any Microsoft 365 credential —
+  // every accepted domain, independent of any Microsoft 365 credential -
   // but the accepted-domain list itself still needs EXO's
   // Get-AcceptedDomain, so this whole step is gated the same way as the
   // rest of Exchange & Mailflow rather than running standalone.
@@ -1013,7 +1013,7 @@ export async function fetchLiveTenantSnapshot(
     }
   }
 
-  // 8.8. Groups & Distribution — pure Graph, independent of the EXO
+  // 8.8. Groups & Distribution - pure Graph, independent of the EXO
   // connection above. Exchange has no bulk "every group's owners/members"
   // endpoint any more than it does for mailboxes, so the same N+1-with-a-cap
   // shape from the mailflow mailbox scan applies here: one extra owners +
@@ -1032,7 +1032,7 @@ export async function fetchLiveTenantSnapshot(
     const cappedGroups = groupsResult.items.slice(0, MAX_GROUPS_FOR_MEMBER_SCAN);
     if (groupsResult.items.length > MAX_GROUPS_FOR_MEMBER_SCAN) {
       syncErrors.push(
-        `Groups: Owner/member scan capped at the first ${MAX_GROUPS_FOR_MEMBER_SCAN} groups for sync performance — this tenant may have more.`
+        `Groups: Owner/member scan capped at the first ${MAX_GROUPS_FOR_MEMBER_SCAN} groups for sync performance - this tenant may have more.`
       );
     }
 
@@ -1051,7 +1051,7 @@ export async function fetchLiveTenantSnapshot(
       })
     );
 
-    // GET /groupSettings — tenant-wide expiration/self-service-creation/naming
+    // GET /groupSettings - tenant-wide expiration/self-service-creation/naming
     // policy. A 403 here (missing permission) is common and shouldn't block
     // the rest of the group data above from being used.
     const settingsResult = await fetchAllPages<any>("https://graph.microsoft.com/v1.0/groupSettings", headers);
@@ -1067,7 +1067,7 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`Groups: ${err.message || "Unexpected error while processing groups."}`);
   }
 
-  // 8.9. SharePoint, OneDrive & Storage — depends on groupsLive (fetched
+  // 8.9. SharePoint, OneDrive & Storage - depends on groupsLive (fetched
   // above) to resolve a team site's owner via its linked M365 group. No bulk
   // "every site's storage quota" Graph endpoint exists any more than for
   // groups' owners/members, so the same N+1-with-a-cap shape applies: one
@@ -1095,7 +1095,7 @@ export async function fetchLiveTenantSnapshot(
     const cappedSites = sitesResult.items.slice(0, MAX_SITES_FOR_STORAGE_SCAN);
     if (sitesResult.items.length > MAX_SITES_FOR_STORAGE_SCAN) {
       syncErrors.push(
-        `SharePoint Sites: Storage scan capped at the first ${MAX_SITES_FOR_STORAGE_SCAN} sites for sync performance — this tenant may have more.`
+        `SharePoint Sites: Storage scan capped at the first ${MAX_SITES_FOR_STORAGE_SCAN} sites for sync performance - this tenant may have more.`
       );
     }
 
@@ -1136,7 +1136,7 @@ export async function fetchLiveTenantSnapshot(
   };
 
   // 10. Build or update snapshot. The fields below are all overwritten immediately
-  // after with the data just fetched — createBlankSnapshot only needs to supply a
+  // after with the data just fetched - createBlankSnapshot only needs to supply a
   // structurally valid starting point for a tenant's first-ever sync.
   const base = existingSnapshot || createBlankSnapshot(tenant);
 
@@ -1229,7 +1229,7 @@ export async function fetchLiveTenantSnapshot(
   }
   // Distinguish "never synced" (leave whatever the snapshot already had,
   // including undefined) from "synced but the Get-OrganizationConfig call
-  // itself failed" (null — treated the same as never synced, since there's
+  // itself failed" (null - treated the same as never synced, since there's
   // nothing new to show) from an actual true/false result.
   if (mailboxAuditingEnabled !== undefined && mailboxAuditingEnabled !== null) {
     base.mailboxAuditingEnabled = mailboxAuditingEnabled;
@@ -1239,7 +1239,7 @@ export async function fetchLiveTenantSnapshot(
     policies: mdoPolicies !== null ? mdoPolicies : base.mdoThreat.policies,
     // A successful live fetch replaces the synced portion of the list, but
     // preserves any entry added locally while writes were disabled (or
-    // before EXO was connected) — those never exist in the real Tenant
+    // before EXO was connected) - those never exist in the real Tenant
     // Allow/Block List, so a Get-TenantAllowBlockListItems fetch can never
     // return them, and replacing wholesale would silently delete them.
     // See tenant-store.addTablEntry, which is what sets isLocalOnly.
