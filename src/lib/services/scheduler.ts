@@ -1,7 +1,7 @@
 import { tenantStore } from "./tenant-store";
 
 // Background auto-sync, driven by Settings > Auto-Sync Interval (Minutes). A plain
-// setInterval checker rather than a cron dependency — the setting is just "every N
+// setInterval checker rather than a cron dependency - the setting is just "every N
 // minutes", not a cron expression, so a periodic check-and-run is all that's needed.
 //
 // Guarded via globalThis the same way tenantStore's singleton is, so Next.js dev-mode
@@ -22,7 +22,7 @@ export function startAutoSyncScheduler() {
   if (process.env.NEXT_PHASE === "phase-production-build") return;
   if (g.clarity365SchedulerStarted) return;
   g.clarity365SchedulerStarted = true;
-  // Start the clock now, not at epoch — avoids an immediate sync-all on every server
+  // Start the clock now, not at epoch - avoids an immediate sync-all on every server
   // boot (including frequent dev-server restarts), which would otherwise fire within
   // the first check cycle.
   g.clarity365LastAutoSyncAt = Date.now();
@@ -44,12 +44,12 @@ export function startAutoSyncScheduler() {
           console.log(`[Clarity365 Scheduler] Auto-synced '${tenant.displayName}'.`);
         } else {
           // syncTenant already wrote a "tenant_sync_failure" audit log entry for
-          // stale_fallback/no_data outcomes — just surface it to the console here.
+          // stale_fallback/no_data outcomes - just surface it to the console here.
           console.error(`[Clarity365 Scheduler] Auto-sync failed for '${tenant.displayName}': ${result?.error}`);
         }
       } catch (err) {
         // syncTenant threw outright (e.g. a DB error) rather than returning a
-        // result — log it here since there was no return value to log from.
+        // result - log it here since there was no return value to log from.
         console.error(`[Clarity365 Scheduler] Auto-sync failed for '${tenant.displayName}':`, err);
         tenantStore.addAuditLogEntry({
           timestamp: new Date().toISOString(),
