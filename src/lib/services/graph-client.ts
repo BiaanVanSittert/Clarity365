@@ -816,7 +816,7 @@ export async function fetchLiveTenantSnapshot(
   let intuneDevices: IntuneDevice[] = [];
   try {
     const devicesResult = await fetchAllPages<any>(
-      "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=999&$select=id,deviceName,userPrincipalName,operatingSystem,osVersion,complianceState,isEncrypted,lastSyncDateTime,model,manufacturer,serialNumber,imei,enrolledDateTime,managementAgent,ownerType,deviceEnrollmentType,totalStorageSpaceInBytes,freeStorageSpaceInBytes,deviceCategoryDisplayName,azureADDeviceId,jailBroken,complianceGracePeriodExpirationDateTime,wiFiMacAddress",
+      "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=999&$select=id,deviceName,userPrincipalName,operatingSystem,osVersion,complianceState,isEncrypted,lastSyncDateTime,model,manufacturer,serialNumber,imei,enrolledDateTime,managementAgent,managedDeviceOwnerType,deviceEnrollmentType,totalStorageSpaceInBytes,freeStorageSpaceInBytes,deviceCategoryDisplayName,azureADDeviceId,jailBroken,complianceGracePeriodExpirationDateTime,wiFiMacAddress",
       headers
     );
     if (devicesResult.error) syncErrors.push(`Intune devices: ${devicesResult.error}`);

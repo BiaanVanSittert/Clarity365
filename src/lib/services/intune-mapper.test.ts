@@ -116,7 +116,7 @@ describe("mapManagedDeviceToIntuneDevice", () => {
       imei: "490154203237518",
       enrolledDateTime: "2025-01-15T09:00:00Z",
       managementAgent: "mdm",
-      ownerType: "Company",
+      managedDeviceOwnerType: "Company",
       deviceEnrollmentType: "windowsAzureADJoin",
       totalStorageSpaceInBytes: 512_000_000_000,
       freeStorageSpaceInBytes: 128_000_000_000,
@@ -145,6 +145,6 @@ describe("mapManagedDeviceToIntuneDevice", () => {
   });
 
   it("falls back to 'unknown' ownerType for an unrecognized raw value", () => {
-    expect(mapManagedDeviceToIntuneDevice({ id: "dev-4", ownerType: "somethingElse" }).ownerType).toBe("unknown");
+    expect(mapManagedDeviceToIntuneDevice({ id: "dev-4", managedDeviceOwnerType: "somethingElse" }).ownerType).toBe("unknown");
   });
 });

@@ -86,7 +86,7 @@ export function mapManagedDeviceToIntuneDevice(raw: any): IntuneDevice {
     imei: raw.imei || undefined,
     enrolledDateTime: raw.enrolledDateTime || undefined,
     managementAgent: raw.managementAgent || undefined,
-    ownerType: normalizeOwnerType(raw.ownerType),
+    ownerType: normalizeOwnerType(raw.managedDeviceOwnerType),
     deviceEnrollmentType: raw.deviceEnrollmentType || undefined,
     totalStorageBytes: numberOrUndefined(raw.totalStorageSpaceInBytes),
     freeStorageBytes: numberOrUndefined(raw.freeStorageSpaceInBytes),
