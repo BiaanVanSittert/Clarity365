@@ -57,11 +57,11 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
   const { tenant, secureScore, conditionalAccess, signIns, accountClassification, mailboxes, emailForwarding, intune, capabilities, highRiskThreatIndicators, sharePoint } = snapshot;
 
-  // Derived live from emailForwarding — see types/index.ts's removal comment
+  // Derived live from emailForwarding - see types/index.ts's removal comment
   // for why this is no longer a separate stored counter.
   const externalForwardingCount = emailForwarding.filter((r) => r.isExternal && r.state === "Enabled").length;
 
-  // Derived live from sharePoint.sites — same removal reasoning as
+  // Derived live from sharePoint.sites - same removal reasoning as
   // externalForwardingCount above (see types/index.ts).
   const openSharePointSitesCount = sharePoint.sites.filter((s) => s.sharingCapability === "Anyone").length;
 
@@ -473,7 +473,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                 />
               </div>
 
-              {/* Exchange & Mailflow Security Score — rollup of MDO's baseline,
+              {/* Exchange & Mailflow Security Score - rollup of MDO's baseline,
                   the Mail Flow Rules baseline, Domain Auth, and the mailbox
                   audit-logging gate into one trackable percentage. */}
               {exchangeMailflowScore.totalCount > 0 && (
