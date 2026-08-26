@@ -3,12 +3,12 @@ interface ShutdownGlobal {
 }
 
 // Next.js calls register() once when the server process starts. Used here to kick
-// off the auto-sync scheduler and register a graceful-shutdown handler — guarded
+// off the auto-sync scheduler and register a graceful-shutdown handler - guarded
 // to the Node.js runtime since better-sqlite3, the scheduler's setInterval, and
 // process signal handlers have no business running in the Edge runtime.
 //
 // IMPORTANT: keep every dynamic import needed here directly inside this `if`
-// block (not behind a separately-defined helper function called from it) —
+// block (not behind a separately-defined helper function called from it) -
 // Next.js's instrumentation bundler strips nodejs-only code textually within
 // this conditional for the Edge build; imports reached only indirectly (e.g.
 // via a helper function invoked from here) are NOT stripped and break the
@@ -25,7 +25,7 @@ export async function register() {
     // the scheduler is, so Next.js dev-mode hot-reloads don't stack duplicate
     // handlers. Note: this project's own `npm run stop`/`restart`
     // (scripts/stop.js) force-kills the process and bypasses these signals
-    // entirely — this handler's main value is the interactive Ctrl+C path and
+    // entirely - this handler's main value is the interactive Ctrl+C path and
     // future non-Windows deployments.
     const g = globalThis as unknown as ShutdownGlobal;
     if (!g.clarity365ShutdownHandlersRegistered) {
