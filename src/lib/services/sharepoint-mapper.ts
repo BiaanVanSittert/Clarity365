@@ -3,16 +3,16 @@ import { SharePointSiteItem, SharePointTenantPolicy, TenantGroup } from "../type
 // Maps raw Microsoft Graph `site`/`drive` resources and the tenant-wide
 // SharePoint admin settings resource into Clarity365's SharePoint types.
 // Field names are based on the documented Graph resources as of this
-// writing — worth confirming against a live tenant, same honesty caveat as
+// writing - worth confirming against a live tenant, same honesty caveat as
 // this codebase's other external-API mappers (see mdo-mapper.ts's header).
 //
 // Two things are deliberately approximate rather than fabricated precision:
-// per-site sharingCapability (defaults to the tenant-wide ceiling — Graph
+// per-site sharingCapability (defaults to the tenant-wide ceiling - Graph
 // doesn't expose a reliable per-site override outside the SharePoint
 // Admin/PnP surface this app doesn't have a credential for) and
 // isSensitiveDataPresent (a keyword heuristic, not a real Purview
 // sensitivity-label/DLP signal). Hub-site detection is not attempted in this
-// pass — sites are inferred as TeamSite/CommunicationSite/PersonalOneDrive
+// pass - sites are inferred as TeamSite/CommunicationSite/PersonalOneDrive
 // only.
 
 const SENSITIVE_KEYWORDS = [
@@ -79,7 +79,7 @@ export function mapSharePointSite(
   };
 }
 
-// GET /v1.0/admin/sharepoint/settings — tenant-wide SharePoint admin
+// GET /v1.0/admin/sharepoint/settings - tenant-wide SharePoint admin
 // settings. This is a comparatively new Graph resource; field names here are
 // a best-effort mapping and most worth confirming against a live tenant of
 // everything in this file.
