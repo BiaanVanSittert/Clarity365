@@ -728,7 +728,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
         spf: { status: "pass", detail: 'SPF record found and enforced: "v=spf1 include:spf.protection.outlook.com -all"' },
         dmarc: {
           status: "warn",
-          detail: 'DMARC record found but set to monitoring-only (p=none) — spoofed mail is reported on, not blocked or quarantined: "v=DMARC1; p=none; rua=mailto:dmarc@contosopharm.com"',
+          detail: 'DMARC record found but set to monitoring-only (p=none) - spoofed mail is reported on, not blocked or quarantined: "v=DMARC1; p=none; rua=mailto:dmarc@contosopharm.com"',
           recommendation: "Move to 'p=quarantine' once reporting shows no legitimate mail would be affected, then to 'p=reject'.",
         },
       },
@@ -1423,7 +1423,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           classification: "truePositive",
           category: "Phishing",
           createdDateTime: "2026-08-21T13:40:00Z",
-          description: "Time-of-click protection unavailable — Safe Links is not configured, so a credential-harvesting URL was not scanned before delivery.",
+          description: "Time-of-click protection unavailable - Safe Links is not configured, so a credential-harvesting URL was not scanned before delivery.",
           affectedUsers: ["nurse.patel@northwindhealth.org", "intake-desk@northwindhealth.org"],
         },
         {
