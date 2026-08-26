@@ -13,7 +13,7 @@ export interface MailflowBaselineInput {
 // Scores live mail-flow data (transport rules, connectors, the two org-wide
 // auto-forward switches, and the AntiSpamOutbound policy already fetched for
 // MDO) against MAILFLOW_BASELINE_STANDARDS. MF01-03/05-06 are "does anything
-// violate this" checks — met only if zero rules/connectors do, with every
+// violate this" checks - met only if zero rules/connectors do, with every
 // offender named so an admin can judge intent before acting. MF04/07/08 are
 // single tenant-wide settings, same shape as an MDO0x check.
 function evaluateCode(code: string, input: MailflowBaselineInput): MailflowBaselineResult {
