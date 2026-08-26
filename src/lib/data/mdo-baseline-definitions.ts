@@ -4,8 +4,8 @@ import { MdoBaselineItem, MdoThreatPolicy } from "../types";
 // Office 365: instead of scoring "is a policy configured," each check scores
 // one specific setting against Microsoft's Standard preset security policy
 // recommendation. Unlike CA (which has to infer which baseline a policy
-// matches from its structure), MDO doesn't need that — policyType already
-// tells you exactly which cmdlet a row came from — so evaluation in
+// matches from its structure), MDO doesn't need that - policyType already
+// tells you exactly which cmdlet a row came from - so evaluation in
 // mdo-baseline-matcher.ts is a direct field lookup per check, not a cascade.
 
 export interface MdoRemediationAction {
@@ -13,7 +13,7 @@ export interface MdoRemediationAction {
   buildParameters: (policy: MdoThreatPolicy, extra?: Record<string, string>) => Record<string, any>;
   summary: string;
   // Set when the fix needs more than "the policy itself" to be a complete,
-  // real change — e.g. MDO08's NotifyOutboundSpam flag does nothing without
+  // real change - e.g. MDO08's NotifyOutboundSpam flag does nothing without
   // a recipient to actually notify. When set, the UI collects this value
   // before allowing the fix to run, and passes it through as `extra`.
   requiresInputField?: { key: string; label: string; placeholder: string };
@@ -54,7 +54,7 @@ export const MDO_BASELINE_STANDARDS: MdoBaselinePolicyDefinition[] = [
   },
   {
     code: "MDO03",
-    name: "Zero-hour Auto Purge — spam",
+    name: "Zero-hour Auto Purge - spam",
     description: "Inbound anti-spam policy retroactively removes delivered messages later confirmed as spam.",
     policyType: "AntiSpamInbound",
     riskMitigated: "Spam that evades filtering at time of delivery but is identified shortly after.",
@@ -66,7 +66,7 @@ export const MDO_BASELINE_STANDARDS: MdoBaselinePolicyDefinition[] = [
   },
   {
     code: "MDO04",
-    name: "Zero-hour Auto Purge — phishing",
+    name: "Zero-hour Auto Purge - phishing",
     description: "Anti-phish policy retroactively removes delivered messages later confirmed as phishing.",
     policyType: "AntiPhishing",
     riskMitigated: "Phishing that evades filtering at time of delivery but is identified shortly after.",
@@ -123,7 +123,7 @@ export const MDO_BASELINE_STANDARDS: MdoBaselinePolicyDefinition[] = [
       buildParameters: (policy, extra) => ({
         Identity: policy.displayName,
         NotifyOutboundSpam: true,
-        // NotifyOutboundSpam alone doesn't deliver anywhere — EXO needs an
+        // NotifyOutboundSpam alone doesn't deliver anywhere - EXO needs an
         // explicit recipient list, so the UI collects one via
         // requiresInputField below before this fix can run.
         NotifyOutboundSpamRecipients: [extra?.notifyRecipient],
