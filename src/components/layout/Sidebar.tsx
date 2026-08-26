@@ -50,7 +50,7 @@ interface NavGroup {
     icon: React.ElementType;
     badgeCount?: number;
     badgeStatus?: "warn" | "fail" | "info" | "pass";
-    // Optional breakdown shown as the hover tooltip alongside the label —
+    // Optional breakdown shown as the hover tooltip alongside the label -
     // useful when badgeCount sums signals of different kinds (e.g. MDO's
     // config-gap count plus its active-threat count) that read as one
     // ambiguous number otherwise.
@@ -161,7 +161,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const orphanedUsersCount = snapshot ? snapshot.accountClassification.unlicensedActiveCount : 0;
 
-  // Derived live from emailForwarding rather than a separate stored counter —
+  // Derived live from emailForwarding rather than a separate stored counter -
   // the old highRiskThreatIndicators.externalForwardingCount was mock-only
   // and never updated by a live sync (see types/index.ts's removal comment).
   const externalForwardingCount = snapshot
@@ -295,7 +295,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       // Everything in this group is sourced from the same Exchange Online
       // admin connection (MDO's device-code EXO connection, established for
-      // Module 8, is reused by every check below it) — consolidated into one
+      // Module 8, is reused by every check below it) - consolidated into one
       // group so a security admin has a single place to go for "everything
       // about my mail security" rather than it being split across groups.
       label: "Exchange & Mailflow",
@@ -317,7 +317,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: Mail,
           badgeCount: mailboxAuditGapCount > 0 ? mailboxAuditGapCount : undefined,
           badgeStatus: "warn",
-          badgeDetail: mailboxAuditGapCount > 0 ? "Mailbox audit logging is off — delegation findings can't be investigated after the fact" : undefined,
+          badgeDetail: mailboxAuditGapCount > 0 ? "Mailbox audit logging is off - delegation findings can't be investigated after the fact" : undefined,
         },
         {
           id: "forwarding",
@@ -397,7 +397,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         isCollapsed ? "w-14" : "w-64"
       } border-r border-[#CBD5E1] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-800 flex flex-col h-[calc(100vh-3rem)] select-none shrink-0 overflow-y-auto overflow-x-hidden transition-[width] duration-150`}
     >
-      {/* Alert Clearance Status Bar — hidden when collapsed; it's inherently
+      {/* Alert Clearance Status Bar - hidden when collapsed; it's inherently
           text-heavy with no meaningful icon-only equivalent at rail width. */}
       {!isCollapsed && (
       <div className="px-3 pt-3 pb-1 border-b border-[#E2E8F0] dark:border-slate-700 bg-white/70 dark:bg-slate-900/40">
@@ -459,7 +459,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <button
                     key={item.id}
                     onClick={() => onSelectView(item.id)}
-                    title={item.badgeDetail ? `${item.label} — ${item.badgeDetail}` : isCollapsed ? item.label : undefined}
+                    title={item.badgeDetail ? `${item.label} - ${item.badgeDetail}` : isCollapsed ? item.label : undefined}
                     className={`w-full text-left px-2.5 py-1.5 text-xs flex items-center rounded-sm transition-colors ${
                       isCollapsed ? "justify-center" : "justify-between"
                     } ${
