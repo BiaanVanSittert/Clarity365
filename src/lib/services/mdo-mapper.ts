@@ -4,10 +4,10 @@ import { MdoThreatPolicy, TablEntry } from "../types";
 // REST "InvokeCommand" surface, see exo-client.ts) into Clarity365's MDO
 // policy/TABL shapes. The EXO cmdlet output field names referenced below
 // (Enabled, EnableTargetedUserProtection, SpamZapEnabled, etc.) are based on
-// the documented Get-*Policy cmdlets as of this writing — worth confirming
+// the documented Get-*Policy cmdlets as of this writing - worth confirming
 // against a real tenant's actual JSON shape during live testing, since EXO's
 // PowerShell-oriented serialization can have quirks (e.g. field casing, or a
-// single result serializing as an object instead of a one-item array —
+// single result serializing as an object instead of a one-item array -
 // exo-client.ts's invokeExoCommand already normalizes the latter).
 
 function deriveState(raw: any): MdoThreatPolicy["state"] {
@@ -23,7 +23,7 @@ function deriveAssignedScope(raw: any): string {
   return scopedFields.flat().join(", ");
 }
 
-// Each policyType has its own specific baseline-relevant field(s) — the same
+// Each policyType has its own specific baseline-relevant field(s) - the same
 // ones mdo-baseline-matcher.ts scores per MDO0x check. Keying compliance off
 // exactly those fields (rather than a generic OR across anti-phish-shaped
 // booleans) keeps this rating consistent with the Baseline & Posture tab's
@@ -59,7 +59,7 @@ export function mapMdoPolicy(raw: any, policyType: MdoThreatPolicy["policyType"]
   const spoofIntelligence = !!raw.EnableSpoofIntelligence;
   const zapEnabled = !!(raw.SpamZapEnabled || raw.PhishZapEnabled || raw.ZapEnabled);
 
-  // Baseline-scoring fields (see mdo-baseline-definitions.ts) — each backs one
+  // Baseline-scoring fields (see mdo-baseline-definitions.ts) - each backs one
   // specific MDO0x check, so unlike the generic booleans above these are only
   // meaningful for the policyType that actually carries them.
   const realTimeScanning = !!(raw.EnableSafeLinksForEmail && raw.ScanUrls);
@@ -104,7 +104,7 @@ export function defaultTablExpirationIso(): string {
 
 export type TablListType = "Sender" | "Url" | "FileHash";
 
-// Inverse of the entryType derivation in mapTablEntry below — used when
+// Inverse of the entryType derivation in mapTablEntry below - used when
 // writing an entry back to EXO (New-/Remove-TenantAllowBlockListItems take a
 // -ListType, not Clarity365's finer-grained entryType).
 export function mapEntryTypeToListType(entryType: TablEntry["entryType"]): TablListType {
