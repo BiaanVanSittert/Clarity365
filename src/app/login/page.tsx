@@ -35,7 +35,7 @@ export default function LoginPage() {
       if (!data.success) {
         if (data.needsSetup) {
           setMode("setup");
-          throw new Error("No password has been set up yet — create one below.");
+          throw new Error("No password has been set up yet - create one below.");
         }
         throw new Error(data.error || "Login failed.");
       }
@@ -87,7 +87,7 @@ export default function LoginPage() {
         {mode === "setup" && (
           <form onSubmit={handleSetup} className="space-y-3">
             <div className="p-2.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs rounded-sm">
-              First run — create the operator password used to sign in to Clarity365.
+              First run - create the operator password used to sign in to Clarity365.
             </div>
             {error && (
               <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-sm">{error}</div>
