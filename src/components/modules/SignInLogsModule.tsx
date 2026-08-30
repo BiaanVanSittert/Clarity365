@@ -226,16 +226,16 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
       if (timePreset === "custom") {
         if (specificDate) {
           const startOfDay = new Date(`${specificDate}T00:00:00`).getTime();
-          const endOfDay = new Date(`${specificDate}T23:59:59`).getTime();
+          const endOfDay = new Date(`${specificDate}T23:59:59.999`).getTime();
           return evtTime >= startOfDay && evtTime <= endOfDay;
         }
 
         if (customStartDate) {
-          const start = new Date(customStartDate).getTime();
+          const start = new Date(`${customStartDate}T00:00:00`).getTime();
           if (evtTime < start) return false;
         }
         if (customEndDate) {
-          const end = new Date(customEndDate).getTime() + (customEndDate.includes("T") ? 0 : 24 * 60 * 60 * 1000 - 1);
+          const end = new Date(`${customEndDate}T23:59:59.999`).getTime();
           if (evtTime > end) return false;
         }
         return true;
