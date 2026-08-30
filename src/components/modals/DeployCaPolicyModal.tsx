@@ -219,10 +219,16 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
                   setDeployError(null);
                   setShowConfirmDeploy(true);
                 }}
-                className="flex items-center gap-1.5 px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-sm transition-colors shadow-sm"
+                disabled={policy.requiresEntraP2 && !hasEntraP2}
+                title={
+                  policy.requiresEntraP2 && !hasEntraP2
+                    ? "Requires Microsoft Entra ID Plan 2 license to implement."
+                    : "Auto-deploy this baseline policy to Microsoft Graph in Report-Only mode"
+                }
+                className="flex items-center gap-1.5 px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-sm transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Zap className="w-3.5 h-3.5 text-amber-400" />
-                <span>Auto-Deploy to Tenant</span>
+                <span>{policy.requiresEntraP2 && !hasEntraP2 ? "Requires P2 License" : "Auto-Deploy to Tenant"}</span>
               </button>
             </div>
           </div>
