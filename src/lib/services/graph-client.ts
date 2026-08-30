@@ -1,4 +1,4 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { matchCaBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
@@ -16,7 +16,10 @@ import {
   mapGroupNamingPolicyEnabled,
 } from "./groups-mapper";
 import { mapSharePointSite, mapTenantSharingSettings } from "./sharepoint-mapper";
+import { mapAppRegistration } from "./app-registration-mapper";
+import { mapSubscribedSkusToCapabilities } from "./capabilities-mapper";
 import { graphFetch } from "./graph-fetch";
+
 
 // No bulk "every group's owners/members" Graph endpoint exists - capped for
 // the same reason the mailflow mailbox scan is capped (see exo-client.ts).
@@ -576,18 +579,21 @@ export async function fetchLiveTenantSnapshot(
 
   try {
     const usersResult = await fetchAllPages<any>(
-      "https://graph.microsoft.com/v1.0/users?$top=999&$select=id,displayName,userPrincipalName,accountEnabled,jobTitle,department,createdDateTime,assignedLicenses",
+      "https://graph.microsoft.com/v1.0/users?$top=999&$select=id,displayName,userPrincipalName,accountEnabled,jobTitle,department,createdDateTime,assignedLicenses,userType",
       headers
     );
     if (usersResult.error) syncErrors.push(`Users: ${usersResult.error}`);
 
     usersList = usersResult.items.map((u: any) => {
+      const isGuest = u.userType?.toLowerCase() === "guest";
       const hasLicense = u.assignedLicenses && u.assignedLicenses.length > 0;
       const isEnabled = u.accountEnabled !== false;
       let classification: "licensed" | "unlicensed_active" | "disabled" | "guest" = "licensed";
 
       if (!isEnabled) {
         classification = "disabled";
+      } else if (isGuest) {
+        classification = "guest";
       } else if (hasLicense) {
         classification = "licensed";
       } else {
@@ -1146,6 +1152,37 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`SharePoint: ${err.message || "Unexpected error while processing SharePoint sites."}`);
   }
 
+  // 8.95. Fetch App Registrations & Enterprise Applications (Module 9)
+  let appRegistrationsLive: AppRegistrationItem[] | null = null;
+  try {
+    const appsResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/v1.0/applications?$top=999&$select=id,appId,displayName,publisherDomain,createdDateTime,keyCredentials,passwordCredentials,requiredResourceAccess,signInAudience",
+      headers
+    );
+    if (appsResult.error) {
+      syncErrors.push(`App Registrations: ${appsResult.error}`);
+    } else {
+      appRegistrationsLive = appsResult.items.map(mapAppRegistration);
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching app registrations:", err);
+    syncErrors.push(`App Registrations: ${err.message || "Unexpected error while processing applications."}`);
+  }
+
+  // 8.96. Fetch Subscribed SKUs & detect Tenant Capabilities / Licenses
+  let capabilitiesLive: TenantCapability[] | null = null;
+  try {
+    const skusResult = await fetchAllPages<any>("https://graph.microsoft.com/v1.0/subscribedSkus", headers);
+    if (skusResult.error) {
+      syncErrors.push(`Tenant Licenses (SubscribedSkus): ${skusResult.error}`);
+    } else if (skusResult.items.length > 0) {
+      capabilitiesLive = mapSubscribedSkusToCapabilities(skusResult.items);
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching subscribed SKUs:", err);
+    syncErrors.push(`Tenant Licenses: ${err.message || "Unexpected error while processing subscribed SKUs."}`);
+  }
+
   // 9. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = computeBaselineCoveragePercent(deployedBaselineCodes.size, CA_BASELINE_STANDARDS.length);
@@ -1187,7 +1224,7 @@ export async function fetchLiveTenantSnapshot(
       licensedUsersCount: usersList.filter((u) => u.classification === "licensed").length,
       unlicensedActiveCount: usersList.filter((u) => u.classification === "unlicensed_active").length,
       disabledAccountsCount: usersList.filter((u) => u.classification === "disabled").length,
-      guestAccountsCount: 0,
+      guestAccountsCount: usersList.filter((u) => u.classification === "guest").length,
       users: usersList,
     };
   }
@@ -1206,6 +1243,14 @@ export async function fetchLiveTenantSnapshot(
 
   if (secureScoreData) {
     base.secureScore = secureScoreData;
+  }
+
+  if (capabilitiesLive !== null) {
+    base.capabilities = capabilitiesLive;
+  }
+
+  if (appRegistrationsLive !== null) {
+    base.appRegistrations = appRegistrationsLive;
   }
 
   // Each of the three mdoThreat fields comes from an independent source (EXO
@@ -1266,6 +1311,19 @@ export async function fetchLiveTenantSnapshot(
     // See tenant-store.addTablEntry, which is what sets isLocalOnly.
     tabl: mdoTabl !== null ? [...base.mdoThreat.tabl.filter((e) => e.isLocalOnly), ...mdoTabl] : base.mdoThreat.tabl,
     alerts: mdoAlerts !== null ? mdoAlerts : base.mdoThreat.alerts,
+  };
+
+  // Compute High Risk Threat Indicators from freshly aggregated data
+  const unprotectedAdmins = (base.mfaAudit || []).filter(
+    (u) => u.isAdmin && (u.isWeakAuth || !u.mfaRegistered)
+  ).length;
+  const highRiskApps = (base.appRegistrations || []).filter(
+    (a) => a.riskCategory === "critical" || a.riskCategory === "high"
+  ).length;
+
+  base.highRiskThreatIndicators = {
+    unprotectedAdminsCount: unprotectedAdmins,
+    highRiskAppRegistrationsCount: highRiskApps,
   };
 
   return { snapshot: base };
