@@ -1,4 +1,4 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability, SecurityIncidentItem } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { matchCaBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
@@ -18,7 +18,9 @@ import {
 import { mapSharePointSite, mapTenantSharingSettings } from "./sharepoint-mapper";
 import { mapAppRegistration } from "./app-registration-mapper";
 import { mapSubscribedSkusToCapabilities } from "./capabilities-mapper";
+import { mapSecurityIncident, synthesizeIncidentsFromMdoAlerts } from "./incident-mapper";
 import { graphFetch } from "./graph-fetch";
+
 
 
 // No bulk "every group's owners/members" Graph endpoint exists - capped for
@@ -1183,6 +1185,28 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`Tenant Licenses: ${err.message || "Unexpected error while processing subscribed SKUs."}`);
   }
 
+  // 8.97. Fetch Microsoft Defender XDR Incidents (Module 8.6: SOC & Event Response)
+  let incidentsLive: SecurityIncidentItem[] | null = null;
+  try {
+    const incidentsResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/v1.0/security/incidents?$top=100&$expand=alerts",
+      headers
+    );
+    if (incidentsResult.error) {
+      syncErrors.push(`Security Incidents: ${incidentsResult.error}`);
+    } else if (incidentsResult.items.length > 0) {
+      incidentsLive = incidentsResult.items.map(mapSecurityIncident);
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching security incidents:", err);
+    syncErrors.push(`Security Incidents: ${err.message || "Unexpected error while processing incidents."}`);
+  }
+
+  // Fallback: If tenant doesn't have Defender XDR incidents, synthesize from MDO alerts
+  if (!incidentsLive && mdoAlerts && mdoAlerts.length > 0) {
+    incidentsLive = synthesizeIncidentsFromMdoAlerts(mdoAlerts);
+  }
+
   // 9. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = computeBaselineCoveragePercent(deployedBaselineCodes.size, CA_BASELINE_STANDARDS.length);
@@ -1251,6 +1275,12 @@ export async function fetchLiveTenantSnapshot(
 
   if (appRegistrationsLive !== null) {
     base.appRegistrations = appRegistrationsLive;
+  }
+
+  if (incidentsLive !== null) {
+    base.incidents = incidentsLive;
+  } else if (!base.incidents) {
+    base.incidents = [];
   }
 
   // Each of the three mdoThreat fields comes from an independent source (EXO
