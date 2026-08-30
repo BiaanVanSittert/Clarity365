@@ -3,7 +3,7 @@ import { AuditLogEntry, Tenant } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Pagination } from "../common/Pagination";
 import { EmptyStateRow } from "../common/EmptyStateRow";
-import { History, Search, Filter, RefreshCw, ShieldCheck, Bot, XCircle, Download } from "lucide-react";
+import { History, Search, Filter, RefreshCw, ShieldCheck, Bot, XCircle, Download, Wrench } from "lucide-react";
 import { exportToCsv } from "@/lib/utils/csv";
 
 interface AuditLogModuleProps {
@@ -14,6 +14,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   ca_policy_deploy: "CA Policy Deploy",
   mcp_tool_call: "MCP Tool Call",
   tenant_sync_failure: "Tenant Sync Failure",
+  exo_write: "Exchange Online Write",
 };
 
 export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
@@ -62,6 +63,7 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
 
   const deployCount = entries.filter((e) => e.category === "ca_policy_deploy").length;
   const mcpCount = entries.filter((e) => e.category === "mcp_tool_call").length;
+  const exoWriteCount = entries.filter((e) => e.category === "exo_write").length;
   const failureCount = entries.filter((e) => !e.success).length;
 
   // Export to CSV
@@ -90,7 +92,7 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
             <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">System Audit Log</h2>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Record of Conditional Access baseline deployments and MCP agent tool executions across all tenants.
+            Record of Conditional Access deployments, Exchange Online remediation writes, and MCP agent tool executions across all tenants.
           </p>
         </div>
 
@@ -105,7 +107,7 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
         <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
           <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 font-semibold">Total Entries</div>
           <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">{entries.length}</div>
@@ -119,6 +121,15 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
           </div>
           <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">{deployCount}</div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Baseline policies pushed</div>
+        </div>
+
+        <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
+          <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 font-semibold flex items-center gap-1">
+            <Wrench size={11} />
+            <span>EXO Remediation</span>
+          </div>
+          <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">{exoWriteCount}</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Live Exchange writes</div>
         </div>
 
         <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
@@ -164,6 +175,7 @@ export const AuditLogModule: React.FC<AuditLogModuleProps> = ({ tenants }) => {
           >
             <option value="all">All Categories</option>
             <option value="ca_policy_deploy">CA Policy Deploy</option>
+            <option value="exo_write">Exchange Online Write</option>
             <option value="mcp_tool_call">MCP Tool Call</option>
             <option value="tenant_sync_failure">Tenant Sync Failure</option>
           </select>
