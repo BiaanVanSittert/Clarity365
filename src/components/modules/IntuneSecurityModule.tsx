@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { TenantSecuritySnapshot, IntuneDevice } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Drawer } from "../common/Drawer";
@@ -8,6 +8,8 @@ import { EmptyStateRow } from "../common/EmptyStateRow";
 
 interface IntuneSecurityModuleProps {
   snapshot: TenantSecuritySnapshot;
+  highlightEntityId?: string | null;
+  onClearHighlight?: () => void;
 }
 
 function formatBytes(bytes: number | undefined): string {
@@ -22,11 +24,23 @@ function formatDate(value: string | undefined): string {
   return isNaN(d.getTime()) ? "-" : d.toLocaleString();
 }
 
-export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snapshot }) => {
+export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({
+  snapshot,
+  highlightEntityId,
+  onClearHighlight,
+}) => {
   const { intune } = snapshot;
   const [searchQuery, setSearchQuery] = useState("");
   const [osFilter, setOsFilter] = useState<string>("all");
   const [selectedDevice, setSelectedDevice] = useState<IntuneDevice | null>(null);
+
+  const highlightedRowRef = useRef<HTMLTableRowElement | null>(null);
+
+  useEffect(() => {
+    if (highlightEntityId && highlightedRowRef.current) {
+      highlightedRowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlightEntityId]);
 
   const devices = intune.devices;
 
@@ -56,7 +70,14 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
   };
 
   return (
-    <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
+    <div
+      className="p-5 space-y-4 max-w-[1600px] mx-auto select-none"
+      onClick={() => {
+        if (highlightEntityId && onClearHighlight) {
+          onClearHighlight();
+        }
+      }}
+    >
       {/* Header */}
       <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -174,19 +195,31 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
               {filteredDevices.length === 0 ? (
                 <EmptyStateRow colSpan={8} entityLabel="endpoint devices" isFiltered={searchQuery.trim().length > 0 || osFilter !== "all"} />
               ) : (
-                filteredDevices.map((dev) => (
-                  <tr
-                    key={dev.id}
-                    onClick={() => setSelectedDevice(dev)}
-                    tabIndex={0}
-                    role="button"
-                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSelectedDevice(dev))}
-                    className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2 ${
-                      dev.complianceState === "noncompliant" ? "bg-red-50/20 dark:bg-red-950" : ""
-                    }`}
-                  >
-                    <td>
-                      <div className="font-semibold text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                filteredDevices.map((dev) => {
+                  const isHighlighted =
+                    Boolean(highlightEntityId) &&
+                    (highlightEntityId === dev.id ||
+                      highlightEntityId?.toLowerCase() === dev.deviceName.toLowerCase() ||
+                      highlightEntityId?.toLowerCase() === dev.userPrincipalName.toLowerCase());
+
+                  return (
+                    <tr
+                      key={dev.id}
+                      ref={isHighlighted ? highlightedRowRef : null}
+                      onClick={() => setSelectedDevice(dev)}
+                      tabIndex={0}
+                      role="button"
+                      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSelectedDevice(dev))}
+                      className={`cursor-pointer transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2 ${
+                        isHighlighted
+                          ? "animate-slow-flash"
+                          : dev.complianceState === "noncompliant"
+                          ? "bg-red-50/20 dark:bg-red-950/30 hover:bg-red-50/40 dark:hover:bg-red-950/50"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-700"
+                      }`}
+                    >
+                      <td>
+                        <div className="font-semibold text-xs text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                         <Laptop size={13} className="text-slate-500 dark:text-slate-400" />
                         <span>{dev.deviceName}</span>
                       </div>
@@ -236,8 +269,8 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({ snap
                       </button>
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              }))}
             </tbody>
           </table>
         </div>
