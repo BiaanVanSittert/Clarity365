@@ -100,3 +100,22 @@ body {
 .dark .table-dense tr:hover td {
   background-color: #1e293b;
 }
+
+/* Target Navigation Slow Flash Highlighting */
+@keyframes slowFlash {
+  0%, 100% {
+    background-color: rgba(99, 102, 241, 0.15);
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.5);
+  }
+  50% {
+    background-color: rgba(99, 102, 241, 0.35);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.9), 0 0 12px rgba(99, 102, 241, 0.3);
+  }
+}
+
+.animate-slow-flash {
+  animation: slowFlash 2s ease-in-out infinite;
+  border-color: #6366f1 !important;
+  position: relative;
+  z-index: 10;
+}
