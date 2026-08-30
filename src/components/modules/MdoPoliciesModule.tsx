@@ -291,7 +291,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
             </h2>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Score Defender for Office 365 configuration against Microsoft's recommended baseline, govern the Allow/Block List, and surface real detected threats.
+            Score Defender for Office 365 configuration against Microsoft&apos;s recommended baseline, govern the Allow/Block List, and surface real detected threats.
           </p>
         </div>
 
@@ -932,7 +932,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
                 This will immediately {listType === "block" ? "block" : "allow"} <strong>{entryValue}</strong> in{" "}
-                <strong>{tenant.displayName}</strong>'s live Exchange Online Tenant Allow/Block List, expiring{" "}
+                <strong>{tenant.displayName}</strong>&apos;s live Exchange Online Tenant Allow/Block List, expiring{" "}
                 {noExpiration ? "never" : new Date(expirationInput).toLocaleDateString()}. This takes effect right
                 away - there is no report-only mode and no undo from here.
               </p>
@@ -1056,7 +1056,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
             ) : (
               <div className="flex items-start gap-2 p-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 rounded-sm text-[11px] text-amber-900 dark:text-amber-400">
                 <AlertTriangle size={13} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                <span>Live writes are enabled. You'll be asked to confirm before this reaches Exchange Online.</span>
+                <span>Live writes are enabled. You&apos;ll be asked to confirm before this reaches Exchange Online.</span>
               </div>
             )}
 
