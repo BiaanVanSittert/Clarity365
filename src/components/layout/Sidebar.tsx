@@ -24,17 +24,24 @@ import {
   GitBranch,
   Fingerprint,
   Flame,
+  Building2,
+  DollarSign,
+  ChevronRight,
 } from "lucide-react";
-import { TenantSecuritySnapshot } from "@/lib/types";
+import { TenantSecuritySnapshot, FleetPostureSummary } from "@/lib/types";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
 import { evaluateMailflowBaseline } from "@/lib/services/mailflow-baseline-matcher";
 import { evaluateGroupsBaseline } from "@/lib/services/groups-baseline-matcher";
 import { evaluateSharePointBaseline } from "@/lib/services/sharepoint-baseline-matcher";
+import { calculateTenantMonthlyWaste } from "@/lib/services/fleet-analyzer";
 
 interface SidebarProps {
   activeView: string;
   onSelectView: (view: string) => void;
   snapshot: TenantSecuritySnapshot | null;
+  isFleetMode?: boolean;
+  fleetSummary?: FleetPostureSummary | null;
+  onSelectTenant?: (tenantId: string) => void;
   dismissedAlerts?: Record<string, boolean>;
   onClearAllAlerts?: () => void;
   onRestoreAlerts?: () => void;
@@ -65,6 +72,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeView,
   onSelectView,
   snapshot,
+  isFleetMode = false,
+  fleetSummary = null,
+  onSelectTenant,
   dismissedAlerts: propDismissedAlerts,
   onClearAllAlerts: propOnClearAllAlerts,
   onRestoreAlerts: propOnRestoreAlerts,
@@ -228,21 +238,66 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ? snapshot.incidents.filter((i) => (i.severity === "critical" || i.severity === "high") && i.status !== "resolved").length
     : 0;
 
+  const tenantMonthlyWaste = snapshot ? calculateTenantMonthlyWaste(snapshot).monthlyWasteUsd : 0;
+
   const totalRawAlertCount =
     (missingCABaselineCount > 0 ? missingCABaselineCount : 0) +
     (riskySignInsCount > 0 ? riskySignInsCount : 0) +
-    (weakMfaCount > 0 ? weakMfaCount : 0) +
-    (orphanedUsersCount > 0 ? orphanedUsersCount : 0) +
-    (externalForwardingCount > 0 ? externalForwardingCount : 0) +
-    mailboxAuditGapCount +
-    (mailflowRuleGapCount > 0 ? mailflowRuleGapCount : 0) +
-    (domainAuthGapCount > 0 ? domainAuthGapCount : 0) +
     (groupsBaselineGapCount > 0 ? groupsBaselineGapCount : 0) +
     (sharePointBaselineGapCount > 0 ? sharePointBaselineGapCount : 0) +
     (mdoIssueCount > 0 ? mdoIssueCount : 0) +
     (activeIncidentsCount > 0 ? activeIncidentsCount : 0);
 
-  const navGroups: NavGroup[] = [
+  const fleetNavGroups: NavGroup[] = [
+    {
+      label: "Fleet Command",
+      items: [
+        {
+          id: "fleet_overview",
+          label: "Fleet Posture Matrix",
+          icon: Building2,
+        },
+        {
+          id: "event_response",
+          label: "Cross-Tenant Incidents",
+          icon: Flame,
+          badgeCount: fleetSummary?.totalActiveIncidents || undefined,
+          badgeStatus: (fleetSummary?.totalCriticalHighIncidents || 0) > 0 ? "fail" : "warn",
+          badgeDetail: `${fleetSummary?.totalActiveIncidents || 0} active incident(s) across fleet`,
+        },
+      ],
+    },
+    {
+      label: "Cost & Optimization",
+      items: [
+        {
+          id: "fleet_licenses",
+          label: "License & Cost Optimizer",
+          icon: DollarSign,
+          badgeCount: fleetSummary?.totalMonthlyEstimatedWasteUsd ? Math.round(fleetSummary.totalMonthlyEstimatedWasteUsd) : undefined,
+          badgeStatus: "warn",
+          badgeDetail: fleetSummary?.totalMonthlyEstimatedWasteUsd ? `$${Math.round(fleetSummary.totalMonthlyEstimatedWasteUsd)}/mo recoverable` : undefined,
+        },
+      ],
+    },
+    {
+      label: "System & Integration",
+      items: [
+        {
+          id: "mcp",
+          label: "MCP Tools & Playground",
+          icon: Cpu,
+        },
+        {
+          id: "audit_log",
+          label: "Fleet Audit Trail",
+          icon: History,
+        },
+      ],
+    },
+  ];
+
+  const tenantNavGroups: NavGroup[] = [
     {
       label: "Overview",
       items: [
@@ -318,11 +373,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ],
     },
     {
-      // Everything in this group is sourced from the same Exchange Online
-      // admin connection (MDO's device-code EXO connection, established for
-      // Module 8, is reused by every check below it) - consolidated into one
-      // group so a security admin has a single place to go for "everything
-      // about my mail security" rather than it being split across groups.
       label: "Exchange & Mailflow",
       items: [
         {
@@ -395,6 +445,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ],
     },
     {
+      label: "Cost & Optimization",
+      items: [
+        {
+          id: "license_optimizer",
+          label: "License & Cost Optimizer",
+          icon: DollarSign,
+          badgeCount: tenantMonthlyWaste > 0 ? Math.round(tenantMonthlyWaste) : undefined,
+          badgeStatus: "warn",
+          badgeDetail: tenantMonthlyWaste > 0 ? `$${Math.round(tenantMonthlyWaste)}/mo recoverable waste` : undefined,
+        },
+      ],
+    },
+    {
       label: "System & Integration",
       items: [
         {
@@ -416,15 +479,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
+  const currentNavGroups = isFleetMode ? fleetNavGroups : tenantNavGroups;
+
   return (
     <aside
       className={`${
         isCollapsed ? "w-14" : "w-64"
       } border-r border-[#CBD5E1] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-800 flex flex-col h-[calc(100vh-3rem)] select-none shrink-0 overflow-y-auto overflow-x-hidden transition-[width] duration-150`}
     >
-      {/* Alert Clearance Status Bar - hidden when collapsed; it's inherently
-          text-heavy with no meaningful icon-only equivalent at rail width. */}
-      {!isCollapsed && (
+      {/* Quick Switch to Fleet Command (when inside individual tenant) */}
+      {!isCollapsed && !isFleetMode && onSelectTenant && (
+        <div className="px-3 pt-2.5 pb-1 border-b border-[#E2E8F0] dark:border-slate-700 bg-white/40 dark:bg-slate-900/20">
+          <button
+            onClick={() => onSelectTenant("fleet")}
+            className="w-full px-2.5 py-1.5 text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:text-indigo-950 dark:hover:text-white bg-indigo-50/70 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded flex items-center justify-between border border-indigo-200 dark:border-indigo-800/70 transition-colors shadow-2xs"
+          >
+            <div className="flex items-center gap-1.5">
+              <Building2 size={13} className="text-indigo-600 dark:text-indigo-400" />
+              <span>Fleet Command View</span>
+            </div>
+            <ChevronRight size={13} className="text-indigo-400" />
+          </button>
+        </div>
+      )}
+
+      {/* Alert Clearance Status Bar - hidden when collapsed or in fleet mode */}
+      {!isCollapsed && !isFleetMode && (
       <div className="px-3 pt-3 pb-1 border-b border-[#E2E8F0] dark:border-slate-700 bg-white/70 dark:bg-slate-900/40">
         <div className="flex items-center justify-between text-[11px]">
           <div className="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
@@ -464,7 +544,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <div className={isCollapsed ? "p-2 space-y-3" : "p-3 space-y-4"}>
-        {navGroups.map((group, gIdx) => (
+        {currentNavGroups.map((group, gIdx) => (
           <div key={gIdx} className="space-y-1">
             {isCollapsed ? (
               gIdx > 0 && <div className="mx-1 border-t border-[#E2E8F0] dark:border-slate-700" />
