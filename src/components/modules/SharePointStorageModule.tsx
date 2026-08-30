@@ -313,7 +313,12 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
                       <td>
                         <div className="space-y-1">
                           <div className="flex justify-between text-[11px] font-mono">
-                            <span>{(site.storageUsedGB / 1024).toFixed(1)} GB used</span>
+                            <span>
+                              {site.storageUsedGB >= 1024
+                                ? `${(site.storageUsedGB / 1024).toFixed(1)} TB`
+                                : `${site.storageUsedGB.toFixed(0)} GB`}{" "}
+                              used
+                            </span>
                             <span className="font-bold text-slate-700 dark:text-slate-300">{percentUsed}%</span>
                           </div>
                           <div className="w-full bg-[#E2E8F0] dark:bg-slate-700 h-1.5 rounded-sm overflow-hidden">
