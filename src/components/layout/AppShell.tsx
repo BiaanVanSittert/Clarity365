@@ -1,23 +1,31 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from "react";
-import { Tenant, TenantSecuritySnapshot } from "@/lib/types";
+import React, { useState, useEffect, useCallback, lazy, Suspense, useRef } from "react";
+import {
+  Tenant,
+  TenantSecuritySnapshot,
+  FleetPostureSummary,
+  FleetLicenseOptimizationSummary,
+} from "@/lib/types";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
-import { ErrorBoundary } from "../common/ErrorBoundary";
 import { SkeletonLoader } from "../common/SkeletonLoader";
 import { AddTenantModal } from "../modals/AddTenantModal";
 import { DeleteTenantModal } from "../modals/DeleteTenantModal";
 import { SettingsModal } from "../modals/SettingsModal";
 import { PermissionsModal } from "../modals/PermissionsModal";
-import { RemediationDrawer } from "../modals/RemediationDrawer";
 import { SearchDialog } from "../common/SearchDialog";
-import { generateRemediationPlanForTenant, RemediationPlan } from "@/lib/services/remediation-generator";
+import { GlobalFleetSearchDialog } from "../common/GlobalFleetSearchDialog";
+import { RemediationDrawer } from "../modals/RemediationDrawer";
+import { RemediationPlan, generateRemediationPlanForTenant } from "@/lib/services/remediation-generator";
 import { RefreshCw, CheckCircle, AlertTriangle, X } from "lucide-react";
+import { ErrorBoundary } from "../common/ErrorBoundary";
 
-// Lazy-loaded module components - only fetched when the user navigates to them.
-// Cuts initial bundle size significantly since each module is 8-48KB.
+// Lazy-load module components for fast initial load
 const OverviewDashboard = lazy(() => import("../dashboard/OverviewDashboard").then(m => ({ default: m.OverviewDashboard })));
+const FleetOverviewDashboard = lazy(() => import("../dashboard/FleetOverviewDashboard").then(m => ({ default: m.FleetOverviewDashboard })));
+const FleetLicenseOptimizationModule = lazy(() => import("../modules/FleetLicenseOptimizationModule").then(m => ({ default: m.FleetLicenseOptimizationModule })));
+const TenantLicenseOptimizationModule = lazy(() => import("../modules/TenantLicenseOptimizationModule").then(m => ({ default: m.TenantLicenseOptimizationModule })));
 const EventResponseModule = lazy(() => import("../modules/EventResponseModule").then(m => ({ default: m.EventResponseModule })));
 const ConditionalAccessModule = lazy(() => import("../modules/ConditionalAccessModule").then(m => ({ default: m.ConditionalAccessModule })));
 const SignInLogsModule = lazy(() => import("../modules/SignInLogsModule").then(m => ({ default: m.SignInLogsModule })));
@@ -36,14 +44,22 @@ const SharePointStorageModule = lazy(() => import("../modules/SharePointStorageM
 const McpPlaygroundModule = lazy(() => import("../modules/McpPlaygroundModule").then(m => ({ default: m.McpPlaygroundModule })));
 const AuditLogModule = lazy(() => import("../modules/AuditLogModule").then(m => ({ default: m.AuditLogModule })));
 
-
 export const AppShell: React.FC = () => {
   const [tenants, setTenants] = useState<Tenant[]>([]);
-  const [activeTenantId, setActiveTenantId] = useState<string | null>(null);
+  const [activeTenantId, setActiveTenantId] = useState<string | null>("fleet"); // Default to Fleet View on startup
   const [snapshot, setSnapshot] = useState<TenantSecuritySnapshot | null>(null);
-  const [activeView, setActiveView] = useState<string>("overview");
+  const [activeView, setActiveView] = useState<string>("fleet_overview");
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+
+  // Target row / entity highlighting state
+  const [highlightEntityId, setHighlightEntityId] = useState<string | null>(null);
+
+  // Fleet data state
+  const [fleetSummary, setFleetSummary] = useState<FleetPostureSummary | null>(null);
+  const [fleetWasteSummary, setFleetWasteSummary] = useState<FleetLicenseOptimizationSummary | null>(null);
+  const isFleetMode = activeTenantId === "fleet" || activeTenantId === null;
+
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -59,7 +75,7 @@ export const AppShell: React.FC = () => {
       try {
         localStorage.setItem("clarity365_sidebar_collapsed", next ? "1" : "0");
       } catch {
-        // Ignore - collapse state just won't persist across reloads.
+        // Ignore
       }
       return next;
     });
@@ -71,6 +87,7 @@ export const AppShell: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPermissionsOpen, setIsPermissionsOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isUniversalSearchOpen, setIsUniversalSearchOpen] = useState(false);
 
   // Sync feedback toast
   const [syncToast, setSyncToast] = useState<{
@@ -83,16 +100,11 @@ export const AppShell: React.FC = () => {
   const [isRemediationOpen, setIsRemediationOpen] = useState(false);
   const [remediationPlans, setRemediationPlans] = useState<RemediationPlan[]>([]);
 
-  // Tracks the currently-selected tenant for in-flight fetchSnapshot requests,
-  // so a slow response for a tenant the user has since switched away from
-  // can't clobber the snapshot actually on screen.
   const activeTenantIdRef = useRef<string | null>(null);
   useEffect(() => {
     activeTenantIdRef.current = activeTenantId;
   }, [activeTenantId]);
 
-  // Guards the 60s toast auto-dismiss timer so two syncs within that window
-  // can't let the first one's timer erase the second one's still-fresh toast.
   const toastDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch all tenants
@@ -102,78 +114,104 @@ export const AppShell: React.FC = () => {
       const data = await res.json();
       if (data.success && data.tenants) {
         setTenants(data.tenants);
-        setActiveTenantId((prev) => {
-          if (!prev && data.tenants.length > 0) {
-            return data.tenants[0].id;
-          }
-          if (prev && !data.tenants.some((t: Tenant) => t.id === prev)) {
-            return data.tenants[0]?.id || null;
-          }
-          return prev;
-        });
       }
     } catch (err) {
-      console.error("Failed to load tenants", err);
+      console.error("Failed to fetch tenants", err);
     }
   }, []);
 
-  // Fetch active snapshot
+  // Fetch Global Fleet Posture & License Optimization Data
+  const fetchFleetData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const [postureRes, wasteRes] = await Promise.all([
+        fetch("/api/fleet/posture"),
+        fetch("/api/fleet/license-waste"),
+      ]);
+
+      const [postureData, wasteData] = await Promise.all([
+        postureRes.json(),
+        wasteRes.json(),
+      ]);
+
+      if (postureData.success && postureData.summary) {
+        setFleetSummary(postureData.summary);
+      }
+      if (wasteData.success && (wasteData.waste || wasteData.summary)) {
+        setFleetWasteSummary(wasteData.waste || wasteData.summary);
+      }
+    } catch (err) {
+      console.error("Failed to fetch fleet data", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Fetch security snapshot for active tenant
   const fetchSnapshot = useCallback(async (tenantId: string) => {
-    setIsRefreshing(true);
     try {
       const res = await fetch(`/api/tenants/${tenantId}`);
       const data = await res.json();
-      // Only apply the result if the user hasn't switched to a different
-      // tenant while this request was in flight.
-      if (data.success && data.snapshot && activeTenantIdRef.current === tenantId) {
+      if (data.success && data.snapshot) {
         setSnapshot(data.snapshot);
       }
     } catch (err) {
-      console.error("Failed to load snapshot", err);
+      console.error(`Failed to fetch snapshot for tenant ${tenantId}`, err);
     } finally {
-      if (activeTenantIdRef.current === tenantId) {
-        setIsRefreshing(false);
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
   }, []);
 
-  // Lightweight refresh after a purely local write (creating a group, adding/
-  // removing a TABL entry, updating a SharePoint sharing setting) - re-reads
-  // the already-cached snapshot via a plain GET, with none of the "Connecting
-  // to Microsoft Graph API..." toast or external Graph resync that
-  // handleForceSync triggers. Those local edits don't need (and shouldn't
-  // pay the cost of) a full external tenant resync just to reflect on screen.
-  const handleLocalRefresh = useCallback(() => {
-    if (activeTenantId) {
-      fetchSnapshot(activeTenantId);
+  // Local refresh (e.g. after rule toggle) - keeps snapshot in sync without full reload
+  const handleLocalRefresh = useCallback(async () => {
+    if (!activeTenantId || activeTenantId === "fleet") return;
+    try {
+      const res = await fetch(`/api/tenants/${activeTenantId}`);
+      const data = await res.json();
+      if (data.success && data.snapshot) {
+        setSnapshot(data.snapshot);
+      }
+    } catch (err) {
+      console.error("Failed to locally refresh snapshot", err);
     }
-  }, [activeTenantId, fetchSnapshot]);
+  }, [activeTenantId]);
 
-  // Force Resync from Microsoft Graph with user notification
+  // Force sync with Microsoft Graph API
   const handleForceSync = async () => {
     if (!activeTenantId) return;
-    const currentTenant = tenants.find((t) => t.id === activeTenantId);
-    const tenantName = currentTenant?.displayName || "Tenant";
+
+    if (activeTenantId === "fleet") {
+      setIsRefreshing(true);
+      await fetchFleetData();
+      setIsRefreshing(false);
+      setSyncToast({
+        show: true,
+        message: "Fleet telemetry updated across all customer tenants.",
+        type: "success",
+      });
+      return;
+    }
+
+    const tenant = tenants.find((t) => t.id === activeTenantId);
+    const tenantName = tenant ? tenant.displayName : "Active Tenant";
 
     setIsRefreshing(true);
     setSyncToast({
       show: true,
-      message: `Connecting to Microsoft Graph API and synchronizing ${tenantName}...`,
+      message: `Connecting to Microsoft Graph API and Exchange Online for ${tenantName}...`,
       type: "info",
     });
 
     try {
       const res = await fetch(`/api/tenants/${activeTenantId}/sync`, { method: "POST" });
       const data = await res.json();
+
       if (data.success && data.snapshot) {
         setSnapshot(data.snapshot);
-        await fetchTenants();
-        const syncHealth = data.snapshot.syncHealth;
-        if (syncHealth?.isPartial) {
+        if (data.warning) {
           setSyncToast({
             show: true,
-            message: `Sync completed for ${tenantName} with some sections incomplete: ${syncHealth.errors.join(" | ")}`,
+            message: `Sync partially complete for ${tenantName}: ${data.warning}`,
             type: "warning",
           });
         } else {
@@ -184,9 +222,6 @@ export const AppShell: React.FC = () => {
           });
         }
       } else if (data.stale && data.snapshot) {
-        // Live sync failed entirely (e.g. bad credentials) but a cached
-        // snapshot exists and is being shown - make that failure visible
-        // instead of silently rendering the stale data as if sync succeeded.
         setSnapshot(data.snapshot);
         setSyncToast({
           show: true,
@@ -214,7 +249,7 @@ export const AppShell: React.FC = () => {
       toastDismissTimerRef.current = setTimeout(() => {
         setSyncToast((prev) => (prev?.type === "success" ? null : prev));
         toastDismissTimerRef.current = null;
-      }, 60000); // 60 seconds persistence or manual dismissal
+      }, 60000);
     }
   };
 
@@ -223,27 +258,47 @@ export const AppShell: React.FC = () => {
   }, [fetchTenants]);
 
   useEffect(() => {
-    if (activeTenantId) {
-      // Clear the previous tenant's snapshot immediately so modules (all
-      // gated on `snapshot &&`) don't keep rendering the last tenant's data
-      // under the newly-selected tenant's name while the new one loads.
+    if (activeTenantId === "fleet" || !activeTenantId) {
+      setSnapshot(null);
+      fetchFleetData();
+    } else {
       setSnapshot(null);
       setIsLoading(true);
       fetchSnapshot(activeTenantId);
     }
-  }, [activeTenantId, fetchSnapshot]);
+  }, [activeTenantId, fetchSnapshot, fetchFleetData]);
 
-  // Keyboard shortcut for Cmd/Ctrl+K search
+  // Keyboard shortcut for Cmd/Ctrl+K search and Cmd/Ctrl+Shift+F universal search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        setIsSearchOpen(true);
+        setIsUniversalSearchOpen(true);
+      } else if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        if (isFleetMode) {
+          setIsUniversalSearchOpen(true);
+        } else {
+          setIsSearchOpen(true);
+        }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [isFleetMode]);
+
+  const handleSelectTenant = (tenantId: string, targetModule?: string, targetEntityId?: string) => {
+    if (targetEntityId) {
+      setHighlightEntityId(targetEntityId);
+    }
+    if (tenantId === "fleet") {
+      setActiveTenantId("fleet");
+      setActiveView(targetModule || "fleet_overview");
+    } else {
+      setActiveTenantId(tenantId);
+      setActiveView(targetModule || "overview");
+    }
+  };
 
   const handleOpenRemediation = (findingType?: string) => {
     if (!snapshot) return;
@@ -252,7 +307,7 @@ export const AppShell: React.FC = () => {
     setIsRemediationOpen(true);
   };
 
-  const activeTenant = tenants.find((t) => t.id === activeTenantId) || null;
+  const activeTenant = !isFleetMode ? tenants.find((t) => t.id === activeTenantId) || null : null;
 
   const handleLogout = async () => {
     try {
@@ -270,11 +325,13 @@ export const AppShell: React.FC = () => {
         tenants={tenants}
         activeTenant={activeTenant}
         activeSnapshot={snapshot}
-        onSelectTenant={(id) => setActiveTenantId(id)}
+        isFleetMode={isFleetMode}
+        onSelectTenant={handleSelectTenant}
         onOpenAddTenant={() => setIsAddTenantOpen(true)}
         onOpenDeleteTenant={() => setIsDeleteTenantOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenSearch={() => setIsSearchOpen(true)}
+        onOpenUniversalSearch={() => setIsUniversalSearchOpen(true)}
         onOpenPermissions={() => setIsPermissionsOpen(true)}
         onRefresh={handleForceSync}
         isRefreshing={isRefreshing}
@@ -326,6 +383,9 @@ export const AppShell: React.FC = () => {
           activeView={activeView}
           onSelectView={(view) => setActiveView(view)}
           snapshot={snapshot}
+          isFleetMode={isFleetMode}
+          fleetSummary={fleetSummary}
+          onSelectTenant={handleSelectTenant}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={toggleSidebarCollapsed}
         />
@@ -333,6 +393,29 @@ export const AppShell: React.FC = () => {
         {/* Dynamic Main Workspace Container */}
         <main className="flex-1 overflow-y-auto bg-white dark:bg-slate-800">
           <Suspense fallback={<SkeletonLoader />}>
+            {/* Phase 2.1: Fleet Command Views */}
+            <ErrorBoundary moduleName="Fleet Overview Dashboard" key="eb-fleet-overview">
+              {activeView === "fleet_overview" && (
+                <FleetOverviewDashboard
+                  summary={fleetSummary}
+                  isLoading={isLoading}
+                  onSelectTenant={handleSelectTenant}
+                  onOpenUniversalSearch={() => setIsUniversalSearchOpen(true)}
+                />
+              )}
+            </ErrorBoundary>
+
+            <ErrorBoundary moduleName="Fleet License Optimization" key="eb-fleet-licenses">
+              {activeView === "fleet_licenses" && (
+                <FleetLicenseOptimizationModule
+                  wasteSummary={fleetWasteSummary}
+                  isLoading={isLoading}
+                  onSelectTenant={handleSelectTenant}
+                />
+              )}
+            </ErrorBoundary>
+
+            {/* Individual Tenant Views */}
             <ErrorBoundary moduleName="Overview Dashboard" key={`eb-overview-${activeTenantId}`}>
               {activeView === "overview" && (
                 <OverviewDashboard
@@ -344,14 +427,33 @@ export const AppShell: React.FC = () => {
               )}
             </ErrorBoundary>
 
-            <ErrorBoundary moduleName="Event & Response Center" key={`eb-event-response-${activeTenantId}`}>
-              {activeView === "event_response" && snapshot && (
-                <EventResponseModule
+            {/* Per-Tenant License & Cost Optimizer */}
+            <ErrorBoundary moduleName="Tenant License Optimizer" key={`eb-license-optimizer-${activeTenantId}`}>
+              {activeView === "license_optimizer" && snapshot && (
+                <TenantLicenseOptimizationModule
                   snapshot={snapshot}
-                  onLocalRefresh={handleLocalRefresh}
+                  onNavigate={(view, entityId) => handleSelectTenant(activeTenantId!, view, entityId)}
+                  highlightEntityId={highlightEntityId}
+                  onClearHighlight={() => setHighlightEntityId(null)}
                 />
               )}
-              {activeView === "event_response" && !snapshot && <SkeletonLoader />}
+              {activeView === "license_optimizer" && !snapshot && <SkeletonLoader />}
+            </ErrorBoundary>
+
+            {/* Security Operations & Event Response Center (Single & Multi-Tenant Fleet Feed) */}
+            <ErrorBoundary moduleName="Event & Response Center" key={`eb-event-response-${activeTenantId}`}>
+              {activeView === "event_response" && (
+                <EventResponseModule
+                  isFleetMode={isFleetMode}
+                  fleetIncidents={fleetSummary?.recentCrossTenantIncidents}
+                  tenants={tenants}
+                  snapshot={snapshot}
+                  onLocalRefresh={isFleetMode ? fetchFleetData : handleLocalRefresh}
+                  highlightEntityId={highlightEntityId}
+                  onClearHighlight={() => setHighlightEntityId(null)}
+                  onSelectTenant={handleSelectTenant}
+                />
+              )}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Conditional Access" key={`eb-ca-${activeTenantId}`}>
@@ -361,6 +463,8 @@ export const AppShell: React.FC = () => {
                   onOpenRemediation={handleOpenRemediation}
                   onRefresh={handleForceSync}
                   onNavigate={(view) => setActiveView(view)}
+                  highlightEntityId={highlightEntityId}
+                  onClearHighlight={() => setHighlightEntityId(null)}
                 />
               )}
               {activeView === "ca_baseline" && !snapshot && <SkeletonLoader />}
@@ -371,6 +475,8 @@ export const AppShell: React.FC = () => {
                 <SignInLogsModule
                   snapshot={snapshot}
                   onRefresh={handleForceSync}
+                  highlightEntityId={highlightEntityId}
+                  onClearHighlight={() => setHighlightEntityId(null)}
                 />
               )}
               {activeView === "signin_logs" && !snapshot && <SkeletonLoader />}
@@ -401,6 +507,8 @@ export const AppShell: React.FC = () => {
                 <UserClassificationModule
                   snapshot={snapshot}
                   onOpenRemediation={handleOpenRemediation}
+                  highlightEntityId={highlightEntityId}
+                  onClearHighlight={() => setHighlightEntityId(null)}
                 />
               )}
               {activeView === "user_class" && !snapshot && <SkeletonLoader />}
@@ -412,6 +520,8 @@ export const AppShell: React.FC = () => {
                   snapshot={snapshot}
                   onLocalRefresh={handleLocalRefresh}
                   onOpenPermissions={() => setIsPermissionsOpen(true)}
+                  highlightEntityId={highlightEntityId}
+                  onClearHighlight={() => setHighlightEntityId(null)}
                 />
               )}
               {activeView === "mailboxes" && !snapshot && <SkeletonLoader />}
@@ -424,6 +534,8 @@ export const AppShell: React.FC = () => {
                   onOpenRemediation={handleOpenRemediation}
                   onLocalRefresh={handleLocalRefresh}
                   onOpenPermissions={() => setIsPermissionsOpen(true)}
+                  highlightEntityId={highlightEntityId}
+                  onClearHighlight={() => setHighlightEntityId(null)}
                 />
               )}
               {activeView === "forwarding" && !snapshot && <SkeletonLoader />}
@@ -467,7 +579,11 @@ export const AppShell: React.FC = () => {
 
             <ErrorBoundary moduleName="Intune Security" key={`eb-intune-${activeTenantId}`}>
               {activeView === "intune" && snapshot && (
-                <IntuneSecurityModule snapshot={snapshot} />
+                <IntuneSecurityModule
+                  snapshot={snapshot}
+                  highlightEntityId={highlightEntityId}
+                  onClearHighlight={() => setHighlightEntityId(null)}
+                />
               )}
               {activeView === "intune" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
@@ -492,11 +608,15 @@ export const AppShell: React.FC = () => {
               {activeView === "sharepoint" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
+            {/* MCP In-House Tool Inspector & Playground (Single & Fleet Mode) */}
             <ErrorBoundary moduleName="MCP Playground" key={`eb-mcp-${activeTenantId}`}>
-              {activeView === "mcp" && snapshot && (
-                <McpPlaygroundModule snapshot={snapshot} />
+              {activeView === "mcp" && (
+                <McpPlaygroundModule
+                  snapshot={snapshot}
+                  tenants={tenants}
+                  isFleetMode={isFleetMode}
+                />
               )}
-              {activeView === "mcp" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Audit Log" key={`eb-audit-${activeTenantId}`}>
@@ -536,16 +656,24 @@ export const AppShell: React.FC = () => {
       <SearchDialog
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
-        onSelectView={(view) => setActiveView(view)}
+        onSelectView={(view: string) => setActiveView(view)}
         tenants={tenants}
-        onSelectTenant={(id) => setActiveTenantId(id)}
+        onSelectTenant={handleSelectTenant}
+      />
+
+      <GlobalFleetSearchDialog
+        isOpen={isUniversalSearchOpen}
+        onClose={() => setIsUniversalSearchOpen(false)}
+        onSelectResult={(tenantId, targetModule, targetEntityId) => {
+          handleSelectTenant(tenantId, targetModule, targetEntityId);
+        }}
       />
 
       <RemediationDrawer
         isOpen={isRemediationOpen}
         onClose={() => setIsRemediationOpen(false)}
         plans={remediationPlans}
-        tenantName={activeTenant?.displayName || "Organization"}
+        tenantName={activeTenant?.displayName || snapshot?.tenant?.displayName || "Organization"}
       />
     </div>
     </ErrorBoundary>
