@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { TenantSecuritySnapshot, MailboxItem, MailboxDelegation } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Modal } from "../common/Modal";
@@ -10,16 +10,28 @@ interface MailboxPermissionsModuleProps {
   snapshot: TenantSecuritySnapshot;
   onLocalRefresh: () => void;
   onOpenPermissions: () => void;
+  highlightEntityId?: string | null;
+  onClearHighlight?: () => void;
 }
 
 export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> = ({
   snapshot,
   onLocalRefresh,
   onOpenPermissions,
+  highlightEntityId,
+  onClearHighlight,
 }) => {
   const { mailboxes, tenant, mailboxAuditingEnabled } = snapshot;
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
+
+  const highlightedRowRef = useRef<HTMLTableRowElement | null>(null);
+
+  useEffect(() => {
+    if (highlightEntityId && highlightedRowRef.current) {
+      highlightedRowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlightEntityId]);
 
   const exoConnected = !!tenant.credentials.exoRefreshToken;
   const exoWriteEnabled = !!tenant.credentials.exoWriteEnabled;
@@ -120,7 +132,14 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
   };
 
   return (
-    <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
+    <div
+      className="p-5 space-y-4 max-w-[1600px] mx-auto select-none"
+      onClick={() => {
+        if (highlightEntityId && onClearHighlight) {
+          onClearHighlight();
+        }
+      }}
+    >
       {/* Header */}
       <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -136,13 +155,92 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
         </div>
 
         {licensedWasteCount > 0 && (
-          <div className="p-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 rounded-sm flex items-center gap-2 text-xs text-amber-900 dark:text-amber-400">
+          <div
+            onClick={() => setFilterType(filterType === "waste" ? "all" : "waste")}
+            className="p-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 rounded-sm flex items-center gap-2 text-xs text-amber-900 dark:text-amber-400 cursor-pointer hover:bg-amber-100/70 transition-colors shadow-xs"
+            title="Click to filter for licensed shared mailboxes"
+          >
             <DollarSign size={16} className="text-amber-700 dark:text-amber-400 shrink-0" />
             <span>
-              <strong>{licensedWasteCount} Shared Mailbox(es)</strong> have paid licenses attached ($20–$40/mo potential savings).
+              <strong>{licensedWasteCount} Shared Mailbox(es)</strong> have paid licenses attached ($20–$40/mo potential savings). <span className="underline font-semibold ml-1">Click to filter</span>
             </span>
           </div>
         )}
+      </div>
+
+      {/* Summary Filter Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+        <div
+          onClick={() => setFilterType("all")}
+          className={`p-3 rounded-sm cursor-pointer transition-all border ${
+            filterType === "all"
+              ? "bg-slate-100 dark:bg-slate-800 border-slate-900 dark:border-slate-100 ring-1 ring-slate-400 shadow-xs"
+              : "bg-[#F8FAFC] dark:bg-slate-900/40 border-[#CBD5E1] dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+            <span>All Mailboxes</span>
+            <Mail size={14} className="text-slate-500" />
+          </div>
+          <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
+            {mailboxes.length}
+          </div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Total provisioned mailboxes</div>
+        </div>
+
+        <div
+          onClick={() => setFilterType(filterType === "shared" ? "all" : "shared")}
+          className={`p-3 rounded-sm cursor-pointer transition-all border ${
+            filterType === "shared"
+              ? "bg-blue-100 dark:bg-blue-950/70 border-blue-500 ring-1 ring-blue-500 shadow-xs"
+              : "bg-[#F8FAFC] dark:bg-slate-900/40 border-[#CBD5E1] dark:border-slate-700 hover:bg-blue-50/50 hover:border-blue-400"
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+            <span>Shared Mailboxes</span>
+            <Mail size={14} className="text-blue-500" />
+          </div>
+          <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
+            {sharedCount}
+          </div>
+          <div className="text-[11px] text-blue-700 dark:text-blue-400 mt-0.5">Group & desk mailboxes</div>
+        </div>
+
+        <div
+          onClick={() => setFilterType(filterType === "waste" ? "all" : "waste")}
+          className={`p-3 rounded-sm cursor-pointer transition-all border ${
+            filterType === "waste"
+              ? "bg-amber-100 dark:bg-amber-950/70 border-amber-500 ring-1 ring-amber-500 shadow-xs"
+              : "bg-[#F8FAFC] dark:bg-slate-900/40 border-[#CBD5E1] dark:border-slate-700 hover:bg-amber-50/50 hover:border-amber-400"
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+            <span>Licensed Waste</span>
+            <DollarSign size={14} className="text-amber-500" />
+          </div>
+          <div className="text-2xl font-bold font-mono text-amber-950 dark:text-amber-200 mt-1">
+            {licensedWasteCount}
+          </div>
+          <div className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">Shared with paid license</div>
+        </div>
+
+        <div
+          onClick={() => setFilterType(filterType === "user" ? "all" : "user")}
+          className={`p-3 rounded-sm cursor-pointer transition-all border ${
+            filterType === "user"
+              ? "bg-emerald-100 dark:bg-emerald-950/70 border-emerald-500 ring-1 ring-emerald-500 shadow-xs"
+              : "bg-[#F8FAFC] dark:bg-slate-900/40 border-[#CBD5E1] dark:border-slate-700 hover:bg-emerald-50/50 hover:border-emerald-400"
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+            <span>User Mailboxes</span>
+            <Users size={14} className="text-emerald-500" />
+          </div>
+          <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
+            {mailboxes.length - sharedCount}
+          </div>
+          <div className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-0.5">Direct user accounts</div>
+        </div>
       </div>
 
       {/* Mailbox Audit Logging gate - every delegation finding below is only
@@ -258,12 +356,29 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
               {filteredMailboxes.length === 0 ? (
                 <EmptyStateRow colSpan={6} entityLabel="mailboxes" isFiltered={searchQuery.trim().length > 0 || filterType !== "all"} />
               ) : (
-                filteredMailboxes.map((mbx) => (
-                  <tr key={mbx.id} className={mbx.hasDirectLicense && mbx.recipientType === "SharedMailbox" ? "bg-amber-50/30 dark:bg-amber-950" : ""}>
-                    <td>
-                      <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{mbx.displayName}</div>
-                      <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{mbx.userPrincipalName}</div>
-                    </td>
+                filteredMailboxes.map((mbx) => {
+                  const isHighlighted =
+                    Boolean(highlightEntityId) &&
+                    (highlightEntityId === mbx.id ||
+                      highlightEntityId?.toLowerCase() === mbx.userPrincipalName.toLowerCase() ||
+                      highlightEntityId?.toLowerCase() === mbx.displayName.toLowerCase());
+
+                  return (
+                    <tr
+                      key={mbx.id}
+                      ref={isHighlighted ? highlightedRowRef : null}
+                      className={`transition-colors ${
+                        isHighlighted
+                          ? "animate-slow-flash"
+                          : mbx.hasDirectLicense && mbx.recipientType === "SharedMailbox"
+                          ? "bg-amber-50/30 dark:bg-amber-950/30 hover:bg-amber-50 dark:hover:bg-amber-950/50"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                      }`}
+                    >
+                      <td>
+                        <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{mbx.displayName}</div>
+                        <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{mbx.userPrincipalName}</div>
+                      </td>
                     <td>
                       <StatusPill
                         status={mbx.recipientType === "SharedMailbox" ? "info" : "pass"}
@@ -318,8 +433,8 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
                       )}
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              }))}
             </tbody>
           </table>
         </div>
