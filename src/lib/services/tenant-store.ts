@@ -1,7 +1,24 @@
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
-import { Tenant, TenantSecuritySnapshot, SystemSettings, AuditLogEntry, SyncResult, SyncOutcome, SecurityIncidentItem, IncidentStatus } from "../types";
+import {
+  Tenant,
+  TenantSecuritySnapshot,
+  SystemSettings,
+  AuditLogEntry,
+  SyncResult,
+  SyncOutcome,
+  SecurityIncidentItem,
+  IncidentStatus,
+  FleetPostureSummary,
+  FleetLicenseOptimizationSummary,
+  FleetSearchResultItem,
+} from "../types";
+import {
+  computeFleetPosture,
+  computeFleetLicenseWaste,
+  searchAcrossFleet,
+} from "./fleet-analyzer";
 import { INITIAL_TENANTS, MOCK_TENANT_DATA } from "../data/mock-tenants";
 import { createBlankSnapshot } from "../data/default-snapshot";
 import { encryptSecret, decryptSecret, isEncrypted, SECRET_MASK } from "./crypto";
@@ -289,11 +306,26 @@ class TenantStore {
         ? snapshot.intune.devices
         : (mockSnap?.intune?.devices || snapshot.intune?.devices || []);
 
+    const users =
+      snapshot.tenant.isDemo && mockSnap?.accountClassification?.users && mockSnap.accountClassification.users.length > 0
+        ? mockSnap.accountClassification.users
+        : (snapshot.accountClassification?.users || mockSnap?.accountClassification?.users || []);
+
+    const mailboxes =
+      snapshot.tenant.isDemo && mockSnap?.mailboxes && mockSnap.mailboxes.length > 0
+        ? mockSnap.mailboxes
+        : (snapshot.mailboxes || mockSnap?.mailboxes || []);
+
     return {
       ...blank,
       ...snapshot,
       conditionalAccess: { ...blank.conditionalAccess, ...snapshot.conditionalAccess },
-      accountClassification: { ...blank.accountClassification, ...snapshot.accountClassification },
+      accountClassification: {
+        ...blank.accountClassification,
+        ...snapshot.accountClassification,
+        users,
+      },
+      mailboxes,
       mdoThreat: { ...blank.mdoThreat, ...snapshot.mdoThreat },
       intune: {
         ...blank.intune,
@@ -1573,6 +1605,34 @@ class TenantStore {
       success: !!r.success,
       detail: r.detail ?? undefined,
     }));
+  }
+
+  // ---- Phase 2.1: Fleet Management & Cross-Tenant Analytics API -------------------
+
+  public getAllSnapshots(): TenantSecuritySnapshot[] {
+    const tenants = this.getAllTenantRows();
+    const snapshots: TenantSecuritySnapshot[] = [];
+    for (const t of tenants) {
+      const snap = this.getSnapshot(t.id);
+      if (snap) snapshots.push(snap);
+    }
+    return snapshots;
+  }
+
+  public getFleetPosture(): FleetPostureSummary {
+    const tenants = this.getAllTenants();
+    const snapshots = this.getAllSnapshots();
+    return computeFleetPosture(tenants, snapshots);
+  }
+
+  public getFleetLicenseWaste(): FleetLicenseOptimizationSummary {
+    const snapshots = this.getAllSnapshots();
+    return computeFleetLicenseWaste(snapshots);
+  }
+
+  public searchFleet(query: string, category?: string): FleetSearchResultItem[] {
+    const snapshots = this.getAllSnapshots();
+    return searchAcrossFleet(snapshots, query, category);
   }
 }
 
