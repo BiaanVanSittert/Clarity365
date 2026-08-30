@@ -1,6 +1,21 @@
 import React, { useState, useEffect } from "react";
 import { Tenant, TenantSecuritySnapshot } from "@/lib/types";
-import { ChevronDown, Plus, Trash2, Search, Settings, RefreshCw, ShieldCheck, Check, Globe, Server, LogOut, Sun, Moon } from "lucide-react";
+import {
+  ChevronDown,
+  Plus,
+  Trash2,
+  Search,
+  Settings,
+  RefreshCw,
+  ShieldCheck,
+  Check,
+  Globe,
+  Server,
+  LogOut,
+  Sun,
+  Moon,
+  Building2,
+} from "lucide-react";
 import { StatusPill } from "../common/StatusPill";
 import { useTheme } from "../common/useTheme";
 
@@ -8,11 +23,13 @@ interface HeaderProps {
   tenants: Tenant[];
   activeTenant: Tenant | null;
   activeSnapshot: TenantSecuritySnapshot | null;
+  isFleetMode?: boolean;
   onSelectTenant: (tenantId: string) => void;
   onOpenAddTenant: () => void;
   onOpenDeleteTenant: () => void;
   onOpenSettings: () => void;
   onOpenSearch: () => void;
+  onOpenUniversalSearch?: () => void;
   onOpenPermissions: () => void;
   onRefresh: () => void;
   isRefreshing: boolean;
@@ -23,11 +40,13 @@ export const Header: React.FC<HeaderProps> = ({
   tenants,
   activeTenant,
   activeSnapshot,
+  isFleetMode = false,
   onSelectTenant,
   onOpenAddTenant,
   onOpenDeleteTenant,
   onOpenSettings,
   onOpenSearch,
+  onOpenUniversalSearch,
   onOpenPermissions,
   onRefresh,
   isRefreshing,
@@ -66,7 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <span className="text-xs font-bold tracking-tight text-slate-900 dark:text-slate-100">Clarity365</span>
           <span className="text-[10px] font-mono uppercase bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-1 py-0.5 rounded-sm border border-slate-200 dark:border-slate-700">
-            v1.0
+            v2.0
           </span>
         </div>
 
@@ -74,31 +93,70 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="relative">
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="flex items-center gap-2 px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-800 hover:bg-[#F1F5F9] dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-sm transition-colors"
+            className={`flex items-center gap-2 px-2.5 py-1 text-xs border rounded-sm transition-colors ${
+              isFleetMode
+                ? "border-indigo-300 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/50 text-indigo-950 dark:text-indigo-200 font-bold"
+                : "border-[#CBD5E1] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-800 hover:bg-[#F1F5F9] dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100"
+            }`}
           >
-            {activeTenant?.isDemo ? (
+            {isFleetMode ? (
+              <Building2 size={13} className="text-indigo-600 dark:text-indigo-400" />
+            ) : activeTenant?.isDemo ? (
               <Globe size={13} className="text-slate-500 dark:text-slate-400" />
             ) : (
               <Server size={13} className="text-emerald-600 dark:text-emerald-400" />
             )}
-            <span className="font-semibold">{activeTenant?.displayName || "Select Organization"}</span>
-            <span className="text-slate-400 dark:text-slate-500 text-[11px] font-mono hidden sm:inline">
-              ({activeTenant?.defaultDomainName})
+            <span className="font-semibold">
+              {isFleetMode ? "Global Fleet Command" : activeTenant?.displayName || "Select Organization"}
             </span>
+            {!isFleetMode && activeTenant && (
+              <span className="text-slate-400 dark:text-slate-500 text-[11px] font-mono hidden sm:inline">
+                ({activeTenant.defaultDomainName})
+              </span>
+            )}
+            {isFleetMode && (
+              <span className="text-indigo-600 dark:text-indigo-400 text-[10px] font-mono font-bold hidden sm:inline">
+                [{tenants.length} Tenants]
+              </span>
+            )}
             <ChevronDown size={13} className="text-slate-500 dark:text-slate-400 ml-0.5" />
           </button>
 
           {dropdownOpen && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setDropdownOpen(false)} />
-              <div className="absolute left-0 mt-1 w-80 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 shadow-lg rounded-sm py-1 z-30 divide-y divide-slate-100 dark:divide-slate-700">
+              <div className="absolute left-0 mt-1 w-84 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 shadow-lg rounded-sm py-1 z-30 divide-y divide-slate-100 dark:divide-slate-700">
+                {/* Global Fleet Option */}
+                <button
+                  onClick={() => {
+                    onSelectTenant("fleet");
+                    setDropdownOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2.5 text-xs flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${
+                    isFleetMode ? "bg-indigo-50 dark:bg-indigo-950/60 font-bold text-indigo-950 dark:text-indigo-200" : "text-slate-900 dark:text-slate-100"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-1.5 bg-indigo-600 text-white rounded-xs">
+                      <Building2 size={14} />
+                    </div>
+                    <div>
+                      <div className="font-bold text-xs">Global Fleet Command</div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                        Cross-tenant posture & all {tenants.length} customer tenants
+                      </div>
+                    </div>
+                  </div>
+                  {isFleetMode && <Check size={14} className="text-indigo-600 dark:text-indigo-400 shrink-0" />}
+                </button>
+
                 <div className="px-3 py-1.5 text-[10px] font-mono uppercase text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-900/50">
-                  Managed M365 Customer Tenants ({tenants.length})
+                  Individual Customer Tenants ({tenants.length})
                 </div>
 
-                <div className="max-h-60 overflow-y-auto">
+                <div className="max-h-56 overflow-y-auto">
                   {tenants.map((t) => {
-                    const isSelected = t.id === activeTenant?.id;
+                    const isSelected = !isFleetMode && t.id === activeTenant?.id;
                     return (
                       <button
                         key={t.id}
@@ -145,7 +203,7 @@ export const Header: React.FC<HeaderProps> = ({
                     <span>Add New Tenant...</span>
                   </button>
 
-                  {activeTenant && (
+                  {!isFleetMode && activeTenant && (
                     <button
                       onClick={() => {
                         setDropdownOpen(false);
@@ -164,7 +222,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Tenant Connection Status Badge */}
-        {activeTenant && (
+        {!isFleetMode && activeTenant && (
           <div className="hidden md:flex items-center gap-2">
             <StatusPill
               status={activeTenant.connectionStatus === "healthy" ? "pass" : activeTenant.connectionStatus === "degraded" ? "warn" : "fail"}
@@ -176,24 +234,48 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </div>
         )}
+
+        {isFleetMode && (
+          <div className="hidden md:flex items-center gap-2">
+            <span className="text-[11px] font-mono text-indigo-700 dark:text-indigo-300 font-semibold bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+              Fleet Aggregation Mode
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* Right: Quick Search, Permissions Check, Refresh, Settings */}
+      {/* Right: Quick Search, Universal Search, Permissions Check, Refresh, Settings */}
       <div className="flex items-center gap-2">
-        {/* Quick Search trigger */}
-        <button
-          onClick={onOpenSearch}
-          className="flex items-center gap-2 px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-800 hover:bg-[#F1F5F9] dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 rounded-sm transition-colors"
-        >
-          <Search size={13} className="text-slate-400 dark:text-slate-500" />
-          <span className="hidden sm:inline">Quick Jump...</span>
-          <kbd className="hidden sm:inline-block text-[10px] font-mono bg-white dark:bg-slate-900 border border-[#CBD5E1] dark:border-slate-700 px-1 rounded-sm text-slate-400 dark:text-slate-500">
-            Ctrl+K
-          </kbd>
-        </button>
+        {/* Universal Fleet Search trigger */}
+        {onOpenUniversalSearch && (
+          <button
+            onClick={onOpenUniversalSearch}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-950/40 hover:bg-indigo-100/80 dark:hover:bg-indigo-900/50 text-indigo-900 dark:text-indigo-200 font-medium rounded-sm transition-colors"
+          >
+            <Search size={13} className="text-indigo-600 dark:text-indigo-400" />
+            <span className="hidden sm:inline">Fleet Search</span>
+            <kbd className="hidden sm:inline-block text-[10px] font-mono bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 px-1 rounded-sm text-indigo-700 dark:text-indigo-300">
+              Ctrl+Shift+F
+            </kbd>
+          </button>
+        )}
+
+        {/* Quick Jump within Tenant */}
+        {!isFleetMode && (
+          <button
+            onClick={onOpenSearch}
+            className="flex items-center gap-2 px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-800 hover:bg-[#F1F5F9] dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 rounded-sm transition-colors"
+          >
+            <Search size={13} className="text-slate-400 dark:text-slate-500" />
+            <span className="hidden sm:inline">Quick Jump...</span>
+            <kbd className="hidden sm:inline-block text-[10px] font-mono bg-white dark:bg-slate-900 border border-[#CBD5E1] dark:border-slate-700 px-1 rounded-sm text-slate-400 dark:text-slate-500">
+              Ctrl+K
+            </kbd>
+          </button>
+        )}
 
         {/* Permissions check button */}
-        {activeTenant && (
+        {!isFleetMode && activeTenant && (
           <button
             onClick={onOpenPermissions}
             title="Confirm Azure App Registration Permissions"
@@ -205,15 +287,17 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {/* Refresh / Resync button */}
-        <button
-          onClick={onRefresh}
-          disabled={isRefreshing}
-          title="Force telemetry sync from Microsoft Graph"
-          className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium rounded-sm transition-colors disabled:opacity-50"
-        >
-          <RefreshCw size={13} className={isRefreshing ? "animate-spin text-emerald-600 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"} />
-          <span className="hidden lg:inline">{isRefreshing ? "Syncing..." : "Sync Tenant"}</span>
-        </button>
+        {!isFleetMode && (
+          <button
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            title="Force telemetry sync from Microsoft Graph"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium rounded-sm transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={isRefreshing ? "animate-spin text-emerald-600 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"} />
+            <span className="hidden lg:inline">{isRefreshing ? "Syncing..." : "Sync Tenant"}</span>
+          </button>
+        )}
 
         {/* Dark mode toggle */}
         <button
