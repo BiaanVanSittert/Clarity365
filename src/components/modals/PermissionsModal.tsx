@@ -284,7 +284,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                     {p.status === "granted" ? (
                       <>Write access enabled for <strong>{p.requiredFor.replace(/^Optional:\s*/, "")}</strong>.</>
                     ) : (
-                      <>Running in read-only/reporting mode - <strong>{p.requiredFor.replace(/^Optional:\s*/, "")}</strong> isn't available. Grant <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded font-mono">{p.permission}</code> in Entra to enable it.</>
+                      <>Running in read-only/reporting mode - <strong>{p.requiredFor.replace(/^Optional:\s*/, "")}</strong> isn&apos;t available. Grant <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded font-mono">{p.permission}</code> in Entra to enable it.</>
                     )}
                   </span>
                 </div>
@@ -408,7 +408,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
               <div className="space-y-2.5">
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
                   Optional - required only to sync Defender for Office 365 policies (anti-phish, anti-spam, Safe
-                  Links, Safe Attachments) and the Tenant Allow/Block List. Exchange admin APIs don't accept the
+                  Links, Safe Attachments) and the Tenant Allow/Block List. Exchange admin APIs don&apos;t accept the
                   client secret above, so this uses a one-time sign-in instead - no certificate or app registration
                   changes needed.
                 </p>
@@ -469,7 +469,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                           Currently off (default). Add/Remove entries in MDO Policies are tracked in Clarity365 only -
                           nothing is sent to Microsoft 365. Enabling this lets Clarity365 create/remove real Tenant
                           Allow/Block List entries directly in Exchange Online, using the same permissions as the
-                          connected account. If you're not sure, leave this off.
+                          connected account. If you&apos;re not sure, leave this off.
                         </>
                       )}
                     </p>
