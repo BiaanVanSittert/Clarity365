@@ -67,6 +67,7 @@ export function createBlankSnapshot(tenant: Tenant): TenantSecuritySnapshot {
       totalStorageUsedTB: 0,
       sites: [],
     },
+    incidents: [],
     highRiskThreatIndicators: {
       unprotectedAdminsCount: 0,
       highRiskAppRegistrationsCount: 0,
