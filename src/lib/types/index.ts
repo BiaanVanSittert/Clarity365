@@ -411,6 +411,43 @@ export interface MdoThreatAlert {
   webUrl?: string;
 }
 
+// Module 8.6: Security Operations & Incident Response Center
+export type IncidentSeverity = "critical" | "high" | "medium" | "low" | "informational";
+export type IncidentStatus = "active" | "inProgress" | "resolved" | "redirected";
+
+export interface IncidentImpactedUser {
+  id?: string;
+  userPrincipalName: string;
+  displayName: string;
+}
+
+export interface IncidentImpactedDevice {
+  id?: string;
+  deviceName: string;
+  operatingSystem?: string;
+  isIsolated?: boolean;
+}
+
+export interface SecurityIncidentItem {
+  id: string;
+  incidentId: string;
+  displayName: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  classification?: "truePositive" | "falsePositive" | "benignPositive" | "unknown";
+  determination?: string;
+  createdDateTime: string;
+  lastUpdateDateTime: string;
+  assignedTo?: string;
+  mitreTechniques: string[];
+  alertsCount: number;
+  impactedUsers: IncidentImpactedUser[];
+  impactedDevices: IncidentImpactedDevice[];
+  description: string;
+  recommendedActions: string[];
+  commentsCount?: number;
+}
+
 // Module 9: Connected Services & App Registrations
 export interface AppRegistrationItem {
   id: string;
@@ -604,25 +641,26 @@ export interface TenantSecuritySnapshot {
   groupSelfServiceCreationRestricted?: boolean;
   groupNamingPolicyEnabled?: boolean;
   sharePoint: SharePointTenantPolicy;
+  incidents: SecurityIncidentItem[];
   highRiskThreatIndicators: {
-    // externalForwardingCount and openSharePointSitesCount intentionally
-    // removed: both were second, separate mock-only counters that never
-    // derived from their real source (emailForwarding / sharePoint.sites) and
-    // were never populated by a live sync - every reader now computes them
-    // directly from that source instead (see e.g. MdoPoliciesModule's own
-    // count pattern, and OverviewDashboard's openSharePointSitesCount).
     unprotectedAdminsCount: number;
     highRiskAppRegistrationsCount: number;
   };
 }
 
 // Audit Trail - records mutating/sensitive actions (CA policy deployments, MCP
-// tool executions, sync failures) for after-the-fact review. Pruned on write
-// according to SystemSettings.auditLogRetentionDays.
+// tool executions, sync failures, incident containment) for after-the-fact review.
 export interface AuditLogEntry {
   id: number;
   timestamp: string;
-  category: "ca_policy_deploy" | "mcp_tool_call" | "tenant_sync_failure" | "exo_write";
+  category:
+    | "ca_policy_deploy"
+    | "mcp_tool_call"
+    | "tenant_sync_failure"
+    | "exo_write"
+    | "incident_containment"
+    | "device_isolation"
+    | "device_scan";
   action: string;
   tenantId?: string;
   tenantName?: string;
