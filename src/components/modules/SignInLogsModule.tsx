@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { TenantSecuritySnapshot, SignInEvent, TimeRangePreset } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Drawer } from "../common/Drawer";
@@ -38,6 +38,8 @@ import {
 interface SignInLogsModuleProps {
   snapshot: TenantSecuritySnapshot;
   onRefresh?: () => void;
+  highlightEntityId?: string | null;
+  onClearHighlight?: () => void;
 }
 
 const ERROR_CODE_TRANSLATIONS: Record<number, { title: string; explanation: string; remediation: string }> = {
@@ -100,7 +102,12 @@ const ERROR_CODE_TRANSLATIONS: Record<number, { title: string; explanation: stri
 
 const STORAGE_KEY_PREFIX = "clarity365_alerts_cleared_";
 
-export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, onRefresh }) => {
+export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
+  snapshot,
+  onRefresh,
+  highlightEntityId,
+  onClearHighlight,
+}) => {
   const { signIns, tenant } = snapshot;
 
   // Search and general filters
@@ -109,6 +116,14 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
   const [serviceFilter, setServiceFilter] = useState<string>("all");
   const [errorCodeFilter, setErrorCodeFilter] = useState<number | "all">("all");
   const [selectedEvent, setSelectedEvent] = useState<SignInEvent | null>(null);
+
+  const highlightedRowRef = useRef<HTMLTableRowElement | null>(null);
+
+  useEffect(() => {
+    if (highlightEntityId && highlightedRowRef.current) {
+      highlightedRowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlightEntityId]);
 
   // Time stamp & custom date range filters
   const [timePreset, setTimePreset] = useState<TimeRangePreset>("all");
@@ -392,7 +407,14 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
   };
 
   return (
-    <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
+    <div
+      className="p-5 space-y-4 max-w-[1600px] mx-auto select-none"
+      onClick={() => {
+        if (highlightEntityId && onClearHighlight) {
+          onClearHighlight();
+        }
+      }}
+    >
       {/* Header */}
       <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -773,15 +795,28 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                   </td>
                 </tr>
               ) : (
-                paginatedSignIns.map((evt) => (
-                  <tr
-                    key={evt.id}
-                    onClick={() => setSelectedEvent(evt)}
-                    tabIndex={0}
-                    role="button"
-                    onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSelectedEvent(evt))}
-                    className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2"
-                  >
+                paginatedSignIns.map((evt) => {
+                  const isHighlighted =
+                    Boolean(highlightEntityId) &&
+                    (highlightEntityId === evt.id ||
+                      highlightEntityId === evt.userId ||
+                      highlightEntityId?.toLowerCase() === evt.userPrincipalName.toLowerCase() ||
+                      highlightEntityId === evt.ipAddress);
+
+                  return (
+                    <tr
+                      key={evt.id}
+                      ref={isHighlighted ? highlightedRowRef : null}
+                      onClick={() => setSelectedEvent(evt)}
+                      tabIndex={0}
+                      role="button"
+                      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSelectedEvent(evt))}
+                      className={`cursor-pointer transition-colors focus:outline focus:outline-2 focus:outline-slate-400 focus:-outline-offset-2 ${
+                        isHighlighted
+                          ? "animate-slow-flash"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-700"
+                      }`}
+                    >
                     {/* Timestamp */}
                     <td className="font-mono text-[11px] text-slate-600 dark:text-slate-400 whitespace-nowrap">
                       <div>{new Date(evt.createdDateTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
@@ -869,8 +904,8 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({ snapshot, on
                       </button>
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              }))}
             </tbody>
           </table>
         </div>
