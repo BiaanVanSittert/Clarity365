@@ -243,8 +243,14 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
             <div className="grid grid-cols-2 gap-2">
               {/* Licensed Users */}
-              <div className="p-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#E2E8F0] dark:border-slate-700 rounded-sm">
-                <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 font-semibold">Licensed Users</div>
+              <div
+                onClick={() => onNavigate("user_class")}
+                className="p-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-sm cursor-pointer transition-colors group"
+              >
+                <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 font-semibold flex items-center justify-between">
+                  <span>Licensed Users</span>
+                  <ArrowUpRight size={10} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
                 <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">
                   {accountClassification.licensedUsersCount}
                 </div>
@@ -252,10 +258,16 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               </div>
 
               {/* Unlicensed Active Accounts */}
-              <div className="p-2.5 bg-[#FFFBEB] dark:bg-amber-950 border border-[#F59E0B] dark:border-amber-800 rounded-sm">
-                <div className="text-[10px] uppercase font-mono text-[#92400E] dark:text-amber-400 font-semibold flex items-center gap-1">
-                  <AlertTriangle size={11} />
-                  <span>Unlicensed Active</span>
+              <div
+                onClick={() => onNavigate("user_class")}
+                className="p-2.5 bg-[#FFFBEB] dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-950 border border-[#F59E0B] dark:border-amber-800 rounded-sm cursor-pointer transition-colors group"
+              >
+                <div className="text-[10px] uppercase font-mono text-[#92400E] dark:text-amber-400 font-semibold flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    <AlertTriangle size={11} />
+                    <span>Unlicensed Active</span>
+                  </div>
+                  <ArrowUpRight size={10} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
                 <div className="text-lg font-bold font-mono text-[#92400E] dark:text-amber-400 tabular-nums mt-0.5">
                   {accountClassification.unlicensedActiveCount}
@@ -264,8 +276,14 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               </div>
 
               {/* Shared Mailboxes */}
-              <div className="p-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#E2E8F0] dark:border-slate-700 rounded-sm">
-                <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 font-semibold">Shared Mailboxes</div>
+              <div
+                onClick={() => onNavigate("mailbox_perm")}
+                className="p-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-sm cursor-pointer transition-colors group"
+              >
+                <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 font-semibold flex items-center justify-between">
+                  <span>Shared Mailboxes</span>
+                  <ArrowUpRight size={10} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
                 <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">
                   {sharedMailboxesCount}
                 </div>
@@ -279,8 +297,14 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               </div>
 
               {/* Intune Managed Devices */}
-              <div className="p-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#E2E8F0] dark:border-slate-700 rounded-sm">
-                <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 font-semibold">Intune Devices</div>
+              <div
+                onClick={() => onNavigate("intune")}
+                className="p-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800 border border-[#E2E8F0] dark:border-slate-700 rounded-sm cursor-pointer transition-colors group"
+              >
+                <div className="text-[10px] uppercase font-mono text-slate-500 dark:text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 font-semibold flex items-center justify-between">
+                  <span>Intune Devices</span>
+                  <ArrowUpRight size={10} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
                 <div className="text-lg font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums mt-0.5">
                   {intune.totalDevices}
                 </div>
