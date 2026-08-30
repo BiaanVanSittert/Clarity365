@@ -341,7 +341,7 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
                 <span>Confirm Live Write to Exchange Online</span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
-                This will immediately revoke <strong>{revokeTarget.delegation.principalDisplayName}</strong>'s{" "}
+                This will immediately revoke <strong>{revokeTarget.delegation.principalDisplayName}</strong>&apos;s{" "}
                 <strong>{revokeTarget.delegation.accessRight}</strong> access to{" "}
                 <strong>{revokeTarget.mailbox.userPrincipalName}</strong>. This takes effect right away - there is
                 no undo from here (the permission can be manually re-granted in Exchange Online if needed).
