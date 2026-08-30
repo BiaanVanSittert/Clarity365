@@ -131,7 +131,7 @@ export const MailflowRulesModule: React.FC<MailflowRulesModuleProps> = ({
             className="px-2.5 py-1 text-[11px] font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm inline-flex items-center gap-1 w-full justify-center"
           >
             <Wrench size={11} />
-            <span className="truncate max-w-[140px]">Disable "{offendingNames[i]}"</span>
+            <span className="truncate max-w-[140px]">Disable &quot;{offendingNames[i]}&quot;</span>
           </button>
         ))}
       </div>
@@ -189,7 +189,7 @@ export const MailflowRulesModule: React.FC<MailflowRulesModuleProps> = ({
         {!exoConnected ? (
           <div className="p-6 text-center space-y-2">
             <Mail className="w-6 h-6 text-slate-300 mx-auto" />
-            <p className="text-xs text-slate-500 dark:text-slate-400">Connect Exchange Online to score your tenant's mail flow rule configuration.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Connect Exchange Online to score your tenant&apos;s mail flow rule configuration.</p>
             <button
               onClick={onOpenPermissions}
               className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm inline-flex items-center gap-1.5"
