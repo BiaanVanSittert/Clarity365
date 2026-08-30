@@ -1065,6 +1065,7 @@ class TenantStore {
     }
   ): Promise<{
     success: boolean;
+    temporaryPassword?: string;
     actionsExecuted: string[];
     errors: string[];
     snapshot?: TenantSecuritySnapshot;
@@ -1075,6 +1076,20 @@ class TenantStore {
     const actionsExecuted: string[] = [];
     const errors: string[] = [];
     const target = options.userId || options.userPrincipalName;
+    let temporaryPassword: string | undefined;
+
+    if (options.resetPassword) {
+      const charsUpper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+      const charsLower = "abcdefghijkmnopqrstuvwxyz";
+      const charsDigits = "23456789";
+      const charsSpecial = "!@#$%^&*";
+      let pwd = "Clt!";
+      for (let i = 0; i < 3; i++) pwd += charsUpper[Math.floor(Math.random() * charsUpper.length)];
+      for (let i = 0; i < 4; i++) pwd += charsLower[Math.floor(Math.random() * charsLower.length)];
+      for (let i = 0; i < 3; i++) pwd += charsDigits[Math.floor(Math.random() * charsDigits.length)];
+      pwd += charsSpecial[Math.floor(Math.random() * charsSpecial.length)];
+      temporaryPassword = pwd;
+    }
 
     // 1. Live Microsoft Graph actions if credentials configured and not demo
     if (!tenant.isDemo && tenant.credentials?.clientId && tenant.credentials?.clientSecret) {
@@ -1120,19 +1135,20 @@ class TenantStore {
           }
         }
 
-        if (options.resetPassword) {
+        if (options.resetPassword && temporaryPassword) {
           try {
             const res = await graphFetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(target)}`, {
               method: "PATCH",
               headers,
               body: JSON.stringify({
                 passwordProfile: {
+                  password: temporaryPassword,
                   forceChangePasswordNextSignIn: true,
                 },
               }),
             });
             if (res.ok) {
-              actionsExecuted.push("Enforced password change on next sign-in.");
+              actionsExecuted.push(`Set temporary password & enforced reset on next sign-in.`);
             } else {
               const data = await res.json().catch(() => ({}));
               errors.push(`Password reset flag: ${data.error?.message || res.statusText}`);
@@ -1147,8 +1163,10 @@ class TenantStore {
     } else {
       // Simulation mode for demo / offline
       if (options.revokeTokens) actionsExecuted.push("Revoked active sign-in sessions (Simulated).");
-      if (options.disableAccount) actionsExecuted.push("Disabled user account (Simulated).");
-      if (options.resetPassword) actionsExecuted.push("Enforced password change on next sign-in (Simulated).");
+      if (options.disableAccount) actionsExecuted.push("Disabled user account in Entra ID (Simulated).");
+      if (options.resetPassword && temporaryPassword) {
+        actionsExecuted.push(`Generated Temporary One-Time Password: ${temporaryPassword} (Simulated).`);
+      }
     }
 
     // 2. Exchange Online forwarding rule purge if requested
@@ -1211,10 +1229,167 @@ class TenantStore {
 
     return {
       success: errors.length === 0 || actionsExecuted.length > 0,
+      temporaryPassword,
       actionsExecuted,
       errors,
       snapshot: this.ensureSnapshot(tenantId) || undefined,
     };
+  }
+
+  public async restoreUserAccount(
+    tenantId: string,
+    options: {
+      userId?: string;
+      userPrincipalName: string;
+      reason?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    actionsExecuted: string[];
+    errors: string[];
+    snapshot?: TenantSecuritySnapshot;
+  }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, actionsExecuted: [], errors: ["Tenant not found"] };
+
+    const actionsExecuted: string[] = [];
+    const errors: string[] = [];
+    const target = options.userId || options.userPrincipalName;
+
+    if (!tenant.isDemo && tenant.credentials?.clientId && tenant.credentials?.clientSecret) {
+      const { token, error: tokenError } = await getGraphAccessToken(tenant.credentials);
+      if (token) {
+        try {
+          const res = await graphFetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(target)}`, {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ accountEnabled: true }),
+          });
+          if (res.ok) {
+            actionsExecuted.push("Re-enabled user account in Microsoft Entra ID.");
+          } else {
+            const data = await res.json().catch(() => ({}));
+            errors.push(`Account re-enablement: ${data.error?.message || res.statusText}`);
+          }
+        } catch (e: any) {
+          errors.push(`Account re-enablement: ${e.message}`);
+        }
+      } else {
+        errors.push(`Graph authentication: ${tokenError}`);
+      }
+    } else {
+      actionsExecuted.push("Re-enabled user account in Microsoft Entra ID (Simulated).");
+    }
+
+    const snap = this.ensureSnapshot(tenantId);
+    if (snap) {
+      const user = snap.accountClassification.users.find(
+        (u) => u.userPrincipalName.toLowerCase() === options.userPrincipalName.toLowerCase() || u.id === options.userId
+      );
+      if (user) {
+        user.accountEnabled = true;
+        user.classification = "licensed";
+      }
+
+      const mfaUser = snap.mfaAudit.find(
+        (u) => u.userPrincipalName.toLowerCase() === options.userPrincipalName.toLowerCase() || u.id === options.userId
+      );
+      if (mfaUser) {
+        mfaUser.accountEnabled = true;
+      }
+
+      this.putSnapshotRow(tenantId, snap);
+    }
+
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "incident_containment",
+      action: `Restore / Re-enable User Account: ${options.userPrincipalName}`,
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: errors.length === 0,
+      detail: actionsExecuted.join(" | ") + (options.reason ? ` - Reason: ${options.reason}` : ""),
+    });
+
+    return {
+      success: errors.length === 0 || actionsExecuted.length > 0,
+      actionsExecuted,
+      errors,
+      snapshot: this.ensureSnapshot(tenantId) || undefined,
+    };
+  }
+
+  public async releaseEndpointDevice(
+    tenantId: string,
+    deviceId: string,
+    deviceName: string,
+    comment?: string
+  ): Promise<{ success: boolean; error?: string; snapshot?: TenantSecuritySnapshot }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+
+    let success = true;
+    let errorDetail: string | undefined;
+
+    if (!tenant.isDemo && tenant.credentials?.clientId && tenant.credentials?.clientSecret) {
+      const { token, error: tokenError } = await getGraphAccessToken(tenant.credentials);
+      if (token) {
+        try {
+          const res = await graphFetch(`https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/${encodeURIComponent(deviceId)}/unisolateDevice`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ comment: comment || "Released from isolation by Clarity365 IR" }),
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            success = false;
+            errorDetail = data.error?.message || `Device release returned HTTP ${res.status}`;
+          }
+        } catch (e: any) {
+          success = false;
+          errorDetail = e.message;
+        }
+      } else {
+        success = false;
+        errorDetail = tokenError || "Failed to obtain Graph access token";
+      }
+    }
+
+    const snap = this.ensureSnapshot(tenantId);
+    if (snap) {
+      const dev = snap.intune.devices.find((d) => d.id === deviceId || d.deviceName.toLowerCase() === deviceName.toLowerCase());
+      if (dev) {
+        (dev as any).isIsolated = false;
+      }
+      if (Array.isArray(snap.incidents)) {
+        snap.incidents.forEach((inc) => {
+          inc.impactedDevices.forEach((d) => {
+            if (d.id === deviceId || d.deviceName.toLowerCase() === deviceName.toLowerCase()) {
+              d.isIsolated = false;
+            }
+          });
+        });
+      }
+      this.putSnapshotRow(tenantId, snap);
+    }
+
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "device_isolation",
+      action: `Release Endpoint Device: ${deviceName}`,
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success,
+      detail: success ? `Device '${deviceName}' successfully released from network isolation.` : errorDetail,
+    });
+
+    return { success, error: errorDetail, snapshot: this.ensureSnapshot(tenantId) || undefined };
   }
 
   public async isolateEndpointDevice(

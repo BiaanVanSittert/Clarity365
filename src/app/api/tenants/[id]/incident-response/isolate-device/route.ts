@@ -10,7 +10,7 @@ export async function POST(
   try {
     const { id } = params;
     const body = await request.json();
-    const { deviceId, deviceName, comment } = body;
+    const { action = "isolate", deviceId, deviceName, comment } = body;
 
     if (!deviceId) {
       return NextResponse.json({ success: false, error: "Missing required parameter: deviceId" }, { status: 400 });
@@ -19,6 +19,15 @@ export async function POST(
     const tenant = tenantStore.getTenant(id);
     if (!tenant) {
       return NextResponse.json({ success: false, error: "Tenant not found" }, { status: 404 });
+    }
+
+    if (action === "unisolate" || action === "release") {
+      const result = await tenantStore.releaseEndpointDevice(id, deviceId, deviceName || deviceId, comment);
+      return NextResponse.json({
+        success: result.success,
+        error: result.error,
+        snapshot: result.snapshot,
+      });
     }
 
     const result = await tenantStore.isolateEndpointDevice(id, deviceId, deviceName || deviceId, comment);

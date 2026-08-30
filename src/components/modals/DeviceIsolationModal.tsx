@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Modal } from "../common/Modal";
-import { ShieldAlert, Laptop, Radio, Scan, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
+import { ShieldAlert, Laptop, Radio, Scan, RefreshCw, CheckCircle2, XCircle, ShieldCheck, Wifi, WifiOff } from "lucide-react";
 
 interface DeviceIsolationModalProps {
   isOpen: boolean;
@@ -9,6 +9,7 @@ interface DeviceIsolationModalProps {
   tenantName: string;
   deviceId: string;
   deviceName: string;
+  isCurrentlyIsolated?: boolean;
   onSuccess?: () => void;
 }
 
@@ -19,11 +20,18 @@ export const DeviceIsolationModal: React.FC<DeviceIsolationModalProps> = ({
   tenantName,
   deviceId,
   deviceName,
+  isCurrentlyIsolated = false,
   onSuccess,
 }) => {
-  const [actionType, setActionType] = useState<"isolate" | "scan">("isolate");
+  const [actionType, setActionType] = useState<"isolate" | "unisolate" | "scan">(
+    isCurrentlyIsolated ? "unisolate" : "isolate"
+  );
   const [scanType, setScanType] = useState<"quickScan" | "fullScan">("fullScan");
-  const [comment, setComment] = useState("Isolated by Clarity365 Incident Response due to suspected malware/c2 activity.");
+  const [comment, setComment] = useState(
+    isCurrentlyIsolated
+      ? "Threat eradicated. Released from isolation by Clarity365 Incident Response."
+      : "Isolated by Clarity365 Incident Response due to suspected malware/C2 activity."
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
 
@@ -34,12 +42,24 @@ export const DeviceIsolationModal: React.FC<DeviceIsolationModalProps> = ({
         const res = await fetch(`/api/tenants/${tenantId}/incident-response/isolate-device`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deviceId, deviceName, comment }),
+          body: JSON.stringify({ action: "isolate", deviceId, deviceName, comment }),
         });
         const data = await res.json();
         setResult({
           success: data.success,
           message: data.success ? `Device '${deviceName}' isolated from network.` : undefined,
+          error: data.error,
+        });
+      } else if (actionType === "unisolate") {
+        const res = await fetch(`/api/tenants/${tenantId}/incident-response/isolate-device`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "unisolate", deviceId, deviceName, comment }),
+        });
+        const data = await res.json();
+        setResult({
+          success: data.success,
+          message: data.success ? `Device '${deviceName}' released from network isolation.` : undefined,
           error: data.error,
         });
       } else {
@@ -78,15 +98,37 @@ export const DeviceIsolationModal: React.FC<DeviceIsolationModalProps> = ({
     >
       <div className="space-y-4">
         {/* Banner */}
-        <div className="p-3 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-950 dark:text-amber-300 rounded-sm flex items-start gap-2.5">
-          <ShieldAlert className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-          <div className="text-xs space-y-1">
-            <div className="font-semibold text-amber-900 dark:text-amber-200">Defender Endpoint Containment</div>
-            <p className="leading-relaxed">
-              Isolating a device cuts off all incoming/outgoing network communication except connectivity with Microsoft Defender cloud services and Intune.
-            </p>
+        {actionType === "unisolate" ? (
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-950 dark:text-emerald-300 rounded-sm flex items-start gap-2.5">
+            <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-1">
+              <div className="font-semibold text-emerald-900 dark:text-emerald-200">Release Endpoint from Network Isolation</div>
+              <p className="leading-relaxed">
+                Restores full corporate and internet network connectivity to <strong>{deviceName}</strong> once malware remediation is verified.
+              </p>
+            </div>
           </div>
-        </div>
+        ) : actionType === "isolate" ? (
+          <div className="p-3 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-red-950 dark:text-red-300 rounded-sm flex items-start gap-2.5">
+            <ShieldAlert className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-1">
+              <div className="font-semibold text-red-900 dark:text-red-200">Defender Endpoint Network Isolation</div>
+              <p className="leading-relaxed">
+                Isolating a device terminates all incoming/outgoing network communication except connectivity with Microsoft Defender cloud services and Intune.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="p-3 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-950 dark:text-blue-300 rounded-sm flex items-start gap-2.5">
+            <Scan className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-1">
+              <div className="font-semibold text-blue-900 dark:text-blue-200">On-Demand Antivirus Scan</div>
+              <p className="leading-relaxed">
+                Dispatches a cloud-managed Microsoft Defender Antivirus scan across processes, memory, and local disks.
+              </p>
+            </div>
+          </div>
+        )}
 
         {result ? (
           <div className="space-y-4">
@@ -118,48 +160,72 @@ export const DeviceIsolationModal: React.FC<DeviceIsolationModalProps> = ({
         ) : (
           <div className="space-y-4">
             {/* Action Type Selection */}
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => setActionType("isolate")}
-                className={`p-3 border text-left rounded-sm transition-all ${
+                onClick={() => {
+                  setActionType("isolate");
+                  setComment("Isolated by Clarity365 Incident Response due to suspected malware/C2 activity.");
+                }}
+                className={`p-2.5 border text-left rounded-sm transition-all ${
                   actionType === "isolate"
                     ? "bg-red-50 dark:bg-red-950/40 border-red-400 dark:border-red-700 font-semibold"
                     : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-400"
                 }`}
               >
-                <div className="flex items-center gap-2 text-xs text-red-700 dark:text-red-400 mb-1">
-                  <Radio size={14} />
-                  <span>Network Isolation</span>
+                <div className="flex items-center gap-1.5 text-xs text-red-700 dark:text-red-400 mb-0.5">
+                  <WifiOff size={13} />
+                  <span>Isolate</span>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-normal">
-                  Cut off device from local network & internet.
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
+                  Cut off network access.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActionType("unisolate");
+                  setComment("Threat eradicated. Released from isolation by Clarity365 Incident Response.");
+                }}
+                className={`p-2.5 border text-left rounded-sm transition-all ${
+                  actionType === "unisolate"
+                    ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 font-semibold"
+                    : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-400"
+                }`}
+              >
+                <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 mb-0.5">
+                  <Wifi size={13} />
+                  <span>Release</span>
+                </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
+                  Restore connectivity.
                 </p>
               </button>
 
               <button
                 type="button"
                 onClick={() => setActionType("scan")}
-                className={`p-3 border text-left rounded-sm transition-all ${
+                className={`p-2.5 border text-left rounded-sm transition-all ${
                   actionType === "scan"
                     ? "bg-blue-50 dark:bg-blue-950/40 border-blue-400 dark:border-blue-700 font-semibold"
                     : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-400"
                 }`}
               >
-                <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-400 mb-1">
-                  <Scan size={14} />
-                  <span>Defender Antivirus Scan</span>
+                <div className="flex items-center gap-1.5 text-xs text-blue-700 dark:text-blue-400 mb-0.5">
+                  <Scan size={13} />
+                  <span>Defender Scan</span>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-normal">
-                  Trigger on-demand background malware scan.
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">
+                  Trigger AV scan.
                 </p>
               </button>
             </div>
 
-            {actionType === "isolate" ? (
+            {actionType !== "scan" ? (
               <div>
                 <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Isolation Justification / Audit Comment:
+                  {actionType === "isolate" ? "Isolation Reason / Justification:" : "Release from Isolation Verification Note:"}
                 </label>
                 <textarea
                   rows={2}
@@ -169,7 +235,7 @@ export const DeviceIsolationModal: React.FC<DeviceIsolationModalProps> = ({
                 />
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2 p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-sm">
                 <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
                   Select Scan Depth:
                 </label>
@@ -181,7 +247,7 @@ export const DeviceIsolationModal: React.FC<DeviceIsolationModalProps> = ({
                       checked={scanType === "fullScan"}
                       onChange={() => setScanType("fullScan")}
                     />
-                    <span>Full Antivirus Scan (Thorough)</span>
+                    <span>Full Antivirus Scan (Thorough Disk Scan)</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -190,7 +256,7 @@ export const DeviceIsolationModal: React.FC<DeviceIsolationModalProps> = ({
                       checked={scanType === "quickScan"}
                       onChange={() => setScanType("quickScan")}
                     />
-                    <span>Quick Scan (Processes & Memory)</span>
+                    <span>Quick Scan (Memory & Active Processes)</span>
                   </label>
                 </div>
               </div>
@@ -211,7 +277,11 @@ export const DeviceIsolationModal: React.FC<DeviceIsolationModalProps> = ({
                 onClick={handleExecute}
                 disabled={isLoading}
                 className={`px-4 py-1.5 text-xs font-semibold text-white rounded-sm flex items-center gap-1.5 shadow-sm transition-colors ${
-                  actionType === "isolate" ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700"
+                  actionType === "isolate"
+                    ? "bg-red-600 hover:bg-red-700"
+                    : actionType === "unisolate"
+                    ? "bg-emerald-600 hover:bg-emerald-700"
+                    : "bg-blue-600 hover:bg-blue-700"
                 }`}
               >
                 {isLoading && <RefreshCw size={13} className="animate-spin" />}
@@ -220,6 +290,8 @@ export const DeviceIsolationModal: React.FC<DeviceIsolationModalProps> = ({
                     ? "Dispatching..."
                     : actionType === "isolate"
                     ? "Isolate Endpoint"
+                    : actionType === "unisolate"
+                    ? "Release from Isolation"
                     : "Trigger Defender Scan"}
                 </span>
               </button>

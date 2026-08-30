@@ -11,6 +11,7 @@ export async function POST(
     const { id } = params;
     const body = await request.json();
     const {
+      action = "contain",
       userId,
       userPrincipalName,
       revokeTokens = true,
@@ -32,6 +33,20 @@ export async function POST(
       return NextResponse.json({ success: false, error: "Tenant not found" }, { status: 404 });
     }
 
+    if (action === "restore") {
+      const result = await tenantStore.restoreUserAccount(id, {
+        userId,
+        userPrincipalName,
+        reason,
+      });
+      return NextResponse.json({
+        success: result.success,
+        actionsExecuted: result.actionsExecuted,
+        errors: result.errors,
+        snapshot: result.snapshot,
+      });
+    }
+
     const result = await tenantStore.containUserAccount(id, {
       userId,
       userPrincipalName,
@@ -44,6 +59,7 @@ export async function POST(
 
     return NextResponse.json({
       success: result.success,
+      temporaryPassword: result.temporaryPassword,
       actionsExecuted: result.actionsExecuted,
       errors: result.errors,
       snapshot: result.snapshot,
