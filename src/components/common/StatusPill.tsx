@@ -96,10 +96,10 @@ export const StatusPill: React.FC<StatusPillProps> = ({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-medium border rounded-sm tracking-tight select-none ${styles[normalizedStatus]} ${sizeClasses} ${className}`}
+      className={`inline-flex items-center gap-1.5 font-medium border rounded-sm tracking-tight select-none whitespace-nowrap shrink-0 ${styles[normalizedStatus]} ${sizeClasses} ${className}`}
     >
       {showIcon && <IconComponent size={iconSize} className="shrink-0" />}
-      <span className="truncate">{defaultLabel}</span>
+      <span className="truncate whitespace-nowrap">{defaultLabel}</span>
     </span>
   );
 };
