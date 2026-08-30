@@ -459,7 +459,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <button
                     key={item.id}
                     onClick={() => onSelectView(item.id)}
-                    title={item.badgeDetail ? `${item.label} - ${item.badgeDetail}` : isCollapsed ? item.label : undefined}
+                    title={
+                      isCollapsed
+                        ? item.badgeDetail && !isDismissed
+                          ? `${item.label} (${item.badgeDetail})`
+                          : item.label
+                        : item.badgeDetail && !isDismissed
+                        ? `${item.label} - ${item.badgeDetail}`
+                        : undefined
+                    }
                     className={`w-full text-left px-2.5 py-1.5 text-xs flex items-center rounded-sm transition-colors ${
                       isCollapsed ? "justify-center" : "justify-between"
                     } ${
