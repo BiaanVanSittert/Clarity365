@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Users, AlertTriangle, ShieldCheck, UserX, Search, Filter, Terminal, CheckCircle2, Download } from "lucide-react";
@@ -8,15 +8,27 @@ import { EmptyStateRow } from "../common/EmptyStateRow";
 interface UserClassificationModuleProps {
   snapshot: TenantSecuritySnapshot;
   onOpenRemediation: (findingType?: string) => void;
+  highlightEntityId?: string | null;
+  onClearHighlight?: () => void;
 }
 
 export const UserClassificationModule: React.FC<UserClassificationModuleProps> = ({
   snapshot,
   onOpenRemediation,
+  highlightEntityId,
+  onClearHighlight,
 }) => {
   const { accountClassification } = snapshot;
   const [activeTab, setActiveTab] = useState<"licensed" | "unlicensed_active" | "disabled" | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
+
+  const highlightedRowRef = useRef<HTMLTableRowElement | null>(null);
+
+  useEffect(() => {
+    if (highlightEntityId && highlightedRowRef.current) {
+      highlightedRowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlightEntityId]);
 
   const users = accountClassification.users;
 
@@ -45,7 +57,14 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
   };
 
   return (
-    <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
+    <div
+      className="p-5 space-y-4 max-w-[1600px] mx-auto select-none"
+      onClick={() => {
+        if (highlightEntityId && onClearHighlight) {
+          onClearHighlight();
+        }
+      }}
+    >
       {/* Header */}
       <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -208,12 +227,29 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
               {filteredUsers.length === 0 ? (
                 <EmptyStateRow colSpan={6} entityLabel="accounts" isFiltered={searchQuery.trim().length > 0 || activeTab !== "all"} />
               ) : (
-                filteredUsers.map((user) => (
-                  <tr key={user.id} className={user.classification === "unlicensed_active" ? "bg-amber-50/40 dark:bg-amber-950" : ""}>
-                    <td>
-                      <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{user.displayName}</div>
-                      <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{user.userPrincipalName}</div>
-                    </td>
+                filteredUsers.map((user) => {
+                  const isHighlighted =
+                    Boolean(highlightEntityId) &&
+                    (highlightEntityId === user.id ||
+                      highlightEntityId?.toLowerCase() === user.userPrincipalName.toLowerCase() ||
+                      highlightEntityId?.toLowerCase() === user.displayName.toLowerCase());
+
+                  return (
+                    <tr
+                      key={user.id}
+                      ref={isHighlighted ? highlightedRowRef : null}
+                      className={`transition-colors ${
+                        isHighlighted
+                          ? "animate-slow-flash"
+                          : user.classification === "unlicensed_active"
+                          ? "bg-amber-50/40 dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-950/60"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                      }`}
+                    >
+                      <td>
+                        <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{user.displayName}</div>
+                        <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{user.userPrincipalName}</div>
+                      </td>
                     <td>
                       <StatusPill
                         status={
@@ -256,8 +292,8 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
                       )}
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              }))}
             </tbody>
           </table>
         </div>
