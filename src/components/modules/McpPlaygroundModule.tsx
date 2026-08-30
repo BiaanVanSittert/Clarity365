@@ -197,7 +197,7 @@ export const McpPlaygroundModule: React.FC<McpPlaygroundModuleProps> = ({ snapsh
               {executionResult ? (
                 <code>{JSON.stringify(executionResult, null, 2)}</code>
               ) : (
-                <span className="text-slate-500 dark:text-slate-400 italic">Click "Execute Tool" to test MCP response.</span>
+                <span className="text-slate-500 dark:text-slate-400 italic">Click &quot;Execute Tool&quot; to test MCP response.</span>
               )}
             </pre>
           </div>
