@@ -18,6 +18,7 @@ import { RefreshCw, CheckCircle, AlertTriangle, X } from "lucide-react";
 // Lazy-loaded module components - only fetched when the user navigates to them.
 // Cuts initial bundle size significantly since each module is 8-48KB.
 const OverviewDashboard = lazy(() => import("../dashboard/OverviewDashboard").then(m => ({ default: m.OverviewDashboard })));
+const EventResponseModule = lazy(() => import("../modules/EventResponseModule").then(m => ({ default: m.EventResponseModule })));
 const ConditionalAccessModule = lazy(() => import("../modules/ConditionalAccessModule").then(m => ({ default: m.ConditionalAccessModule })));
 const SignInLogsModule = lazy(() => import("../modules/SignInLogsModule").then(m => ({ default: m.SignInLogsModule })));
 const SecureScoreModule = lazy(() => import("../modules/SecureScoreModule").then(m => ({ default: m.SecureScoreModule })));
@@ -341,6 +342,16 @@ export const AppShell: React.FC = () => {
                   onOpenRemediation={handleOpenRemediation}
                 />
               )}
+            </ErrorBoundary>
+
+            <ErrorBoundary moduleName="Event & Response Center" key={`eb-event-response-${activeTenantId}`}>
+              {activeView === "event_response" && snapshot && (
+                <EventResponseModule
+                  snapshot={snapshot}
+                  onLocalRefresh={handleLocalRefresh}
+                />
+              )}
+              {activeView === "event_response" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Conditional Access" key={`eb-ca-${activeTenantId}`}>
