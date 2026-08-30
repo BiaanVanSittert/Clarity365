@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { TenantSecuritySnapshot, EmailForwardingRule } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Modal } from "../common/Modal";
@@ -10,6 +10,8 @@ interface EmailForwardingModuleProps {
   onOpenRemediation: (findingType?: string) => void;
   onLocalRefresh: () => void;
   onOpenPermissions: () => void;
+  highlightEntityId?: string | null;
+  onClearHighlight?: () => void;
 }
 
 export const EmailForwardingModule: React.FC<EmailForwardingModuleProps> = ({
@@ -17,10 +19,20 @@ export const EmailForwardingModule: React.FC<EmailForwardingModuleProps> = ({
   onOpenRemediation,
   onLocalRefresh,
   onOpenPermissions,
+  highlightEntityId,
+  onClearHighlight,
 }) => {
   const { emailForwarding, tenant } = snapshot;
   const [searchQuery, setSearchQuery] = useState("");
   const [filterScope, setFilterScope] = useState<string>("all");
+
+  const highlightedRowRef = useRef<HTMLTableRowElement | null>(null);
+
+  useEffect(() => {
+    if (highlightEntityId && highlightedRowRef.current) {
+      highlightedRowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlightEntityId]);
 
   const exoConnected = !!tenant.credentials.exoRefreshToken;
   const exoWriteEnabled = !!tenant.credentials.exoWriteEnabled;
@@ -92,7 +104,14 @@ export const EmailForwardingModule: React.FC<EmailForwardingModuleProps> = ({
   };
 
   return (
-    <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
+    <div
+      className="p-5 space-y-4 max-w-[1600px] mx-auto select-none"
+      onClick={() => {
+        if (highlightEntityId && onClearHighlight) {
+          onClearHighlight();
+        }
+      }}
+    >
       {/* Header */}
       <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -198,17 +217,36 @@ export const EmailForwardingModule: React.FC<EmailForwardingModuleProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredRules.map((rule) => (
-                  <tr key={rule.id} className={rule.isExternal ? "bg-red-50/30 dark:bg-red-950" : ""}>
-                    <td>
-                      <span className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200 uppercase">
-                        {rule.scope === "transport_rule"
-                          ? "Transport Rule"
-                          : rule.scope === "inbox_rule"
-                          ? "Inbox Rule"
-                          : "SMTP Forward"}
-                      </span>
-                    </td>
+                filteredRules.map((rule) => {
+                  const isHighlighted =
+                    Boolean(highlightEntityId) &&
+                    (highlightEntityId === rule.id ||
+                      highlightEntityId?.toLowerCase() === rule.name.toLowerCase() ||
+                      highlightEntityId?.toLowerCase() === rule.forwardingAddress.toLowerCase() ||
+                      (rule.mailboxOwner &&
+                        highlightEntityId?.toLowerCase() === rule.mailboxOwner.toLowerCase()));
+
+                  return (
+                    <tr
+                      key={rule.id}
+                      ref={isHighlighted ? highlightedRowRef : null}
+                      className={`transition-colors ${
+                        isHighlighted
+                          ? "animate-slow-flash"
+                          : rule.isExternal
+                          ? "bg-red-50/30 dark:bg-red-950/30 hover:bg-red-50 dark:hover:bg-red-950/50"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                      }`}
+                    >
+                      <td>
+                        <span className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200 uppercase">
+                          {rule.scope === "transport_rule"
+                            ? "Transport Rule"
+                            : rule.scope === "inbox_rule"
+                            ? "Inbox Rule"
+                            : "SMTP Forward"}
+                        </span>
+                      </td>
                     <td>
                       <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{rule.name}</div>
                       {rule.mailboxOwner && (
@@ -275,8 +313,8 @@ export const EmailForwardingModule: React.FC<EmailForwardingModuleProps> = ({
                       )}
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              }))}
             </tbody>
           </table>
         </div>
