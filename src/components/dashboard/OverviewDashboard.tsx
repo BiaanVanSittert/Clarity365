@@ -22,6 +22,7 @@ import {
   XCircle,
   Clock,
   Layers,
+  Flame,
 } from "lucide-react";
 
 import { CA_BASELINE_STANDARDS } from "@/lib/data/baseline-definitions";
@@ -83,6 +84,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   const sharedMailboxesCount = mailboxes.filter((m) => m.recipientType === "SharedMailbox").length;
   const licensedSharedMailboxWasteCount = mailboxes.filter((m) => m.recipientType === "SharedMailbox" && m.hasDirectLicense).length;
 
+  const activeCriticalIncidents = (snapshot.incidents || []).filter(
+    (i) => (i.severity === "critical" || i.severity === "high") && i.status !== "resolved"
+  );
+
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Top Banner / Tenant Posture Bar */}
@@ -111,6 +116,32 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Active High/Critical Incident SOC Banner */}
+      {activeCriticalIncidents.length > 0 && (
+        <div className="p-3.5 bg-red-50 dark:bg-red-950/60 border border-red-300 dark:border-red-800 text-red-950 dark:text-red-200 rounded-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 bg-red-600 text-white rounded-sm">
+              <Flame size={16} className="animate-pulse" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-red-900 dark:text-red-100">
+                {activeCriticalIncidents.length} Critical/High Security Incident{activeCriticalIncidents.length > 1 ? "s" : ""} Requiring Immediate Containment
+              </div>
+              <p className="text-[11px] text-red-800 dark:text-red-300 mt-0.5">
+                Active threat activity detected in Microsoft Defender XDR / Entra ID: <strong>{activeCriticalIncidents[0].displayName}</strong>
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate("event_response")}
+            className="px-3 py-1.5 text-xs font-semibold text-white bg-red-700 hover:bg-red-800 rounded-sm whitespace-nowrap inline-flex items-center gap-1.5 shadow-sm transition-colors"
+          >
+            <span>Triage in Event Response</span>
+            <ExternalLink size={12} />
+          </button>
+        </div>
+      )}
 
       {/* TOP 6 PRIORITY WIDGETS GRID */}
 
