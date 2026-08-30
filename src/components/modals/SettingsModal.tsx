@@ -160,7 +160,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </div>
 
           <p className="text-xs text-slate-600 dark:text-slate-400">
-            Expose Clarity365's internal tools (<code className="font-mono text-[11px]">audit_conditional_access</code>, <code className="font-mono text-[11px]">query_signin_logs</code>, <code className="font-mono text-[11px]">manage_tabl</code>, <code className="font-mono text-[11px]">generate_remediation_plan</code>) to local AI agents or testing tools.
+            Expose Clarity365&apos;s internal tools (<code className="font-mono text-[11px]">audit_conditional_access</code>, <code className="font-mono text-[11px]">query_signin_logs</code>, <code className="font-mono text-[11px]">manage_tabl</code>, <code className="font-mono text-[11px]">generate_remediation_plan</code>) to local AI agents or testing tools.
           </p>
 
           <div className="grid grid-cols-2 gap-3 pt-1">
