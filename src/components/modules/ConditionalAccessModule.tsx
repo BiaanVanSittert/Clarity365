@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { TenantSecuritySnapshot, CAPolicyRule } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { CA_BASELINE_STANDARDS, CABaselinePolicyDefinition } from "@/lib/data/baseline-definitions";
@@ -11,6 +11,8 @@ interface ConditionalAccessModuleProps {
   onOpenRemediation: (findingType?: string) => void;
   onRefresh?: () => void;
   onNavigate?: (view: string) => void;
+  highlightEntityId?: string | null;
+  onClearHighlight?: () => void;
 }
 
 const STORAGE_KEY_PREFIX = "clarity365_alerts_cleared_";
@@ -20,12 +22,22 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
   onOpenRemediation,
   onRefresh,
   onNavigate,
+  highlightEntityId,
+  onClearHighlight,
 }) => {
   const { conditionalAccess, tenant, capabilities } = snapshot;
   const [searchQuery, setSearchQuery] = useState("");
   const [filterState, setFilterState] = useState<string>("all");
   const [deployModalPolicy, setDeployModalPolicy] = useState<CABaselinePolicyDefinition | null>(null);
   const [isAlertCleared, setIsAlertCleared] = useState(false);
+
+  const highlightedRowRef = useRef<HTMLTableRowElement | null>(null);
+
+  useEffect(() => {
+    if (highlightEntityId && highlightedRowRef.current) {
+      highlightedRowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlightEntityId]);
 
   // Load alert clearance status
   useEffect(() => {
@@ -76,10 +88,20 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
   const deployedPolicies = conditionalAccess.policies;
   const baselineDefinitions = CA_BASELINE_STANDARDS;
 
-  // Check if tenant has Entra ID P2
-  const hasEntraP2 = capabilities?.some(
-    (c) => c.licensed && (c.name.toLowerCase().includes("p2") || c.name.toLowerCase().includes("e5"))
-  ) || tenant.tier === "M365_E5";
+  // Check if tenant has Entra ID P2 (E5 native, EMS E5, or Entra ID P2 license)
+  const hasEntraP2 = Boolean(
+    capabilities?.some(
+      (c) =>
+        c.licensed &&
+        (c.id === "cap-entra-p2" ||
+          c.name.toLowerCase().includes("entra id p2") ||
+          c.name.toLowerCase().includes("azure ad premium p2") ||
+          c.name.toLowerCase().includes("identity protection"))
+    ) ||
+    tenant.tier === "M365_E5" ||
+    (tenant.tier as string) === "Microsoft 365 E5" ||
+    (tenant.tier as string) === "EMS_E5"
+  );
 
   // Map deployed policies by baseline code or name
   const baselineMap = new Map<string, CAPolicyRule>();
@@ -144,7 +166,14 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
   };
 
   return (
-    <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
+    <div
+      className="p-5 space-y-4 max-w-[1600px] mx-auto select-none"
+      onClick={() => {
+        if (highlightEntityId && onClearHighlight) {
+          onClearHighlight();
+        }
+      }}
+    >
       {/* Header & Coverage Summary */}
       <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -277,8 +306,24 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                 const isEnabled = policy?.state === "enabled";
                 const isReportOnly = policy?.state === "enabledForReportingButNotEnforced";
 
+                const isHighlighted =
+                  Boolean(highlightEntityId) &&
+                  (highlightEntityId === baseline.code ||
+                    highlightEntityId?.toLowerCase() === baseline.name.toLowerCase() ||
+                    (policy && (highlightEntityId === policy.id || highlightEntityId?.toLowerCase() === policy.name.toLowerCase())));
+
                 return (
-                  <tr key={baseline.code} className={!isDeployed ? "bg-amber-50/20 dark:bg-amber-950" : ""}>
+                  <tr
+                    key={baseline.code}
+                    ref={isHighlighted ? highlightedRowRef : null}
+                    className={`transition-colors ${
+                      isHighlighted
+                        ? "animate-slow-flash"
+                        : !isDeployed
+                        ? "bg-amber-50/20 dark:bg-amber-950/20 hover:bg-amber-50/40 dark:hover:bg-amber-950/40"
+                        : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                    }`}
+                  >
                     <td className="font-mono font-bold text-slate-900 dark:text-slate-100 text-xs">
                       {baseline.code}
                     </td>
@@ -286,19 +331,35 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                       <div className="font-semibold text-slate-900 dark:text-slate-100 text-xs flex items-center gap-1.5 flex-wrap">
                         <span>{baseline.name}</span>
                         {baseline.requiresEntraP2 && (
-                          <span
-                            title="Requires Microsoft Entra ID Plan 2"
-                            className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-indigo-50 border border-indigo-200 text-indigo-800 text-[10px] font-medium rounded-sm"
-                          >
-                            <ShieldAlert className="w-3 h-3 text-indigo-600" />
-                            Requires Entra P2
-                          </span>
+                          hasEntraP2 ? (
+                            <span
+                              title="Microsoft Entra ID Plan 2 is active for this tenant. Risk-based policy can be implemented."
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold rounded-sm whitespace-nowrap shadow-2xs"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                              <span>Entra ID P2 Licensed (Ready to Implement)</span>
+                            </span>
+                          ) : (
+                            <span
+                              title="Requires Microsoft Entra ID Plan 2 license. Upgrade tenant license to enable."
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-700 text-rose-800 dark:text-rose-300 text-[10px] font-bold rounded-sm whitespace-nowrap shadow-2xs"
+                            >
+                              <ShieldAlert className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0" />
+                              <span>Requires Entra ID Plan 2</span>
+                            </span>
+                          )
                         )}
                       </div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{baseline.description}</div>
                       {baseline.requiresEntraP2 && !hasEntraP2 && (
-                        <div className="text-[10px] font-medium text-rose-700 dark:text-red-400 mt-1 bg-rose-50 dark:bg-red-950 p-1 border border-rose-200 dark:border-red-800 rounded-sm">
-                          License Advisory: Obtain at least one Entra ID Plan 2 license to enable risk-based policies.
+                        <div className="text-[11px] text-rose-900 dark:text-rose-200 mt-1.5 p-2 bg-rose-50/90 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800 rounded-sm flex items-start gap-1.5 shadow-2xs">
+                          <ShieldAlert className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold">License Requirement (Entra ID P2): </span>
+                            <span>
+                              This risk-based policy ({baseline.code}) requires a Microsoft Entra ID Plan 2 (or Microsoft 365 E5) license. If you would like this policy implemented, obtain an Entra ID Plan 2 license for this organization.
+                            </span>
+                          </div>
                         </div>
                       )}
                     </td>
