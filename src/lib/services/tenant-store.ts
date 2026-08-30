@@ -278,14 +278,30 @@ class TenantStore {
   // the snapshot is consumed.
   private backfillSnapshot(snapshot: TenantSecuritySnapshot): TenantSecuritySnapshot {
     const blank = createBlankSnapshot(snapshot.tenant);
+    const mockSnap = MOCK_TENANT_DATA[snapshot.tenant.id];
+    const incidents =
+      Array.isArray(snapshot.incidents) && snapshot.incidents.length > 0
+        ? snapshot.incidents
+        : (mockSnap?.incidents || []);
+
+    const devices =
+      snapshot.intune?.devices && snapshot.intune.devices.length >= (mockSnap?.intune?.devices?.length || 0)
+        ? snapshot.intune.devices
+        : (mockSnap?.intune?.devices || snapshot.intune?.devices || []);
+
     return {
       ...blank,
       ...snapshot,
       conditionalAccess: { ...blank.conditionalAccess, ...snapshot.conditionalAccess },
       accountClassification: { ...blank.accountClassification, ...snapshot.accountClassification },
       mdoThreat: { ...blank.mdoThreat, ...snapshot.mdoThreat },
-      intune: { ...blank.intune, ...snapshot.intune },
+      intune: {
+        ...blank.intune,
+        ...snapshot.intune,
+        devices,
+      },
       sharePoint: { ...blank.sharePoint, ...snapshot.sharePoint },
+      incidents,
       highRiskThreatIndicators: { ...blank.highRiskThreatIndicators, ...snapshot.highRiskThreatIndicators },
     };
   }
