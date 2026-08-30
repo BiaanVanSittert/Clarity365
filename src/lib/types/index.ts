@@ -703,3 +703,116 @@ export interface DismissedAlertsState {
   };
 }
 
+// ==========================================
+// Phase 2.1: Fleet Management & Cross-Tenant Analytics
+// ==========================================
+
+export interface FleetTenantPosture {
+  tenantId: string;
+  displayName: string;
+  defaultDomainName: string;
+  tier: TenantLicenseType;
+  connectionStatus: "healthy" | "sync_in_progress" | "degraded" | "disconnected";
+  isDemo?: boolean;
+  lastSyncTimestamp: string;
+  secureScore: {
+    current: number;
+    max: number;
+    percentage: number;
+  };
+  totalUsers: number;
+  licensedUsers: number;
+  unlicensedActiveUsers: number;
+  totalDevices: number;
+  nonCompliantDevices: number;
+  isolatedDevices: number;
+  missingCABaselinesCount: number;
+  weakMfaCount: number;
+  externalForwardingCount: number;
+  activeIncidentsCount: number;
+  criticalHighIncidentsCount: number;
+  compositeRiskScore: number; // 0-100 (100 = highest risk)
+  riskLevel: "critical" | "high" | "medium" | "low";
+  monthlyEstimatedWasteUsd: number;
+}
+
+export interface FleetTopFailingBaseline {
+  code: string;
+  name: string;
+  category: "Identity" | "Exchange" | "Defender" | "Groups" | "SharePoint";
+  failingTenantsCount: number;
+  totalTenantsCount: number;
+  failingTenantNames: string[];
+}
+
+export interface FleetPostureSummary {
+  totalTenants: number;
+  healthyTenantsCount: number;
+  totalManagedUsers: number;
+  totalManagedDevices: number;
+  averageSecureScore: number;
+  totalActiveIncidents: number;
+  totalCriticalHighIncidents: number;
+  tenantsAtCriticalRisk: number;
+  totalMonthlyEstimatedWasteUsd: number;
+  tenants: FleetTenantPosture[];
+  topFailingBaselines: FleetTopFailingBaseline[];
+  recentCrossTenantIncidents: (SecurityIncidentItem & { tenantId: string; tenantName: string })[];
+}
+
+export interface FleetLicenseOptimizationItem {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  category:
+    | "active_licensed_user"
+    | "inactive_licensed_user"
+    | "licensed_shared_mailbox"
+    | "disabled_licensed_user"
+    | "orphaned_account"
+    | "unassigned_license_sku";
+  title: string;
+  description: string;
+  impactedIdentity: string;
+  displayName?: string;
+  department?: string;
+  licenseSku?: string;
+  estimatedMonthlyCostUsd: number;
+  lastSignInDateTime?: string;
+  daysInactive?: number;
+  accountState?: "active" | "dormant" | "disabled" | "unlicensed" | "shared_mailbox";
+  remediationAction: string;
+  remediationModule: string;
+}
+
+export interface FleetLicenseOptimizationSummary {
+  totalMonthlyWasteUsd: number;
+  totalAnnualWasteUsd: number;
+  totalMonthlyLicensedCostUsd: number;
+  wasteByCategory: {
+    licensedSharedMailboxes: number;
+    orphanedAccounts: number;
+    inactiveLicensedUsers: number;
+    disabledLicensedUsers: number;
+    unassignedSkus: number;
+  };
+  items: FleetLicenseOptimizationItem[];
+}
+
+export interface FleetSearchResultItem {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  category: "user" | "incident" | "ip_address" | "file_hash" | "device" | "app_registration" | "forwarding_rule" | "tabl";
+  title: string;
+  subtitle: string;
+  matchField: string;
+  matchValue: string;
+  statusPill?: {
+    status: TrafficStatus;
+    label: string;
+  };
+  metadata?: Record<string, string | number | boolean>;
+  targetModule: string;
+}
+
