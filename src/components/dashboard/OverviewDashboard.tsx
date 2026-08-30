@@ -500,7 +500,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                   <FileSpreadsheet size={15} className="text-slate-600 dark:text-slate-400" />
                   <div>
                     <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">Open SharePoint Links</div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400">Sites with 'Anyone' anonymous links</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">Sites with &apos;Anyone&apos; anonymous links</div>
                   </div>
                 </div>
                 <StatusPill
