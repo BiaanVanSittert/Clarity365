@@ -23,6 +23,7 @@ import {
   ChevronsRight,
   GitBranch,
   Fingerprint,
+  Flame,
 } from "lucide-react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
@@ -220,6 +221,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     : 0;
   const mdoIssueCount = mdoBaselineGapCount + mdoUnresolvedHighAlertCount;
 
+  const activeIncidentsCount = snapshot && Array.isArray(snapshot.incidents)
+    ? snapshot.incidents.filter((i) => i.status === "active" || i.status === "inProgress").length
+    : 0;
+  const criticalHighIncidentsCount = snapshot && Array.isArray(snapshot.incidents)
+    ? snapshot.incidents.filter((i) => (i.severity === "critical" || i.severity === "high") && i.status !== "resolved").length
+    : 0;
+
   const totalRawAlertCount =
     (missingCABaselineCount > 0 ? missingCABaselineCount : 0) +
     (riskySignInsCount > 0 ? riskySignInsCount : 0) +
@@ -231,7 +239,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     (domainAuthGapCount > 0 ? domainAuthGapCount : 0) +
     (groupsBaselineGapCount > 0 ? groupsBaselineGapCount : 0) +
     (sharePointBaselineGapCount > 0 ? sharePointBaselineGapCount : 0) +
-    (mdoIssueCount > 0 ? mdoIssueCount : 0);
+    (mdoIssueCount > 0 ? mdoIssueCount : 0) +
+    (activeIncidentsCount > 0 ? activeIncidentsCount : 0);
 
   const navGroups: NavGroup[] = [
     {
@@ -241,6 +250,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: "overview",
           label: "Executive Dashboard",
           icon: LayoutDashboard,
+        },
+      ],
+    },
+    {
+      label: "Security Operations & IR",
+      items: [
+        {
+          id: "event_response",
+          label: "Event & Response Center",
+          icon: Flame,
+          badgeCount: activeIncidentsCount > 0 ? activeIncidentsCount : undefined,
+          badgeStatus: criticalHighIncidentsCount > 0 ? "fail" : "warn",
+          badgeDetail:
+            activeIncidentsCount > 0
+              ? `${activeIncidentsCount} active incident(s), ${criticalHighIncidentsCount} critical/high`
+              : undefined,
         },
       ],
     },
