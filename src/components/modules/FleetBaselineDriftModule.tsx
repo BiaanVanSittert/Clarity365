@@ -17,6 +17,7 @@ import {
   Sliders,
 } from "lucide-react";
 import { exportToCsv } from "@/lib/utils/csv";
+import { ChangeConfirmationModal, ChangeItemSummary } from "../modals/ChangeConfirmationModal";
 
 interface FleetBaselineDriftModuleProps {
   snapshots: TenantSecuritySnapshot[];
@@ -34,6 +35,19 @@ export const FleetBaselineDriftModule: React.FC<FleetBaselineDriftModuleProps> =
   const [tenantFilter, setTenantFilter] = useState("all");
   const [isRealigning, setIsRealigning] = useState(false);
   const [realignSuccess, setRealignSuccess] = useState<string | null>(null);
+  const [realignError, setRealignError] = useState<string | null>(null);
+
+  // Change Confirmation Modal State
+  const [confirmModalData, setConfirmModalData] = useState<{
+    isOpen: boolean;
+    title: string;
+    warningMessage?: string;
+    findings: TenantDriftFinding[];
+  }>({
+    isOpen: false,
+    title: "",
+    findings: [],
+  });
 
   // Compute fleet drift summary from snapshots
   const driftSummary: FleetDriftSummary = useMemo(() => {
@@ -69,44 +83,42 @@ export const FleetBaselineDriftModule: React.FC<FleetBaselineDriftModuleProps> =
     });
   }, [allFindings, searchQuery, severityFilter, tenantFilter]);
 
-  const handleRealignFinding = async (finding: TenantDriftFinding) => {
-    setIsRealigning(true);
-    setRealignSuccess(null);
-
-    try {
-      const res = await fetch("/api/fleet/drift", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tenantId: finding.tenantId,
-          findingIds: [finding.id],
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        setRealignSuccess(`Realigned '${finding.ruleCode}' back to Golden Baseline for ${finding.tenantName}!`);
-        if (onRefresh) onRefresh();
-      }
-    } catch (err: any) {
-      console.error("Realign failed:", err);
-    } finally {
-      setIsRealigning(false);
-    }
+  const promptRealignFinding = (finding: TenantDriftFinding) => {
+    setRealignError(null);
+    setConfirmModalData({
+      isOpen: true,
+      title: `Confirm Baseline Realignment: ${finding.ruleCode} (${finding.tenantName})`,
+      warningMessage: `You are about to realign policy '${finding.ruleCode}' on ${finding.tenantName} back to the MSP Golden Baseline. This change will be deployed in Audit / Report-Only mode first.`,
+      findings: [finding],
+    });
   };
 
-  const handleRealignAllCritical = async () => {
+  const promptRealignAllCritical = () => {
     const criticalFindings = allFindings.filter((f) => f.severity === "critical" && f.remediationSupported);
     if (criticalFindings.length === 0) return;
 
+    setRealignError(null);
+    setConfirmModalData({
+      isOpen: true,
+      title: `Confirm Fleet Realignment: ${criticalFindings.length} Critical Configuration Gaps`,
+      warningMessage: `You are about to batch-realign ${criticalFindings.length} critical configuration drifts across multiple customer tenants. All missing policies will be created in Audit / Report-Only mode to avoid user disruption.`,
+      findings: criticalFindings,
+    });
+  };
+
+  const handleExecuteConfirmedRealign = async () => {
+    const targetFindings = confirmModalData.findings;
+    if (targetFindings.length === 0) return;
+
     setIsRealigning(true);
+    setRealignError(null);
     setRealignSuccess(null);
 
     try {
       let count = 0;
       // Group by tenantId
       const tenantGroupMap = new Map<string, string[]>();
-      for (const f of criticalFindings) {
+      for (const f of targetFindings) {
         const list = tenantGroupMap.get(f.tenantId) || [];
         list.push(f.id);
         tenantGroupMap.set(f.tenantId, list);
@@ -121,17 +133,33 @@ export const FleetBaselineDriftModule: React.FC<FleetBaselineDriftModuleProps> =
         const data = await res.json();
         if (data.success) {
           count += data.realignedCount || 0;
+        } else {
+          throw new Error(data.error || "Failed to realign tenant drift.");
         }
       }
 
-      setRealignSuccess(`Successfully realigned ${count} critical configuration drifts back to MSP Golden Standard!`);
+      setRealignSuccess(
+        `Successfully realigned ${count} configuration drift(s) across customer tenants in Audit / Report-Only Mode!`
+      );
+      setConfirmModalData({ isOpen: false, title: "", findings: [] });
       if (onRefresh) onRefresh();
-    } catch (err) {
-      console.error("Batch realign failed:", err);
+    } catch (err: any) {
+      setRealignError(err.message || "Failed to apply realignment changes.");
     } finally {
       setIsRealigning(false);
     }
   };
+
+  const changesSummaryList: ChangeItemSummary[] = useMemo(() => {
+    return confirmModalData.findings.map((f) => ({
+      tenantName: f.tenantName,
+      targetComponent: f.component.toUpperCase(),
+      actionDescription: `${f.ruleCode}: ${f.ruleName} — ${f.remediationAction}`,
+      beforeState: f.actualState,
+      afterState: `${f.expectedState} (Report-Only)`,
+      isReportOnly: true,
+    }));
+  }, [confirmModalData.findings]);
 
   const handleExportCsv = () => {
     const headers = [
@@ -192,7 +220,7 @@ export const FleetBaselineDriftModule: React.FC<FleetBaselineDriftModuleProps> =
             <span>Export Drift Audit (CSV)</span>
           </button>
           <button
-            onClick={handleRealignAllCritical}
+            onClick={promptRealignAllCritical}
             disabled={isRealigning || allFindings.filter((f) => f.severity === "critical" && f.remediationSupported).length === 0}
             className="px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-xs disabled:opacity-40"
           >
@@ -424,7 +452,7 @@ export const FleetBaselineDriftModule: React.FC<FleetBaselineDriftModuleProps> =
                       {finding.remediationSupported ? (
                         <button
                           type="button"
-                          onClick={() => handleRealignFinding(finding)}
+                          onClick={() => promptRealignFinding(finding)}
                           disabled={isRealigning}
                           className="px-2.5 py-1 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 rounded-sm inline-flex items-center gap-1 transition-colors disabled:opacity-50"
                         >
@@ -449,6 +477,20 @@ export const FleetBaselineDriftModule: React.FC<FleetBaselineDriftModuleProps> =
           </table>
         </div>
       </div>
+
+      {/* Pre-Change Confirmation & Audit Warning Modal */}
+      <ChangeConfirmationModal
+        isOpen={confirmModalData.isOpen}
+        onClose={() => setConfirmModalData({ isOpen: false, title: "", findings: [] })}
+        onConfirm={handleExecuteConfirmedRealign}
+        title={confirmModalData.title}
+        warningMessage={confirmModalData.warningMessage}
+        isAuditMode={true}
+        changes={changesSummaryList}
+        confirmButtonText="Confirm & Deploy in Audit Mode"
+        isExecuting={isRealigning}
+        error={realignError}
+      />
     </div>
   );
 };
