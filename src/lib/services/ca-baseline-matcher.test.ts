@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { matchCaBaselineCode, computeBaselineCoveragePercent, RawGraphCaPolicy } from "./ca-baseline-matcher";
+import {
+  matchCaBaselineCode,
+  validateCaPolicyCompliance,
+  computeBaselineCoveragePercent,
+  RawGraphCaPolicy,
+} from "./ca-baseline-matcher";
 
 const AZURE_MGMT_APP_ID = "797f3427-79cd-4827-8132-47d473d450e4";
 
@@ -169,5 +174,43 @@ describe("computeBaselineCoveragePercent", () => {
 
   it("guards against divide-by-zero when there are no standards to cover", () => {
     expect(computeBaselineCoveragePercent(0, 0)).toBe(0);
+  });
+});
+
+describe("validateCaPolicyCompliance", () => {
+  it("validates compliant CA07 with both MFA, passwordChange, and high user risk", () => {
+    const policy = {
+      name: "CA07: Require Risk Remediation",
+      baselineCode: "CA07",
+      grantControls: ["mfa", "passwordChange"],
+      conditions: { userRiskLevels: ["high"] },
+    };
+    const result = validateCaPolicyCompliance(policy, "CA07");
+    expect(result.isValid).toBe(true);
+    expect(result.missingProperties).toBeUndefined();
+  });
+
+  it("rejects policy claiming CA07 that is missing passwordChange grant control", () => {
+    const policy = {
+      name: "CA07: Require Risk Remediation",
+      baselineCode: "CA07",
+      grantControls: ["mfa"],
+      conditions: { userRiskLevels: ["high"] },
+    };
+    const result = validateCaPolicyCompliance(policy, "CA07");
+    expect(result.isValid).toBe(false);
+    expect(result.missingProperties).toContain("Grant control 'passwordChange'");
+  });
+
+  it("rejects policy claiming CA05 that does not scope Azure management app ID", () => {
+    const policy = {
+      name: "CA05: Azure MFA",
+      baselineCode: "CA05",
+      grantControls: ["mfa"],
+      conditions: { applications: { include: ["Office365"] } },
+    };
+    const result = validateCaPolicyCompliance(policy, "CA05");
+    expect(result.isValid).toBe(false);
+    expect(result.missingProperties?.some((p) => p.includes("Microsoft Azure Management"))).toBe(true);
   });
 });
