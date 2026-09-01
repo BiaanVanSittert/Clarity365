@@ -25,6 +25,9 @@ import { ErrorBoundary } from "../common/ErrorBoundary";
 const OverviewDashboard = lazy(() => import("../dashboard/OverviewDashboard").then(m => ({ default: m.OverviewDashboard })));
 const FleetOverviewDashboard = lazy(() => import("../dashboard/FleetOverviewDashboard").then(m => ({ default: m.FleetOverviewDashboard })));
 const FleetLicenseOptimizationModule = lazy(() => import("../modules/FleetLicenseOptimizationModule").then(m => ({ default: m.FleetLicenseOptimizationModule })));
+const FleetBaselineRolloutModule = lazy(() => import("../modules/FleetBaselineRolloutModule").then(m => ({ default: m.FleetBaselineRolloutModule })));
+const FleetBaselineDriftModule = lazy(() => import("../modules/FleetBaselineDriftModule").then(m => ({ default: m.FleetBaselineDriftModule })));
+const FleetTablSyncModule = lazy(() => import("../modules/FleetTablSyncModule").then(m => ({ default: m.FleetTablSyncModule })));
 const TenantLicenseOptimizationModule = lazy(() => import("../modules/TenantLicenseOptimizationModule").then(m => ({ default: m.TenantLicenseOptimizationModule })));
 const EventResponseModule = lazy(() => import("../modules/EventResponseModule").then(m => ({ default: m.EventResponseModule })));
 const ConditionalAccessModule = lazy(() => import("../modules/ConditionalAccessModule").then(m => ({ default: m.ConditionalAccessModule })));
@@ -58,6 +61,7 @@ export const AppShell: React.FC = () => {
   // Fleet data state
   const [fleetSummary, setFleetSummary] = useState<FleetPostureSummary | null>(null);
   const [fleetWasteSummary, setFleetWasteSummary] = useState<FleetLicenseOptimizationSummary | null>(null);
+  const [allSnapshots, setAllSnapshots] = useState<TenantSecuritySnapshot[]>([]);
   const isFleetMode = activeTenantId === "fleet" || activeTenantId === null;
 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
@@ -139,6 +143,21 @@ export const AppShell: React.FC = () => {
       }
       if (wasteData.success && (wasteData.waste || wasteData.summary)) {
         setFleetWasteSummary(wasteData.waste || wasteData.summary);
+      }
+
+      // Fetch all tenant snapshots for fleet governance modules
+      const tenantsRes = await fetch("/api/tenants");
+      const tenantsData = await tenantsRes.json();
+      if (tenantsData.success && tenantsData.tenants) {
+        setTenants(tenantsData.tenants);
+        const snapshotPromises = tenantsData.tenants.map((t: Tenant) =>
+          fetch(`/api/tenants/${t.id}`)
+            .then((r) => r.json())
+            .then((d) => d.snapshot)
+            .catch(() => null)
+        );
+        const fetchedSnapshots = (await Promise.all(snapshotPromises)).filter(Boolean);
+        setAllSnapshots(fetchedSnapshots);
       }
     } catch (err) {
       console.error("Failed to fetch fleet data", err);
@@ -410,6 +429,39 @@ export const AppShell: React.FC = () => {
                 <FleetLicenseOptimizationModule
                   wasteSummary={fleetWasteSummary}
                   isLoading={isLoading}
+                  onSelectTenant={handleSelectTenant}
+                />
+              )}
+            </ErrorBoundary>
+
+            {/* Phase 2.2: Fleet Baseline Rollout Engine */}
+            <ErrorBoundary moduleName="Fleet Baseline Rollout" key="eb-fleet-rollout">
+              {activeView === "fleet_rollout" && (
+                <FleetBaselineRolloutModule
+                  tenants={tenants}
+                  snapshots={allSnapshots}
+                  onSelectTenant={handleSelectTenant}
+                  onRefresh={fetchFleetData}
+                />
+              )}
+            </ErrorBoundary>
+
+            {/* Phase 2.2: Golden Baseline Drift Monitor */}
+            <ErrorBoundary moduleName="Golden Baseline Drift" key="eb-fleet-drift">
+              {activeView === "fleet_drift" && (
+                <FleetBaselineDriftModule
+                  snapshots={allSnapshots}
+                  onSelectTenant={handleSelectTenant}
+                  onRefresh={fetchFleetData}
+                />
+              )}
+            </ErrorBoundary>
+
+            {/* Phase 2.2: Cross-Tenant Threat Synchronizer (TABL) */}
+            <ErrorBoundary moduleName="Fleet TABL Sync" key="eb-fleet-tabl">
+              {activeView === "fleet_tabl" && (
+                <FleetTablSyncModule
+                  tenants={tenants}
                   onSelectTenant={handleSelectTenant}
                 />
               )}
