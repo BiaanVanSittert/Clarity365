@@ -21,6 +21,7 @@ import {
 } from "./fleet-analyzer";
 import { INITIAL_TENANTS, MOCK_TENANT_DATA } from "../data/mock-tenants";
 import { createBlankSnapshot } from "../data/default-snapshot";
+import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { encryptSecret, decryptSecret, isEncrypted, SECRET_MASK } from "./crypto";
 import {
   fetchLiveTenantSnapshot,
@@ -563,12 +564,77 @@ class TenantStore {
       return { success: false, error: deployResult.error };
     }
 
-    // Resync immediately to update live snapshot
-    const syncResult = await this.syncTenant(tenantId);
+    // Update snapshot in store
+    const snap = this.getSnapshot(tenantId);
+    if (snap) {
+      const existingPolicies = snap.conditionalAccess?.policies || [];
+      const updatedPolicies = [...existingPolicies];
+      const idx = updatedPolicies.findIndex(
+        (p) =>
+          p.baselineCode?.toUpperCase() === baselineCode.toUpperCase() ||
+          p.name.toUpperCase().startsWith(`${baselineCode.toUpperCase()}:`) ||
+          p.name.toUpperCase().startsWith(`${baselineCode.toUpperCase()} `)
+      );
+
+      if (idx >= 0) {
+        updatedPolicies[idx] = {
+          ...updatedPolicies[idx],
+          state: "enabledForReportingButNotEnforced",
+          modifiedDateTime: new Date().toISOString(),
+        };
+      } else {
+        const baselineDef = CA_BASELINE_STANDARDS.find((b) => b.code === baselineCode);
+        updatedPolicies.push({
+          id: `pol-ca-${Date.now()}-${baselineCode.toLowerCase()}`,
+          name: `${baselineCode}: ${baselineDef?.name || "Baseline Policy"}`,
+          state: "enabledForReportingButNotEnforced",
+          baselineCode,
+          createdDateTime: new Date().toISOString(),
+          modifiedDateTime: new Date().toISOString(),
+          grantControls:
+            baselineCode === "CA07"
+              ? ["mfa", "passwordChange"]
+              : baselineCode === "CA01" || baselineCode === "CA08"
+              ? ["block"]
+              : baselineCode === "CA09"
+              ? ["compliantDevice", "domainJoinedDevice"]
+              : baselineCode === "CA10"
+              ? ["authenticationStrength:PhishingResistantMFA"]
+              : ["mfa"],
+          conditions: {
+            users: {
+              include:
+                baselineCode === "CA03" || baselineCode === "CA10"
+                  ? ["DirectoryRole:GlobalAdmin", "DirectoryRole:SecurityAdmin"]
+                  : ["All"],
+              exclude: [],
+            },
+            applications: {
+              include: baselineCode === "CA05" ? ["797f3427-79cd-4827-8132-47d473d450e4"] : ["All"],
+              exclude: [],
+            },
+            clientAppTypes: baselineCode === "CA01" ? ["exchangeActiveSync", "otherClients"] : ["all"],
+            ...(baselineCode === "CA06" ? { signInRiskLevels: ["medium", "high"] } : {}),
+            ...(baselineCode === "CA07" ? { userRiskLevels: ["high"] } : {}),
+            ...(baselineCode === "CA08" ? { locations: { include: ["All"], exclude: ["AllTrusted"] } } : {}),
+            ...(baselineCode === "CA09" ? { platforms: { include: ["windows", "macOS", "iOS", "android"], exclude: [] } } : {}),
+          },
+          matchesBaseline: true,
+        });
+      }
+
+      snap.conditionalAccess = {
+        ...snap.conditionalAccess,
+        policies: updatedPolicies,
+      };
+      this.saveSnapshot(tenantId, snap);
+    }
+
+    const updatedSnap = this.getSnapshot(tenantId);
     return {
       success: true,
       policy: deployResult.policy,
-      snapshot: syncResult?.snapshot,
+      snapshot: updatedSnap || undefined,
     };
   }
 
