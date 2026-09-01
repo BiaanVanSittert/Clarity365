@@ -17,6 +17,7 @@ import {
   Link2,
 } from "lucide-react";
 import { exportToCsv } from "@/lib/utils/csv";
+import { ChangeConfirmationModal, ChangeItemSummary } from "../modals/ChangeConfirmationModal";
 
 interface FleetTablSyncModuleProps {
   tenants: Tenant[];
@@ -39,6 +40,8 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
   const [newReason, setNewReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const fetchEntries = async () => {
     try {
@@ -59,11 +62,16 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
     fetchEntries();
   }, []);
 
-  const handleCreateAndBroadcast = async (e: React.FormEvent) => {
+  const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newValue.trim() || !newReason.trim()) return;
+    setSubmitError(null);
+    setShowConfirmModal(true);
+  };
 
+  const handleExecuteBroadcast = async () => {
     setIsSubmitting(true);
+    setSubmitError(null);
     setSubmitSuccess(null);
 
     try {
@@ -86,13 +94,25 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
         setNewValue("");
         setNewReason("");
         setShowAddForm(false);
+        setShowConfirmModal(false);
+      } else {
+        setSubmitError(data.error || "Failed to broadcast threat indicator.");
       }
-    } catch (err) {
-      console.error("Broadcast failed:", err);
+    } catch (err: any) {
+      setSubmitError(err.message || "Network error broadcasting threat indicator.");
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const changesSummaryList: ChangeItemSummary[] = tenants.map((t) => ({
+    tenantName: t.displayName,
+    targetComponent: "DEFENDER MDO (TABL)",
+    actionDescription: `Add ${newType.toUpperCase()} block rule for '${newValue}' (${newReason})`,
+    beforeState: "Not Blocked",
+    afterState: "Strictly Blocked",
+    isReportOnly: false,
+  }));
 
   const filteredEntries = entries.filter((it) => {
     const q = searchQuery.toLowerCase();
@@ -187,7 +207,7 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
             </button>
           </div>
 
-          <form onSubmit={handleCreateAndBroadcast} className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <form onSubmit={handleFormSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
             <div>
               <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Threat Indicator Type</label>
               <select
@@ -238,11 +258,10 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
             <div className="md:col-span-3 flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
               <button
                 type="submit"
-                disabled={isSubmitting}
-                className="px-4 py-1.5 bg-rose-700 hover:bg-rose-800 text-white font-semibold rounded-sm flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                className="px-4 py-1.5 bg-rose-700 hover:bg-rose-800 text-white font-semibold rounded-sm flex items-center gap-1.5 transition-colors"
               >
-                {isSubmitting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
-                <span>{isSubmitting ? "Synchronizing to all tenants..." : "Broadcast Block to Fleet"}</span>
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Review & Broadcast Block to Fleet</span>
               </button>
             </div>
           </form>
@@ -368,6 +387,20 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Threat Broadcast Confirmation Modal */}
+      <ChangeConfirmationModal
+        isOpen={showConfirmModal}
+        onClose={() => setShowConfirmModal(false)}
+        onConfirm={handleExecuteBroadcast}
+        title={`Confirm Fleet Threat Broadcast (${newType.toUpperCase()})`}
+        warningMessage={`You are about to broadcast a live BLOCK rule for ${newType} '${newValue}' across all ${tenants.length} customer organizations. Incoming mail matching this indicator will be quarantined or rejected across all tenants.`}
+        isAuditMode={false}
+        changes={changesSummaryList}
+        confirmButtonText="Confirm & Broadcast Block Rule"
+        isExecuting={isSubmitting}
+        error={submitError}
+      />
     </div>
   );
 };
