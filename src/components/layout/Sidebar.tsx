@@ -27,6 +27,7 @@ import {
   Building2,
   DollarSign,
   ChevronRight,
+  Compass,
 } from "lucide-react";
 import { TenantSecuritySnapshot, FleetPostureSummary } from "@/lib/types";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
@@ -264,6 +265,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
           badgeCount: fleetSummary?.totalActiveIncidents || undefined,
           badgeStatus: (fleetSummary?.totalCriticalHighIncidents || 0) > 0 ? "fail" : "warn",
           badgeDetail: `${fleetSummary?.totalActiveIncidents || 0} active incident(s) across fleet`,
+        },
+      ],
+    },
+    {
+      label: "Operations & Governance",
+      items: [
+        {
+          id: "fleet_rollout",
+          label: "Baseline Rollout Engine",
+          icon: Layers,
+        },
+        {
+          id: "fleet_drift",
+          label: "Golden Baseline Drift",
+          icon: Compass,
+        },
+        {
+          id: "fleet_tabl",
+          label: "Threat Sync & TABL",
+          icon: Share2,
         },
       ],
     },
