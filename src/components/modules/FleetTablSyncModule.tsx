@@ -15,6 +15,7 @@ import {
   Mail,
   FileCode,
   Link2,
+  Trash2,
 } from "lucide-react";
 import { exportToCsv } from "@/lib/utils/csv";
 import { ChangeConfirmationModal, ChangeItemSummary } from "../modals/ChangeConfirmationModal";
@@ -42,6 +43,11 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  // Delete State
+  const [entryToDelete, setEntryToDelete] = useState<FleetTablEntry | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchEntries = async () => {
     try {
@@ -105,6 +111,35 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
     }
   };
 
+  const promptDeleteEntry = (entry: FleetTablEntry) => {
+    setDeleteError(null);
+    setEntryToDelete(entry);
+  };
+
+  const handleExecuteDelete = async () => {
+    if (!entryToDelete) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const res = await fetch(`/api/fleet/sync-tabl?id=${encodeURIComponent(entryToDelete.id)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEntries((prev) => prev.filter((e) => e.id !== entryToDelete.id));
+        setSubmitSuccess(`Removed threat indicator '${entryToDelete.value}' from all customer tenants.`);
+        setEntryToDelete(null);
+      } else {
+        setDeleteError(data.error || "Failed to remove threat indicator.");
+      }
+    } catch (err: any) {
+      setDeleteError(err.message || "Network error removing threat indicator.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const changesSummaryList: ChangeItemSummary[] = tenants.map((t) => ({
     tenantName: t.displayName,
     targetComponent: "DEFENDER MDO (TABL)",
@@ -113,6 +148,17 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
     afterState: "Strictly Blocked",
     isReportOnly: false,
   }));
+
+  const deleteChangesSummaryList: ChangeItemSummary[] = entryToDelete
+    ? tenants.map((t) => ({
+        tenantName: t.displayName,
+        targetComponent: "DEFENDER MDO (TABL)",
+        actionDescription: `Revoke ${entryToDelete.action.toUpperCase()} rule for '${entryToDelete.value}'`,
+        beforeState: "Strictly Blocked",
+        afterState: "Unblocked / Removed from Tenant Allow/Block List",
+        isReportOnly: false,
+      }))
+    : [];
 
   const filteredEntries = entries.filter((it) => {
     const q = searchQuery.toLowerCase();
@@ -311,13 +357,14 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
                 <th className="py-2.5 px-3">Action</th>
                 <th className="py-2.5 px-3">Threat Justification</th>
                 <th className="py-2.5 px-3 whitespace-nowrap">Broadcast By & Date</th>
-                <th className="py-2.5 px-3.5 text-right whitespace-nowrap">Fleet Sync Status</th>
+                <th className="py-2.5 px-3.5 text-center whitespace-nowrap">Fleet Sync Status</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E2E8F0] dark:divide-slate-700/60 bg-white dark:bg-slate-900/30">
               {filteredEntries.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-500 dark:text-slate-400">
+                  <td colSpan={7} className="py-8 text-center text-slate-500 dark:text-slate-400">
                     No threat indicators match the filter.
                   </td>
                 </tr>
@@ -366,7 +413,7 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
                       </td>
 
                       {/* Fleet Sync Status */}
-                      <td className="py-3 px-3.5 text-right whitespace-nowrap">
+                      <td className="py-3 px-3.5 text-center whitespace-nowrap">
                         <span
                           title={`Broadcasted to: ${entry.syncedTenants.map((t) => t.tenantName).join(", ")}`}
                           className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-sm border ${
@@ -376,8 +423,20 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
                           }`}
                         >
                           <CheckCircle2 size={12} className={isFullySynced ? "text-emerald-600" : "text-amber-600"} />
-                          <span>{syncedCount} / {entry.syncedTenants.length} Tenants Synced</span>
+                          <span>{syncedCount} / {entry.syncedTenants.length} Synced</span>
                         </span>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-3 px-3.5 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => promptDeleteEntry(entry)}
+                          title={`Remove ${entry.value} from all customer tenants`}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-sm transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </td>
                     </tr>
                   );
@@ -400,6 +459,20 @@ export const FleetTablSyncModule: React.FC<FleetTablSyncModuleProps> = ({
         confirmButtonText="Confirm & Broadcast Block Rule"
         isExecuting={isSubmitting}
         error={submitError}
+      />
+
+      {/* Remove Threat Indicator Confirmation Modal */}
+      <ChangeConfirmationModal
+        isOpen={Boolean(entryToDelete)}
+        onClose={() => setEntryToDelete(null)}
+        onConfirm={handleExecuteDelete}
+        title={`Confirm Removal of Threat Indicator: ${entryToDelete?.value}`}
+        warningMessage={`You are about to remove the block rule for ${entryToDelete?.type} '${entryToDelete?.value}' across all ${tenants.length} customer organizations. Mail matching this indicator will no longer be blocked by TABL.`}
+        isAuditMode={false}
+        changes={deleteChangesSummaryList}
+        confirmButtonText="Confirm & Remove Block Rule"
+        isExecuting={isDeleting}
+        error={deleteError}
       />
     </div>
   );
