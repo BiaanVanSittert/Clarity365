@@ -3,8 +3,9 @@ import { TenantSecuritySnapshot, CAPolicyRule } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { CA_BASELINE_STANDARDS, CABaselinePolicyDefinition } from "@/lib/data/baseline-definitions";
 import { DeployCaPolicyModal } from "../modals/DeployCaPolicyModal";
-import { ShieldCheck, Lock, Terminal, Search, Filter, ShieldAlert, Code2, CheckCheck, RotateCcw, Key, Download } from "lucide-react";
+import { ShieldCheck, Lock, Terminal, Search, Filter, ShieldAlert, Code2, CheckCheck, RotateCcw, Key, Download, AlertTriangle } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
+import { validateCaPolicyCompliance, matchCaBaselineCode } from "@/lib/services/ca-baseline-matcher";
 
 interface ConditionalAccessModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -103,17 +104,34 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
     (tenant.tier as string) === "EMS_E5"
   );
 
-  // Map deployed policies by baseline code or name
+  // Map deployed policies strictly by name AND verified properties
   const baselineMap = new Map<string, CAPolicyRule>();
+  const misconfiguredMap = new Map<string, { policy: CAPolicyRule; missingProperties: string[] }>();
+
   deployedPolicies.forEach((p) => {
-    if (p.baselineCode) {
-      baselineMap.set(p.baselineCode, p);
-    } else {
-      // Fallback detection
+    let candidateCode = p.baselineCode || null;
+    if (!candidateCode) {
       const match = p.name.match(/(?:CA|CA-|\bCA\s*)(0[1-9]|10|[1-9])\b/i);
       if (match) {
         const num = parseInt(match[1], 10);
-        baselineMap.set(num < 10 ? `CA0${num}` : `CA${num}`, p);
+        candidateCode = num < 10 ? `CA0${num}` : `CA${num}`;
+      }
+    }
+
+    if (candidateCode) {
+      const validation = validateCaPolicyCompliance(p, candidateCode);
+      if (validation.isValid) {
+        baselineMap.set(candidateCode, p);
+      } else {
+        misconfiguredMap.set(candidateCode, {
+          policy: p,
+          missingProperties: validation.missingProperties || ["Properties do not meet standard requirements"],
+        });
+      }
+    } else {
+      const matched = matchCaBaselineCode(p);
+      if (matched && !baselineMap.has(matched)) {
+        baselineMap.set(matched, p);
       }
     }
   });
@@ -128,14 +146,19 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
       item.description.toLowerCase().includes(searchQuery.toLowerCase());
 
     const policy = baselineMap.get(item.code);
+    const misconfigured = misconfiguredMap.get(item.code);
     if (filterState === "all") return matchesSearch;
     if (filterState === "deployed") return matchesSearch && !!policy;
     if (filterState === "missing") return matchesSearch && !policy;
     if (filterState === "report_only") return matchesSearch && policy?.state === "enabledForReportingButNotEnforced";
+    if (filterState === "misconfigured") return matchesSearch && !!misconfigured;
     return matchesSearch;
   });
 
-  const customPolicies = deployedPolicies.filter((p) => !p.baselineCode);
+  const customPolicies = deployedPolicies.filter((p) => {
+    const isMatched = Array.from(baselineMap.values()).some((bp) => bp.id === p.id);
+    return !isMatched;
+  });
 
   const handleExportBaselineCSV = () => {
     const headers = ["Code", "BaselineStandard", "TargetScope", "DeployedPolicyName", "DeployedState", "Status"];
@@ -302,7 +325,9 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
             <tbody>
               {filteredBaseline.map((baseline) => {
                 const policy = baselineMap.get(baseline.code);
+                const misconfigured = misconfiguredMap.get(baseline.code);
                 const isDeployed = !!policy;
+                const isMisconfigured = !isDeployed && !!misconfigured;
                 const isEnabled = policy?.state === "enabled";
                 const isReportOnly = policy?.state === "enabledForReportingButNotEnforced";
 
@@ -310,7 +335,8 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                   Boolean(highlightEntityId) &&
                   (highlightEntityId === baseline.code ||
                     highlightEntityId?.toLowerCase() === baseline.name.toLowerCase() ||
-                    (policy && (highlightEntityId === policy.id || highlightEntityId?.toLowerCase() === policy.name.toLowerCase())));
+                    (policy && (highlightEntityId === policy.id || highlightEntityId?.toLowerCase() === policy.name.toLowerCase())) ||
+                    (misconfigured && (highlightEntityId === misconfigured.policy.id || highlightEntityId?.toLowerCase() === misconfigured.policy.name.toLowerCase())));
 
                 return (
                   <tr
@@ -319,6 +345,8 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                     className={`transition-colors ${
                       isHighlighted
                         ? "animate-slow-flash"
+                        : isMisconfigured
+                        ? "bg-rose-50/20 dark:bg-rose-950/20 hover:bg-rose-50/40 dark:hover:bg-rose-950/40"
                         : !isDeployed
                         ? "bg-amber-50/20 dark:bg-amber-950/20 hover:bg-amber-50/40 dark:hover:bg-amber-950/40"
                         : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
@@ -381,6 +409,19 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                             size="sm"
                           />
                         </div>
+                      ) : isMisconfigured ? (
+                        <div className="space-y-1">
+                          <div className="text-[11px] font-mono text-rose-900 dark:text-rose-200 font-semibold truncate max-w-[180px]" title={misconfigured.policy.name}>
+                            {misconfigured.policy.name}
+                          </div>
+                          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-rose-50 dark:bg-rose-950/70 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-[10px] font-bold rounded-sm">
+                            <AlertTriangle size={11} className="text-rose-600 dark:text-rose-400" />
+                            <span>Misconfigured</span>
+                          </div>
+                          <div className="text-[10px] text-rose-600 dark:text-rose-400 leading-tight">
+                            Missing: {misconfigured.missingProperties.join("; ")}
+                          </div>
+                        </div>
                       ) : (
                         <span className="text-[11px] text-amber-700 dark:text-amber-400 font-medium italic">
                           Not Deployed
@@ -388,10 +429,12 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                       )}
                     </td>
                     <td>
-                      {isEnabled ? (
+                      {isDeployed && isEnabled ? (
                         <StatusPill status="pass" label="Pass" size="sm" />
-                      ) : isReportOnly ? (
+                      ) : isDeployed && isReportOnly ? (
                         <StatusPill status="warn" label="Report-Only" size="sm" />
+                      ) : isMisconfigured ? (
+                        <StatusPill status="fail" label="Invalid Props" size="sm" />
                       ) : (
                         <StatusPill status="fail" label="Missing" size="sm" />
                       )}
@@ -406,7 +449,7 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
                         }`}
                       >
                         <Code2 size={12} className={isDeployed && isEnabled ? "text-slate-500 dark:text-slate-400" : "text-emerald-400"} />
-                        <span>{isDeployed ? "View Command" : "Deploy (Report-Only)"}</span>
+                        <span>{isDeployed ? "View Command" : isMisconfigured ? "Reconfigure Policy" : "Deploy (Report-Only)"}</span>
                       </button>
                     </td>
                   </tr>
