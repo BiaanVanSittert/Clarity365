@@ -94,6 +94,24 @@ export function addFleetTablEntry(entry: Omit<FleetTablEntry, "id" | "createdAt"
   return newEntry;
 }
 
+export function removeFleetTablEntry(id: string): boolean {
+  const target = SEEDED_FLEET_TABL.find((e) => e.id === id);
+  if (!target) return false;
+
+  SEEDED_FLEET_TABL = SEEDED_FLEET_TABL.filter((e) => e.id !== id);
+
+  tenantStore.addAuditLogEntry({
+    timestamp: new Date().toISOString(),
+    tenantId: "fleet",
+    tenantName: "Global Fleet",
+    category: "exo_write",
+    action: `Removed fleet TABL threat indicator '${target.value}' (${target.type}) across all customer tenants.`,
+    success: true,
+  });
+
+  return true;
+}
+
 /**
  * Executes batch baseline policy deployment across multiple target tenants.
  */
