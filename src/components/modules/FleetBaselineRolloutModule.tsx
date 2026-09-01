@@ -19,6 +19,7 @@ import {
 import { exportToCsv } from "@/lib/utils/csv";
 import { FleetBulkDeployModal } from "../modals/FleetBulkDeployModal";
 import { tenantHasEntraP2 } from "@/lib/services/drift-analyzer";
+import { validateCaPolicyCompliance } from "@/lib/services/ca-baseline-matcher";
 
 interface FleetBaselineRolloutModuleProps {
   tenants: Tenant[];
@@ -89,9 +90,12 @@ export const FleetBaselineRolloutModule: React.FC<FleetBaselineRolloutModuleProp
     );
 
     if (deployed) {
-      if (deployed.state === "enabled") return { status: "enabled", policyName: deployed.name };
-      if (deployed.state === "disabled") return { status: "missing", policyName: deployed.name };
-      return { status: "reportOnly", policyName: deployed.name };
+      const validation = validateCaPolicyCompliance(deployed, baseline.code);
+      if (validation.isValid) {
+        if (deployed.state === "enabled") return { status: "enabled", policyName: deployed.name };
+        if (deployed.state === "disabled") return { status: "missing", policyName: deployed.name };
+        return { status: "reportOnly", policyName: deployed.name };
+      }
     }
 
     if (baseline.requiresEntraP2 && !hasP2) {
