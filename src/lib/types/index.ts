@@ -816,3 +816,106 @@ export interface FleetSearchResultItem {
   targetModule: string;
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2.2: Golden Baseline Drift & Multi-Tenant Bulk Operations
+// ---------------------------------------------------------------------------
+
+export interface GoldenBaselineTemplate {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  updatedAt: string;
+  caPolicies: {
+    code: string;
+    name: string;
+    requiredState: "enabled" | "reportOnly";
+    requiresEntraP2?: boolean;
+  }[];
+  requireExternalForwardingBlocked: boolean;
+  requireMailboxAuditLogging: boolean;
+  requireDkimSigning: boolean;
+  requireModernAuthOnly: boolean;
+  minimumSecureScore: number;
+}
+
+export interface TenantDriftFinding {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  component: "conditional_access" | "mailflow" | "mailboxes" | "identity" | "storage";
+  ruleCode: string;
+  ruleName: string;
+  severity: "critical" | "high" | "medium" | "low";
+  expectedState: string;
+  actualState: string;
+  driftDescription: string;
+  detectedTimestamp: string;
+  remediationAction: string;
+  remediationSupported: boolean;
+  remediationPayload?: Record<string, any>;
+}
+
+export interface TenantDriftAssessment {
+  tenantId: string;
+  tenantName: string;
+  defaultDomainName: string;
+  alignmentScore: number; // 0 - 100%
+  status: "in_sync" | "minor_drift" | "critical_drift";
+  totalEvaluatedRules: number;
+  passingRulesCount: number;
+  driftedRulesCount: number;
+  findings: TenantDriftFinding[];
+}
+
+export interface FleetDriftSummary {
+  totalTenantsEvaluated: number;
+  inSyncCount: number;
+  minorDriftCount: number;
+  criticalDriftCount: number;
+  overallFleetAlignmentPercentage: number;
+  tenantAssessments: TenantDriftAssessment[];
+  allFindings: TenantDriftFinding[];
+}
+
+export interface FleetTablEntry {
+  id: string;
+  type: "domain" | "sender" | "url" | "fileHash" | "ip";
+  value: string;
+  action: "block" | "allow";
+  reason: string;
+  addedBy: string;
+  createdAt: string;
+  syncedTenants: {
+    tenantId: string;
+    tenantName: string;
+    status: "synced" | "pending" | "failed";
+    syncedAt?: string;
+    error?: string;
+  }[];
+}
+
+export interface FleetBulkDeployRequest {
+  baselineCodes: string[];
+  targetTenantIds: string[];
+  mode?: "reportOnly" | "enabled";
+}
+
+export interface FleetBulkDeployTenantResult {
+  tenantId: string;
+  tenantName: string;
+  baselineCode: string;
+  policyName: string;
+  status: "success" | "skipped" | "failed";
+  message: string;
+  error?: string;
+}
+
+export interface FleetBulkDeployResult {
+  totalRequested: number;
+  successCount: number;
+  skippedCount: number;
+  failedCount: number;
+  results: FleetBulkDeployTenantResult[];
+}
+
