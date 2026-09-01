@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { exportToCsv } from "@/lib/utils/csv";
 import { FleetBulkDeployModal } from "../modals/FleetBulkDeployModal";
+import { tenantHasEntraP2 } from "@/lib/services/drift-analyzer";
 
 interface FleetBaselineRolloutModuleProps {
   tenants: Tenant[];
@@ -78,33 +79,26 @@ export const FleetBaselineRolloutModule: React.FC<FleetBaselineRolloutModuleProp
     if (!snap) return { status: "missing" };
 
     const policies = snap.conditionalAccess?.policies || [];
-    const hasP2 =
-      snap.capabilities?.some((c) => c.licensed && (c.name.toLowerCase().includes("p2") || c.name.toLowerCase().includes("e5"))) ||
-      snap.tenant.tier === "M365_E5" ||
-      (snap.tenant.tier as string) === "Microsoft 365 E5";
+    const hasP2 = tenantHasEntraP2(snap);
+
+    const deployed = policies.find(
+      (p) =>
+        p.baselineCode?.toUpperCase() === baseline.code.toUpperCase() ||
+        p.name.toUpperCase().startsWith(`${baseline.code.toUpperCase()}:`) ||
+        p.name.toUpperCase().startsWith(`${baseline.code.toUpperCase()} `)
+    );
+
+    if (deployed) {
+      if (deployed.state === "enabled") return { status: "enabled", policyName: deployed.name };
+      if (deployed.state === "disabled") return { status: "missing", policyName: deployed.name };
+      return { status: "reportOnly", policyName: deployed.name };
+    }
 
     if (baseline.requiresEntraP2 && !hasP2) {
-      // Check if policy is still somehow configured
-      const deployed = policies.find(
-        (p) => p.baselineCode?.toUpperCase() === baseline.code.toUpperCase() || p.name.includes(baseline.code)
-      );
-      if (deployed) {
-        return {
-          status: deployed.state === "enabled" ? "enabled" : deployed.state === "disabled" ? "missing" : "reportOnly",
-          policyName: deployed.name,
-        };
-      }
       return { status: "p2_missing" };
     }
 
-    const deployed = policies.find(
-      (p) => p.baselineCode?.toUpperCase() === baseline.code.toUpperCase() || p.name.includes(baseline.code)
-    );
-
-    if (!deployed) return { status: "missing" };
-    if (deployed.state === "enabled") return { status: "enabled", policyName: deployed.name };
-    if (deployed.state === "disabled") return { status: "missing", policyName: deployed.name };
-    return { status: "reportOnly", policyName: deployed.name };
+    return { status: "missing" };
   };
 
   // Rollout statistics
