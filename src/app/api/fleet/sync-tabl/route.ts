@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFleetTablEntries, addFleetTablEntry } from "@/lib/services/fleet-operations";
+import { getFleetTablEntries, addFleetTablEntry, removeFleetTablEntry } from "@/lib/services/fleet-operations";
 
 export async function GET() {
   try {
@@ -31,6 +31,26 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true, entry: created });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+      return NextResponse.json({ success: false, error: "Missing 'id' parameter." }, { status: 400 });
+    }
+
+    const removed = removeFleetTablEntry(id);
+    if (!removed) {
+      return NextResponse.json({ success: false, error: "Threat indicator not found." }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true, message: "Threat indicator successfully removed from fleet." });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
