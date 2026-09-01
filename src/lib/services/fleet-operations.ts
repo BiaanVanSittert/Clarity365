@@ -150,7 +150,8 @@ export async function executeBulkCaDeployment(
       const existing = updatedPolicies.find(
         (p) =>
           p.baselineCode?.toUpperCase() === code.toUpperCase() ||
-          p.name.toLowerCase().includes(code.toLowerCase())
+          p.name.toUpperCase().startsWith(`${code.toUpperCase()}:`) ||
+          p.name.toUpperCase().startsWith(`${code.toUpperCase()} `)
       );
 
       if (existing) {
@@ -177,19 +178,38 @@ export async function executeBulkCaDeployment(
           });
         }
       } else {
-        // Create new policy in Report-Only mode
+        // Create new policy in Report-Only mode with accurate controls & conditions
         const newPolicy: CAPolicyRule = {
-          id: `pol-bulk-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id: `pol-bulk-${Date.now()}-${code.toLowerCase()}-${Math.random().toString(36).slice(2, 6)}`,
           name: policyName,
           state: mode,
           baselineCode: code,
           createdDateTime: new Date().toISOString(),
           modifiedDateTime: new Date().toISOString(),
-          grantControls: ["mfa"],
+          grantControls:
+            code === "CA07"
+              ? ["mfa", "passwordChange"]
+              : code === "CA01" || code === "CA08"
+              ? ["block"]
+              : code === "CA09"
+              ? ["compliantDevice", "domainJoinedDevice"]
+              : code === "CA10"
+              ? ["authenticationStrength:PhishingResistantMFA"]
+              : ["mfa"],
           conditions: {
-            users: { include: ["All"], exclude: [] },
-            applications: { include: ["All"], exclude: [] },
-            clientAppTypes: ["all"],
+            users: {
+              include: code === "CA03" || code === "CA10" ? ["DirectoryRole:GlobalAdmin", "DirectoryRole:SecurityAdmin"] : ["All"],
+              exclude: [],
+            },
+            applications: {
+              include: code === "CA05" ? ["797f3427-79cd-4827-8132-47d473d450e4"] : ["All"],
+              exclude: [],
+            },
+            clientAppTypes: code === "CA01" ? ["exchangeActiveSync", "otherClients"] : ["all"],
+            ...(code === "CA06" ? { signInRiskLevels: ["medium", "high"] } : {}),
+            ...(code === "CA07" ? { userRiskLevels: ["high"] } : {}),
+            ...(code === "CA08" ? { locations: { include: ["All"], exclude: ["AllTrusted"] } } : {}),
+            ...(code === "CA09" ? { platforms: { include: ["windows", "macOS", "iOS", "android"], exclude: [] } } : {}),
           },
           matchesBaseline: true,
         };
