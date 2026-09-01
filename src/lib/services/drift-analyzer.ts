@@ -7,6 +7,7 @@ import {
   CAPolicyRule,
 } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
+import { validateCaPolicyCompliance } from "./ca-baseline-matcher";
 
 /**
  * The standard default MSP Golden Baseline Template.
@@ -125,26 +126,46 @@ export function evaluateTenantDrift(
         remediationSupported: true,
         remediationPayload: { action: "deploy_ca", baselineCode: rule.code },
       });
-    } else if (deployed.state === "disabled") {
-      findings.push({
-        id: `drift-ca-disabled-${snapshot.tenant.id}-${rule.code}`,
-        tenantId: snapshot.tenant.id,
-        tenantName: snapshot.tenant.displayName,
-        component: "conditional_access",
-        ruleCode: rule.code,
-        ruleName: rule.name,
-        severity: "critical",
-        expectedState: "Report-Only or Enabled",
-        actualState: "Disabled (Turned Off)",
-        driftDescription: `Baseline policy ${rule.code} exists in tenant but has been disabled manually, bypassing zero-trust controls.`,
-        detectedTimestamp: new Date().toISOString(),
-        remediationAction: `Re-enable policy ${rule.code} in Report-Only or Enabled state.`,
-        remediationSupported: true,
-        remediationPayload: { action: "enable_ca", policyId: deployed.id, baselineCode: rule.code },
-      });
     } else {
-      // Passing
-      passingRulesCount++;
+      const validation = validateCaPolicyCompliance(deployed, rule.code);
+      if (!validation.isValid) {
+        findings.push({
+          id: `drift-ca-misconfigured-${snapshot.tenant.id}-${rule.code}`,
+          tenantId: snapshot.tenant.id,
+          tenantName: snapshot.tenant.displayName,
+          component: "conditional_access",
+          ruleCode: rule.code,
+          ruleName: rule.name,
+          severity: "high",
+          expectedState: "Matching Standard Properties & Controls",
+          actualState: `Misconfigured: Missing ${validation.missingProperties?.join(", ")}`,
+          driftDescription: `Policy '${deployed.name}' claims baseline ${rule.code} but its underlying properties/controls do not meet standard requirements (missing ${validation.missingProperties?.join(", ")}).`,
+          detectedTimestamp: new Date().toISOString(),
+          remediationAction: `Reconfigure baseline ${rule.code} to enforce standard grant controls and conditions.`,
+          remediationSupported: true,
+          remediationPayload: { action: "deploy_ca", baselineCode: rule.code },
+        });
+      } else if (deployed.state === "disabled") {
+        findings.push({
+          id: `drift-ca-disabled-${snapshot.tenant.id}-${rule.code}`,
+          tenantId: snapshot.tenant.id,
+          tenantName: snapshot.tenant.displayName,
+          component: "conditional_access",
+          ruleCode: rule.code,
+          ruleName: rule.name,
+          severity: "critical",
+          expectedState: "Report-Only or Enabled",
+          actualState: "Disabled (Turned Off)",
+          driftDescription: `Baseline policy ${rule.code} exists in tenant but has been disabled manually, bypassing zero-trust controls.`,
+          detectedTimestamp: new Date().toISOString(),
+          remediationAction: `Re-enable policy ${rule.code} in Report-Only or Enabled state.`,
+          remediationSupported: true,
+          remediationPayload: { action: "enable_ca", policyId: deployed.id, baselineCode: rule.code },
+        });
+      } else {
+        // Passing
+        passingRulesCount++;
+      }
     }
   }
 
