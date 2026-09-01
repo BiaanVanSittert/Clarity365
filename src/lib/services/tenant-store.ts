@@ -1058,6 +1058,10 @@ class TenantStore {
     return merged;
   }
 
+  public saveSnapshot(tenantId: string, snapshot: TenantSecuritySnapshot): void {
+    this.putSnapshotRow(tenantId, snapshot);
+  }
+
   public addAuditLogEntry(entry: Omit<AuditLogEntry, "id">): void {
     this.db
       .prepare(
