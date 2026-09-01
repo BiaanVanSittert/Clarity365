@@ -111,5 +111,28 @@ describe("drift-analyzer service", () => {
       const realigned = realignFindingLocally(snapWithFwd, fwdFinding);
       expect(realigned.emailForwarding?.[0].state).toBe("Disabled");
     });
+
+    it("realigns missing CA07 baseline with required user risk controls", () => {
+      const blankSnap = createBlankSnapshot(INITIAL_TENANTS[0]);
+      const ca07Finding: any = {
+        id: "drift-test-ca07",
+        ruleCode: "CA07",
+        ruleName: "Require password reset for high-risk users",
+        component: "conditional_access",
+        severity: "critical",
+        actualState: "Missing (Not Deployed)",
+        expectedState: "Report-Only",
+        driftDescription: "CA07 is not configured.",
+        remediationAction: "Deploy CA07 in Report-Only mode.",
+        remediationSupported: true,
+        remediationPayload: { action: "deploy_ca", baselineCode: "CA07" },
+      };
+
+      const realigned = realignFindingLocally(blankSnap, ca07Finding);
+      const deployedCa07 = realigned.conditionalAccess?.policies.find((p) => p.baselineCode === "CA07");
+      expect(deployedCa07).toBeDefined();
+      expect(deployedCa07?.grantControls).toEqual(["mfa", "passwordChange"]);
+      expect(deployedCa07?.conditions.userRiskLevels).toEqual(["high"]);
+    });
   });
 });
