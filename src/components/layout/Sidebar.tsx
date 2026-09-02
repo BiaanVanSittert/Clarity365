@@ -28,6 +28,8 @@ import {
   DollarSign,
   ChevronRight,
   Compass,
+  Award,
+  FileText,
 } from "lucide-react";
 import { TenantSecuritySnapshot, FleetPostureSummary } from "@/lib/types";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
@@ -286,6 +288,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           label: "Threat Sync & TABL",
           icon: Share2,
         },
+        {
+          id: "compliance_matrix",
+          label: "Compliance Matrix (CIS/NIST)",
+          icon: Award,
+        },
+        {
+          id: "executive_reports",
+          label: "Executive & QBR Reports",
+          icon: FileText,
+        },
       ],
     },
     {
@@ -462,6 +474,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             sharePointBaselineGapCount > 0
               ? `${sharePointBaselineGapCount} of ${sharePointBaselineResults.length} governance checks below recommended (${sharePointSitesCount} sites total)`
               : undefined,
+        },
+        {
+          id: "compliance_matrix",
+          label: "Compliance Matrix (CIS/NIST)",
+          icon: Award,
+        },
+        {
+          id: "executive_reports",
+          label: "Executive & QBR Reports",
+          icon: FileText,
         },
       ],
     },
