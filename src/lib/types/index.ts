@@ -919,3 +919,125 @@ export interface FleetBulkDeployResult {
   results: FleetBulkDeployTenantResult[];
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2.3: Executive & Compliance Reporting Engine (QBR Generator & Compliance Matrix)
+// ---------------------------------------------------------------------------
+
+export interface ReportBrandingConfig {
+  mspName: string;
+  mspLogoUrl?: string;
+  preparedBy: string;
+  accentColor?: string;
+  clientContact?: string;
+}
+
+export interface ExecutiveQbrReport {
+  id: string;
+  generatedAt: string;
+  period: string; // e.g., "Q3 2026" or "August 2026"
+  tenant: {
+    id: string;
+    displayName: string;
+    defaultDomain: string;
+    tier: string;
+  };
+  branding: ReportBrandingConfig;
+  executiveSummary: {
+    overallHealthScore: number; // 0-100
+    secureScorePercent: number;
+    baselineAdoptionScore: number;
+    activeThreatsCount: number;
+    totalMonthlyCostSavingsIdentified: number;
+    totalMonthlyCostSavingsReclaimed: number;
+    headlineStatus: "optimal" | "acceptable" | "needs_attention" | "critical_risk";
+    keyAchievements: string[];
+    topActionItems: string[];
+  };
+  identityMfaSection: {
+    totalUsers: number;
+    mfaEnforcedPercent: number;
+    adminCount: number;
+    adminsWithPhishingResistantMfa: number;
+    riskyUsersCount: number;
+    guestUsersCount: number;
+  };
+  goldenBaselineSection: {
+    totalPoliciesEvaluated: number;
+    enforcedCount: number;
+    reportOnlyCount: number;
+    missingCount: number;
+    policies: {
+      code: string;
+      name: string;
+      state: "enforced" | "report_only" | "missing" | "misconfigured";
+      impact: string;
+    }[];
+  };
+  threatsAndHygieneSection: {
+    externalForwardingRulesBlocked: number;
+    quarantineAlertsRemediated: number;
+    threatIndicatorsActive: number;
+    unmanagedDevicesCount: number;
+    anonymousSharePointLinksCount: number;
+  };
+  costOptimizationSection: {
+    inactiveLicensedUsersCount: number;
+    wastedSharedMailboxLicensesCount: number;
+    totalEstimatedAnnualWaste: number;
+    reclaimableSeats: {
+      upn: string;
+      license: string;
+      estimatedMonthlyCost: number;
+      reason: string;
+    }[];
+  };
+}
+
+export type ComplianceFramework = "cis_m365_v3" | "nist_csf_v2" | "essential_eight";
+
+export interface ComplianceControlItem {
+  id: string;
+  framework: ComplianceFramework;
+  section: string; // e.g. "1. Account & Authentication"
+  controlNumber: string; // e.g. "1.1.1"
+  title: string;
+  description: string;
+  level?: "Level 1" | "Level 2";
+  status: "compliant" | "non_compliant" | "partially_compliant" | "not_applicable";
+  relevance: "critical" | "high" | "medium";
+  evidence: string;
+  remediationGuide: string;
+  relatedBaselineCode?: string;
+}
+
+export interface TenantComplianceAssessment {
+  tenantId: string;
+  tenantName: string;
+  defaultDomainName: string;
+  evaluatedAt: string;
+  framework: ComplianceFramework;
+  frameworkTitle: string;
+  totalControls: number;
+  compliantCount: number;
+  nonCompliantCount: number;
+  partiallyCompliantCount: number;
+  scorePercentage: number;
+  level1ScorePercentage?: number;
+  level2ScorePercentage?: number;
+  controls: ComplianceControlItem[];
+}
+
+export interface FleetComplianceSummary {
+  framework: ComplianceFramework;
+  frameworkTitle: string;
+  evaluatedAt: string;
+  totalTenantsEvaluated: number;
+  overallFleetCompliancePercentage: number;
+  tenantAssessments: TenantComplianceAssessment[];
+  topFailingControls: {
+    controlNumber: string;
+    title: string;
+    failingTenantsCount: number;
+  }[];
+}
+
