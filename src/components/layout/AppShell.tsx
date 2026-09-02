@@ -46,6 +46,8 @@ const GroupsManagementModule = lazy(() => import("../modules/GroupsManagementMod
 const SharePointStorageModule = lazy(() => import("../modules/SharePointStorageModule").then(m => ({ default: m.SharePointStorageModule })));
 const McpPlaygroundModule = lazy(() => import("../modules/McpPlaygroundModule").then(m => ({ default: m.McpPlaygroundModule })));
 const AuditLogModule = lazy(() => import("../modules/AuditLogModule").then(m => ({ default: m.AuditLogModule })));
+const ExecutiveReportingModule = lazy(() => import("../modules/ExecutiveReportingModule").then(m => ({ default: m.ExecutiveReportingModule })));
+const ComplianceMatrixModule = lazy(() => import("../modules/ComplianceMatrixModule").then(m => ({ default: m.ComplianceMatrixModule })));
 
 export const AppShell: React.FC = () => {
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -462,6 +464,28 @@ export const AppShell: React.FC = () => {
               {activeView === "fleet_tabl" && (
                 <FleetTablSyncModule
                   tenants={tenants}
+                  onSelectTenant={handleSelectTenant}
+                />
+              )}
+            </ErrorBoundary>
+
+            {/* Phase 2.3: Executive & QBR Reports */}
+            <ErrorBoundary moduleName="Executive & QBR Reports" key="eb-executive-reports">
+              {activeView === "executive_reports" && (
+                <ExecutiveReportingModule
+                  tenants={tenants}
+                  snapshots={allSnapshots}
+                  onSelectTenant={handleSelectTenant}
+                />
+              )}
+            </ErrorBoundary>
+
+            {/* Phase 2.3: Compliance Frameworks (CIS/NIST/Essential 8) */}
+            <ErrorBoundary moduleName="Compliance Matrix" key="eb-compliance-matrix">
+              {activeView === "compliance_matrix" && (
+                <ComplianceMatrixModule
+                  tenants={tenants}
+                  snapshots={allSnapshots}
                   onSelectTenant={handleSelectTenant}
                 />
               )}
