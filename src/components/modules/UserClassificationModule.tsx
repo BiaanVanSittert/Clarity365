@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
-import { Users, AlertTriangle, ShieldCheck, UserX, Search, Filter, Terminal, CheckCircle2, Download } from "lucide-react";
+import { Users, AlertTriangle, ShieldCheck, ShieldAlert, Shield, UserX, Search, Filter, Terminal, CheckCircle2, Download } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { EmptyStateRow } from "../common/EmptyStateRow";
+import { findLicensedGlobalAdmins, getPrivilegedAccountUpns } from "@/lib/services/admin-hygiene-matcher";
 
 interface UserClassificationModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -19,8 +20,12 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
   onClearHighlight,
 }) => {
   const { accountClassification } = snapshot;
-  const [activeTab, setActiveTab] = useState<"licensed" | "unlicensed_active" | "disabled" | "all">("all");
+  const [activeTab, setActiveTab] = useState<"licensed" | "unlicensed_active" | "disabled" | "all" | "licensed_admin_risk">("all");
   const [searchQuery, setSearchQuery] = useState("");
+
+  const licensedGlobalAdmins = findLicensedGlobalAdmins(snapshot);
+  const licensedGlobalAdminUpnsLower = new Set(licensedGlobalAdmins.map((a) => a.userPrincipalName.toLowerCase()));
+  const privilegedUpnsLower = getPrivilegedAccountUpns(snapshot);
 
   const highlightedRowRef = useRef<HTMLTableRowElement | null>(null);
 
@@ -39,11 +44,14 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
       u.department.toLowerCase().includes(searchQuery.toLowerCase());
 
     if (activeTab === "all") return matchesSearch;
+    if (activeTab === "licensed_admin_risk") {
+      return matchesSearch && licensedGlobalAdminUpnsLower.has(u.userPrincipalName.toLowerCase());
+    }
     return matchesSearch && u.classification === activeTab;
   });
 
   const handleExportCSV = () => {
-    const headers = ["DisplayName", "UserPrincipalName", "Classification", "Licenses", "AccountEnabled", "Department", "RiskFlag"];
+    const headers = ["DisplayName", "UserPrincipalName", "Classification", "Licenses", "AccountEnabled", "Department", "RiskFlag", "IsPrivilegedAdmin", "LicensedAdminRisk"];
     const rows = filteredUsers.map((user) => [
       user.displayName,
       user.userPrincipalName,
@@ -52,6 +60,8 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
       user.accountEnabled ? "Yes" : "No",
       user.department,
       user.riskFlag || "",
+      privilegedUpnsLower.has(user.userPrincipalName.toLowerCase()) ? "Yes" : "No",
+      licensedGlobalAdminUpnsLower.has(user.userPrincipalName.toLowerCase()) ? "Yes" : "No",
     ]);
     exportToCsv(csvFilename("UserClassification", snapshot.tenant.defaultDomainName), headers, rows);
   };
@@ -88,8 +98,8 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
         </button>
       </div>
 
-      {/* 3 Count Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* 4 Count Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div
           onClick={() => setActiveTab("licensed")}
           className={`p-3.5 border rounded-sm cursor-pointer transition-colors ${
@@ -142,6 +152,27 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
           </div>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Sign-in explicitly blocked</div>
         </div>
+
+        <div
+          onClick={() => setActiveTab("licensed_admin_risk")}
+          className={`p-3.5 border rounded-sm cursor-pointer transition-colors ${
+            activeTab === "licensed_admin_risk" ? "bg-[#FEF2F2] dark:bg-red-950 border-[#EF4444] dark:border-red-800 shadow-xs" : "bg-[#FEF2F2] dark:bg-red-950 border-[#EF4444] dark:border-red-800 hover:bg-red-100/40 dark:hover:bg-red-900"
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase text-[#991B1B] dark:text-red-400 font-semibold flex items-center gap-1">
+              <ShieldAlert size={12} />
+              <span>4. Licensed Admins</span>
+            </span>
+            <span className="text-[10px] font-mono uppercase font-bold text-red-100 bg-[#991B1B] dark:bg-red-900 dark:text-red-300 px-1 py-0.5 rounded-sm">
+              CRITICAL
+            </span>
+          </div>
+          <div className="text-2xl font-bold font-mono text-[#991B1B] dark:text-red-400 tabular-nums mt-1">
+            {licensedGlobalAdmins.length}
+          </div>
+          <div className="text-[11px] text-[#991B1B] dark:text-red-400 mt-0.5">Admin role + Exchange/Teams license</div>
+        </div>
       </div>
 
       {/* Search & Tabs */}
@@ -189,6 +220,14 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
             }`}
           >
             Disabled
+          </button>
+          <button
+            onClick={() => setActiveTab("licensed_admin_risk")}
+            className={`px-2.5 py-1 text-xs rounded-sm transition-colors ${
+              activeTab === "licensed_admin_risk" ? "bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 font-semibold text-red-800 dark:text-red-400 shadow-xs" : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100"
+            }`}
+          >
+            Licensed Admins ({licensedGlobalAdmins.length})
           </button>
         </div>
 
@@ -241,13 +280,24 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
                       className={`transition-colors ${
                         isHighlighted
                           ? "animate-slow-flash"
+                          : licensedGlobalAdminUpnsLower.has(user.userPrincipalName.toLowerCase())
+                          ? "bg-red-50/50 dark:bg-red-950/40 hover:bg-red-100/60 dark:hover:bg-red-900/40 border-l-4 border-l-red-500"
                           : user.classification === "unlicensed_active"
-                          ? "bg-amber-50/40 dark:bg-amber-950/40 hover:bg-amber-50 dark:hover:bg-amber-950/60"
+                          ? "bg-amber-50/40 dark:bg-amber-950/40 hover:bg-amber-100/50 dark:hover:bg-amber-900/40 border-l-4 border-l-amber-500"
                           : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
                       }`}
                     >
                       <td>
-                        <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{user.displayName}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-xs text-slate-900 dark:text-slate-100">{user.displayName}</span>
+                          {privilegedUpnsLower.has(user.userPrincipalName.toLowerCase()) &&
+                            !licensedGlobalAdminUpnsLower.has(user.userPrincipalName.toLowerCase()) && (
+                              <span className="inline-flex items-center gap-1 font-mono text-[9px] font-bold px-1 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600 rounded-sm">
+                                <Shield size={9} />
+                                <span>Privileged</span>
+                              </span>
+                            )}
+                        </div>
                         <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{user.userPrincipalName}</div>
                       </td>
                     <td>
@@ -283,7 +333,9 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
                     </td>
                     <td className="text-xs text-slate-600 dark:text-slate-400">{user.department}</td>
                     <td className="text-right">
-                      {user.riskFlag ? (
+                      {licensedGlobalAdminUpnsLower.has(user.userPrincipalName.toLowerCase()) ? (
+                        <StatusPill status="critical" label="Admin + Daily-Use License" size="sm" />
+                      ) : user.riskFlag ? (
                         <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-400">
                           {user.riskFlag}
                         </span>

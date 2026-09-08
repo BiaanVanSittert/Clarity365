@@ -26,9 +26,24 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
 
+  const accountMap = new Map(
+    (snapshot.accountClassification?.users || []).map((u) => [u.userPrincipalName.toLowerCase(), u])
+  );
+
+  const isUserLicensed = (upn: string) => {
+    const acct = accountMap.get(upn.toLowerCase());
+    return Boolean(acct && (acct.classification === "licensed" || (acct.licenses && acct.licenses.length > 0)));
+  };
+
+  const getUserLicenses = (upn: string): string[] => {
+    const acct = accountMap.get(upn.toLowerCase());
+    return acct?.licenses || [];
+  };
+
   const totalUsers = mfaAudit.length;
   const weakAuthUsers = mfaAudit.filter((u) => u.isWeakAuth && u.mfaRegistered);
   const missingMfaUsers = mfaAudit.filter((u) => !u.mfaRegistered);
+  const licensedWithoutMfaUsers = mfaAudit.filter((u) => !u.mfaRegistered && isUserLicensed(u.userPrincipalName));
   const phishingResistantUsers = mfaAudit.filter((u) => u.defaultMethod === "passkey_fido2");
 
   const filteredUsers = mfaAudit.filter((u) => {
@@ -38,6 +53,7 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
       u.department.toLowerCase().includes(searchQuery.toLowerCase());
 
     if (filterType === "all") return matchesSearch;
+    if (filterType === "licensed_no_mfa") return matchesSearch && !u.mfaRegistered && isUserLicensed(u.userPrincipalName);
     if (filterType === "weak") return matchesSearch && (u.isWeakAuth || !u.mfaRegistered);
     if (filterType === "weak_only") return matchesSearch && u.isWeakAuth && u.mfaRegistered;
     if (filterType === "missing") return matchesSearch && !u.mfaRegistered;
@@ -52,6 +68,8 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
       "DisplayName",
       "UserPrincipalName",
       "PrivilegeLevel",
+      "IsLicensed",
+      "AssignedLicenses",
       "DefaultAuthMethod",
       "RegisteredMethods",
       "MfaEnforcedByPolicy",
@@ -60,12 +78,16 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
 
     const rows = filteredUsers.map((user) => {
       const methodMeta = METHOD_LABELS[user.defaultMethod];
+      const isLicensed = isUserLicensed(user.userPrincipalName);
       const isWeak = user.isWeakAuth || !user.mfaRegistered;
       const posture = methodMeta.isPhishingResistant ? "Phishing-Resistant" : isWeak ? "Weak Auth / Fail" : "Strong Push";
+      const licenses = getUserLicenses(user.userPrincipalName);
       return [
         user.displayName,
         user.userPrincipalName,
         user.isAdmin ? user.adminRoles?.[0] || "Directory Admin" : user.department || "Standard User",
+        isLicensed ? "Yes" : "No",
+        licenses.join("; "),
         methodMeta.name,
         user.registeredMethods.map((m) => METHOD_LABELS[m]?.name || m).join("; "),
         user.mfaEnforcedByPolicy ? "Yes" : "No",
@@ -153,22 +175,35 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
         </div>
 
         <div
-          onClick={() => setFilterType("missing")}
+          onClick={() => setFilterType(licensedWithoutMfaUsers.length > 0 ? "licensed_no_mfa" : "missing")}
           role="button"
           tabIndex={0}
           onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setFilterType("missing"))}
           className={`p-3 bg-[#FEF2F2] dark:bg-red-950 border rounded-sm cursor-pointer transition-colors hover:bg-red-100/50 dark:hover:bg-red-900 ${
-            filterType === "missing" ? "border-[#EF4444] dark:border-red-800 ring-1 ring-[#EF4444]" : "border-[#EF4444] dark:border-red-800"
+            filterType === "missing" || filterType === "licensed_no_mfa" ? "border-[#EF4444] dark:border-red-800 ring-1 ring-[#EF4444]" : "border-[#EF4444] dark:border-red-800"
           }`}
         >
-          <div className="text-[10px] uppercase font-mono text-[#991B1B] dark:text-red-400 font-semibold flex items-center gap-1">
-            <AlertTriangle size={11} />
-            <span>Missing MFA Registration</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase font-mono text-[#991B1B] dark:text-red-400 font-semibold flex items-center gap-1">
+              <AlertTriangle size={11} />
+              <span>Missing MFA Registration</span>
+            </span>
+            {licensedWithoutMfaUsers.length > 0 && (
+              <span className="text-[9px] font-mono uppercase font-bold text-white bg-[#991B1B] dark:bg-red-800 dark:text-red-200 px-1 py-0.5 rounded-sm">
+                {licensedWithoutMfaUsers.length} LICENSED
+              </span>
+            )}
           </div>
           <div className="text-xl font-bold font-mono text-[#991B1B] dark:text-red-400 tabular-nums mt-0.5">
             {missingMfaUsers.length}
           </div>
-          <div className="text-[11px] text-[#991B1B] dark:text-red-400 mt-0.5">Zero MFA Enrolled</div>
+          <div className="text-[11px] text-[#991B1B] dark:text-red-400 mt-0.5">
+            {licensedWithoutMfaUsers.length > 0 ? (
+              <span className="font-semibold text-red-700 dark:text-red-300">{licensedWithoutMfaUsers.length} licensed account{licensedWithoutMfaUsers.length > 1 ? "s" : ""} at critical risk</span>
+            ) : (
+              "Zero MFA Enrolled"
+            )}
+          </div>
         </div>
       </div>
 
@@ -193,9 +228,12 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
             className="px-2.5 py-1.5 text-xs border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium"
           >
             <option value="all">All Users ({mfaAudit.length})</option>
+            {licensedWithoutMfaUsers.length > 0 && (
+              <option value="licensed_no_mfa">⚠️ Licensed with No MFA ({licensedWithoutMfaUsers.length})</option>
+            )}
             <option value="weak">Weak / Missing MFA Flags</option>
             <option value="weak_only">Weak Authentication (SMS/OTP)</option>
-            <option value="missing">Missing MFA Registration</option>
+            <option value="missing">Missing MFA Registration ({missingMfaUsers.length})</option>
             <option value="admins">Privileged Administrators</option>
             <option value="phishing_resistant">Phishing-Resistant (FIDO2)</option>
           </select>
@@ -238,12 +276,32 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
               ) : (
                 filteredUsers.map((user) => {
                   const methodMeta = METHOD_LABELS[user.defaultMethod];
+                  const isLicensed = isUserLicensed(user.userPrincipalName);
+                  const isMissingMfa = !user.mfaRegistered || user.defaultMethod === "none";
+                  const isLicensedWithoutMfa = isLicensed && isMissingMfa;
                   const isWeak = user.isWeakAuth || !user.mfaRegistered;
 
                   return (
-                    <tr key={user.id} className={isWeak ? "bg-red-50/20 dark:bg-red-950" : ""}>
+                    <tr
+                      key={user.id}
+                      className={`transition-colors ${
+                        isLicensedWithoutMfa
+                          ? "bg-red-50/60 dark:bg-red-950/40 hover:bg-red-100/70 dark:hover:bg-red-900/50 border-l-4 border-l-red-500"
+                          : isWeak
+                          ? "bg-red-50/35 dark:bg-red-950/20 hover:bg-red-50/60 dark:hover:bg-red-950/35"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                      }`}
+                    >
                       <td>
-                        <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{user.displayName}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-xs text-slate-900 dark:text-slate-100">{user.displayName}</span>
+                          {isLicensedWithoutMfa && (
+                            <span className="inline-flex items-center gap-1 font-mono text-[9px] font-bold px-1.5 py-0.5 bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-300 border border-red-300 dark:border-red-700 rounded-sm">
+                              <AlertTriangle size={9} className="text-red-600 dark:text-red-400" />
+                              <span>Licensed · No MFA</span>
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{user.userPrincipalName}</div>
                       </td>
                       <td>
@@ -276,7 +334,9 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
                         />
                       </td>
                       <td className="text-right">
-                        {methodMeta.isPhishingResistant ? (
+                        {isLicensedWithoutMfa ? (
+                          <StatusPill status="critical" label="No MFA (Licensed)" size="sm" />
+                        ) : methodMeta.isPhishingResistant ? (
                           <StatusPill status="pass" label="Phishing-Resistant" size="sm" />
                         ) : isWeak ? (
                           <StatusPill status="fail" label="Weak Auth / Fail" size="sm" />

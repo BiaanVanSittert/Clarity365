@@ -83,10 +83,6 @@ body {
   border-bottom: 1px solid #f1f5f9;
 }
 
-.table-dense tr:hover td {
-  background-color: #f8fafc;
-}
-
 .dark .table-dense th {
   color: #94a3b8;
   border-bottom-color: #334155;
@@ -97,7 +93,54 @@ body {
   border-bottom-color: #1e293b;
 }
 
-.dark .table-dense tr:hover td {
+/* Row hover outlines - outlines row on hover without removing custom background highlights */
+.table-dense tbody tr {
+  transition: outline 0.15s ease, background-color 0.15s ease;
+}
+
+.table-dense tbody tr:hover {
+  outline: 1px solid #94a3b8;
+  outline-offset: -1px;
+  position: relative;
+  z-index: 5;
+}
+
+.dark .table-dense tbody tr:hover {
+  outline: 1px solid #475569;
+  outline-offset: -1px;
+  position: relative;
+  z-index: 5;
+}
+
+/* Alert outlines on hover for critical/warning rows while preserving their background */
+.table-dense tbody tr[class*="bg-red"]:hover {
+  outline: 1.5px solid #f87171;
+  outline-offset: -1px;
+}
+
+.dark .table-dense tbody tr[class*="dark:bg-red"]:hover,
+.dark .table-dense tbody tr[class*="bg-red"]:hover {
+  outline: 1.5px solid #ef4444;
+  outline-offset: -1px;
+}
+
+.table-dense tbody tr[class*="bg-amber"]:hover {
+  outline: 1.5px solid #f59e0b;
+  outline-offset: -1px;
+}
+
+.dark .table-dense tbody tr[class*="dark:bg-amber"]:hover,
+.dark .table-dense tbody tr[class*="bg-amber"]:hover {
+  outline: 1.5px solid #d97706;
+  outline-offset: -1px;
+}
+
+/* Default hover background only for neutral rows that have no custom background */
+.table-dense tbody tr:not([class*="bg-"]):hover td {
+  background-color: #f8fafc;
+}
+
+.dark .table-dense tbody tr:not([class*="dark:bg-"]):not([class*="bg-red"]):not([class*="bg-amber"]):hover td {
   background-color: #1e293b;
 }
 
