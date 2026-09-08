@@ -12,14 +12,14 @@ Every [[Baseline Matchers|baseline matcher]], every [[Data Mappers|data mapper]]
 ## Untested (the gap list)
 | File | Why it matters |
 |---|---|
-| `graph-client.ts` | [[Core Graph Layer]]'s ~1230-line master orchestrator — the largest, highest-fan-out file in the app |
+| `graph-client.ts` | [[Core Graph Layer]]'s ~1230-line master orchestrator :  the largest, highest-fan-out file in the app |
 | `exo-client.ts` | Live Exchange Online writes + OAuth device-code flow |
-| `fleet-operations.ts` | [[Fleet Operations]] — highest blast-radius code path (one call can touch every tenant) |
-| `auth.ts` | [[Security Infra]] — the entire login session's cryptographic verification |
+| `fleet-operations.ts` | [[Fleet Operations]] :  highest blast-radius code path (one call can touch every tenant) |
+| `auth.ts` | [[Security Infra]] :  the entire login session's cryptographic verification |
 | `rate-limit.ts` | Brute-force protection on login/setup/change-password |
 | `scheduler.ts` | Background auto-sync loop |
 | `remediation-generator.ts` | Output is shown directly in the UI and returned by an MCP tool to external agents |
 
-No UI/component tests exist at all (no React Testing Library, no Playwright/Cypress) — all ~25 tests are service-layer unit tests. See [[Optimization Plan]] for prioritization.
+No UI/component tests exist at all (no React Testing Library, no Playwright/Cypress) :  all ~25 tests are service-layer unit tests. See [[Optimization Plan]] for prioritization.
 
 Part of [[Clarity365 MOC]].

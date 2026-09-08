@@ -4,11 +4,11 @@ tags: [module, fleet, cost]
 
 # Fleet License Optimization
 
-Fleet-wide license waste analysis — dormant, shared-mailbox, and disabled-user seats costing money across every tenant.
+Fleet-wide license waste analysis :  dormant, shared-mailbox, and disabled-user seats costing money across every tenant.
 
 - **Component:** `FleetLicenseOptimizationModule.tsx`
 - **Backing call:** `fleet-analyzer.computeFleetLicenseWaste` (no direct fetch)
-- **Key types:** `FleetLicenseOptimizationItem` — see [[Domain Types]]
+- **Key types:** `FleetLicenseOptimizationItem` :  see [[Domain Types]]
 - **Renders:** `Skeleton`
 - **Uses service:** [[Analysis & Generation]] (`fleet-analyzer`)
 

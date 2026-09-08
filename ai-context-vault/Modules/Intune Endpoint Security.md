@@ -8,7 +8,7 @@ Fleet antivirus/EDR onboarding status per device, Windows/macOS/Linux.
 
 - **Component:** `IntuneSecurityModule.tsx`
 - **Reads:** `TenantSecuritySnapshot.intune` (prop-driven)
-- **Key types:** `IntuneDevice`, `IntunePolicySummary` — see [[Domain Types]]
+- **Key types:** `IntuneDevice`, `IntunePolicySummary` :  see [[Domain Types]]
 - **Renders:** `StatusPill`, `Drawer`, `EmptyStateRow`
 - **Data origin:** [[Data Mappers]] (`intune-mapper`)
 

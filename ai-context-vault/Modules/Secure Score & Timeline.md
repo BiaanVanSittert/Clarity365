@@ -8,7 +8,7 @@ Microsoft Secure Score card with 30/90-day deltas, benchmark comparison, and a h
 
 - **Component:** `SecureScoreModule.tsx`
 - **Reads:** `TenantSecuritySnapshot.secureScore` (prop-driven)
-- **Key types:** `TenantSecureScore`, `SecureScoreControl` — see [[Domain Types]]
+- **Key types:** `TenantSecureScore`, `SecureScoreControl` :  see [[Domain Types]]
 - **Renders:** `StatusPill`, `EmptyStateRow`, `useTheme`
 - **Data origin:** [[Data Mappers]] (`secure-score-mapper`), populated via [[Core Graph Layer]]
 - **Exposed to agents via:** [[MCP Server]] `get_tenant_secure_score` tool

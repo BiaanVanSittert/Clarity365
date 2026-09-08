@@ -4,11 +4,11 @@ tags: [module, reporting]
 
 # Executive Reporting (QBR)
 
-Client-facing QBR generator — scorecards, milestones, cost savings, print-to-PDF preview.
+Client-facing QBR generator :  scorecards, milestones, cost savings, print-to-PDF preview.
 
 - **Component:** `ExecutiveReportingModule.tsx`
-- **Backing call:** `report-generator.generateTenantQbrReport` (service call, not a fetch — same underlying data as `GET /api/reports/qbr`)
-- **Key types:** `ExecutiveQbrReport` — see [[Domain Types]]
+- **Backing call:** `report-generator.generateTenantQbrReport` (service call, not a fetch :  same underlying data as `GET /api/reports/qbr`)
+- **Key types:** `ExecutiveQbrReport` :  see [[Domain Types]]
 - **Renders:** [[Modals#ReportPreviewModal|ReportPreviewModal]] (print/PDF preview, used only here)
 - **Uses service:** [[Analysis & Generation]] (`report-generator`, which itself pulls from `fleet-analyzer` + `ca-baseline-matcher`)
 

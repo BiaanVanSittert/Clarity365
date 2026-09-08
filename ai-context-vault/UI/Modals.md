@@ -31,7 +31,7 @@ Contain a compromised user (disable/revoke sessions). → `POST /api/tenants/{id
 Isolate/scan a device via Defender. → `POST .../isolate-device`, `POST .../scan-device`. Used by [[Event Response (Incident Response)]].
 
 ### ChangeConfirmationModal
-Generic "review before you push a live change" confirmation — no fetch of its own, the caller performs the write after confirm. Reused by [[Fleet Baseline Drift]] and [[Fleet TABL Sync]].
+Generic "review before you push a live change" confirmation :  no fetch of its own, the caller performs the write after confirm. Reused by [[Fleet Baseline Drift]] and [[Fleet TABL Sync]].
 
 ### ReportPreviewModal
 Print/PDF preview for Executive QBR reports. Used only by [[Executive Reporting (QBR)]].

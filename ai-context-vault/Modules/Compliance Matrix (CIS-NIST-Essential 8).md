@@ -8,7 +8,7 @@ Scores a tenant against three external compliance frameworks simultaneously, der
 
 - **Component:** `ComplianceMatrixModule.tsx`
 - **Backing call:** `compliance-evaluator.evaluateTenantCompliance` / `evaluateFleetCompliance` (same data as `GET /api/reports/compliance`)
-- **Key types:** `ComplianceControlItem`, `TenantComplianceAssessment` — see [[Domain Types]]
+- **Key types:** `ComplianceControlItem`, `TenantComplianceAssessment` :  see [[Domain Types]]
 - **Uses service:** [[Analysis & Generation]] (`compliance-evaluator`, which composes `ca-baseline-matcher` + `drift-analyzer`)
 
-Part of [[Clarity365 MOC]]. Notable: this module doesn't introduce new source data — it's a third *lens* (CIS/NIST/Essential 8) over the same [[Baseline Definitions & Mock Data|39 baseline rules]] every other module already scores against. Worth knowing if you're ever asked "is the compliance score consistent with the CA scanner" — structurally, it has to be.
+Part of [[Clarity365 MOC]]. Notable: this module doesn't introduce new source data :  it's a third *lens* (CIS/NIST/Essential 8) over the same [[Baseline Definitions & Mock Data|39 baseline rules]] every other module already scores against. Worth knowing if you're ever asked "is the compliance score consistent with the CA scanner" :  structurally, it has to be.
