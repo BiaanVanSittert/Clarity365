@@ -1,0 +1,31 @@
+---
+tags: [optimization]
+---
+
+# Optimization Plan
+
+Grounded in the scan behind this vault (see [[Clarity365 MOC]]). Ordered by risk, not effort.
+
+## P0 — Before you run the updated app at all
+1. ~~**Create `.env.local`** with `CLARITY365_SESSION_SECRET` and `CLARITY365_ENCRYPTION_KEY`~~ — **done.** This surfaced exactly as predicted: operator password setup succeeded (it only needs `crypto.hashPassword`), but login failed with `CLARITY365_SESSION_SECRET is not set` because `auth.createSessionToken` had nothing to sign with. `.env.local` now exists with both generated. **Store these two values in a password manager now** — `.env.local` is gitignored (never committed) and losing `CLARITY365_ENCRYPTION_KEY` after tenants are added makes their stored secrets permanently unreadable. See [[Security & Auth]].
+2. **The 5 high-severity `npm audit` findings all trace back to `next@14.2.15` itself** (DoS, SSRF, cache-poisoning, and XSS advisories in Next's Image Optimizer, Server Actions, and Middleware — [full list](https://github.com/advisories/GHSA-9g9p-9gw9-jx7f) and siblings) plus its transitive `postcss` and `glob`/`eslint-config-next` chain. **`npm audit fix --force` would jump `next` 14 → 16** — a major-version App Router upgrade, not a patch. Don't run that blind: read the Next.js 15 and 16 migration guides first, since this app leans on `middleware.ts` (Edge runtime) and `instrumentation.ts`, both areas that changed across those majors. Treat this as a planned upgrade task, not a one-command fix — but don't leave it indefinitely either, since several of these are real internet-facing DoS/SSRF classes (lower stakes here since the app is `127.0.0.1`-bound, but worth closing before any future LAN/WAN exposure is considered).
+3. **Review the two pending install scripts** (`better-sqlite3`, `unrs-resolver`) with `npm approve-scripts --allow-scripts-pending` before approving — both are legitimate, but this is the first time either has run in this repo.
+
+## P1 — Highest blast-radius code, zero test coverage
+These four files can each affect *every* tenant or *the login gate itself* on a bug, and none has a single test (full gap list in [[Testing]]):
+- `auth.ts` — the entire session-verification boundary. A subtle bug here is an auth bypass, not a crash.
+- `fleet-operations.ts` — one call touches every tenant in the fleet ([[Fleet Baseline Rollout]], [[Fleet TABL Sync]], [[Fleet Baseline Drift]] all funnel through it). The UI already gates these behind [[Modals#ChangeConfirmationModal|ChangeConfirmationModal]], which protects against fat-fingering but not against a logic bug in what the confirmed action actually does.
+- `graph-client.ts` / `exo-client.ts` — the only files that make live writes to a real customer's M365 tenant.
+
+Recommendation: write tests for these four before adding new fleet-wide features, not after. A dry-run mode for `fleet-operations.ts` (compute + return the diff without writing, reusable by both the confirmation modal's preview and a test) would let you test the risky part without needing live tenants.
+
+## P2 — Structural
+4. **`tenant-store.ts` (~1700 lines) is the transitive dependency of every route.** Not urgent, but the next time you're in there for an unrelated change, consider splitting by concern (tenant CRUD / CA operations / incident-response / TABL / settings-and-auth-config) behind the same call sites — a targeted change today touches a file that also holds unrelated logic for 20+ other features.
+5. **Baseline auto-fix coverage is uneven** (see [[Baseline Definitions & Mock Data]]): CA 10/10, MDO 8/9, Mailflow 5/8, Groups 0/7, SharePoint 0/5. If Groups/SharePoint auto-fix is on the roadmap, that's a concrete backlog. If it's deliberate (unconfirmed write paths, judgment calls — as the code comments suggest), a one-line note in each definitions file saying so would stop a future contributor from "fixing" what isn't broken.
+6. **No UI/component tests** across 24 modules. Not asking for full coverage — but the handful of modules with a live-write confirmation flow ([[Event Response (Incident Response)]], [[Fleet Baseline Rollout]]) are the ones where a regression is costliest, and would benefit most from even a thin smoke test.
+
+## P3 — Process (the thing that started this session)
+7. The outer working copy was **203 commits behind `origin/main`**, silently, with no warning beyond `git status` reporting "up to date" against a stale cached ref. Recommendation: `git fetch` (not pull) at the start of a work session is cheap and would have surfaced this immediately. Consider a one-line reminder in this repo's own `CLAUDE.md` telling future sessions to check `git fetch && git log HEAD..origin/main --oneline` before large scans or refactors.
+8. Keep this vault itself from drifting the same way — see [[Prompting & Obsidian Workflow]] for how to fold vault updates into normal Claude Code sessions instead of letting them lapse.
+
+Part of [[Clarity365 MOC]].

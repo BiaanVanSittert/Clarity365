@@ -33,3 +33,6 @@ Thumbs.db
 .idea/
 *.tsbuildinfo
 
+# Obsidian local workspace state (vault content itself stays tracked)
+ai-context-vault/.obsidian/
+
