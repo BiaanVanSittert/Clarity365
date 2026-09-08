@@ -186,6 +186,45 @@ export const FleetBaselineDriftModule: React.FC<FleetBaselineDriftModuleProps> =
     exportToCsv(`clarity365-fleet-baseline-drift-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
   };
 
+  const handleExportLeaderboardCsv = () => {
+    const headers = [
+      "Rank",
+      "Tenant Name",
+      "Weighted Drift %",
+      "Alignment %",
+      "Critical Findings",
+      "High Findings",
+      "Medium Findings",
+      "Low Findings",
+      "Drifted Rules",
+      "Total Evaluated Rules",
+    ];
+    const rows = tenantAssessments.map((t, i) => [
+      String(i + 1),
+      t.tenantName,
+      `${t.weightedDriftScore}%`,
+      `${t.alignmentScore}%`,
+      String(t.criticalFindingsCount),
+      String(t.highFindingsCount),
+      String(t.mediumFindingsCount),
+      String(t.lowFindingsCount),
+      String(t.driftedRulesCount),
+      String(t.totalEvaluatedRules),
+    ]);
+
+    exportToCsv(`clarity365-fleet-drift-leaderboard-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+  };
+
+  const getDriftBand = (score: number) => {
+    if (score >= 50) {
+      return { label: "Critical Drift", text: "text-rose-700 dark:text-rose-400", bar: "bg-rose-500", badge: "bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800" };
+    }
+    if (score >= 20) {
+      return { label: "Minor Drift", text: "text-amber-700 dark:text-amber-400", bar: "bg-amber-500", badge: "bg-amber-50 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800" };
+    }
+    return { label: "In Sync", text: "text-emerald-700 dark:text-emerald-400", bar: "bg-emerald-500", badge: "bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800" };
+  };
+
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto select-none font-sans">
       {/* Top Banner */}
@@ -318,6 +357,108 @@ export const FleetBaselineDriftModule: React.FC<FleetBaselineDriftModuleProps> =
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
             100% compliant with Golden Standard
           </div>
+        </div>
+      </div>
+
+      {/* Tenant Drift Leaderboard */}
+      <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 rounded-sm overflow-hidden">
+        <div className="p-3 border-b border-[#CBD5E1] dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2">
+            <TrendingDown size={15} className="text-rose-500" />
+            <div>
+              <h2 className="text-xs font-bold text-slate-900 dark:text-slate-100">Tenant Drift Leaderboard</h2>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                Ranked by severity-weighted deviation from the Golden Standard — a critical gap like missing admin MFA weighs far more than a minor one like a DKIM warning.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleExportLeaderboardCsv}
+            className="px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-xs shrink-0"
+          >
+            <Download size={13} />
+            <span>Export Leaderboard (CSV)</span>
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-[#CBD5E1] dark:border-slate-700 bg-slate-100/70 dark:bg-slate-800/80 text-[11px] font-mono text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                <th className="py-2.5 px-3.5 whitespace-nowrap">#</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Tenant</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Drift %</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Status</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Findings (C / H / M / L)</th>
+                <th className="py-2.5 px-3 whitespace-nowrap">Drifted Rules</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#E2E8F0] dark:divide-slate-700/60 bg-white dark:bg-slate-900/30">
+              {tenantAssessments.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-slate-500 dark:text-slate-400">
+                    No tenants evaluated yet.
+                  </td>
+                </tr>
+              ) : (
+                tenantAssessments.map((t, i) => {
+                  const band = getDriftBand(t.weightedDriftScore);
+                  return (
+                    <tr key={t.tenantId} className="hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors">
+                      <td className="py-3 px-3.5 whitespace-nowrap font-mono text-slate-500 dark:text-slate-400">
+                        #{i + 1}
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => onSelectTenant(t.tenantId, "ca_baseline")}
+                          className="font-bold text-slate-900 dark:text-slate-100 hover:underline text-left block"
+                        >
+                          {t.tenantName}
+                        </button>
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <span className={`font-mono font-bold text-sm ${band.text}`}>{t.weightedDriftScore}%</span>
+                          <div className="w-16 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${band.bar}`} style={{ width: `${t.weightedDriftScore}%` }} />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        <span className={`text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-sm border whitespace-nowrap inline-flex items-center shrink-0 ${band.badge}`}>
+                          {band.label}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap font-mono text-[11px]">
+                        <span className="text-rose-700 dark:text-rose-400 font-semibold">{t.criticalFindingsCount}</span>
+                        <span className="text-slate-400 mx-0.5">/</span>
+                        <span className="text-amber-700 dark:text-amber-400 font-semibold">{t.highFindingsCount}</span>
+                        <span className="text-slate-400 mx-0.5">/</span>
+                        <span className="text-blue-700 dark:text-blue-400 font-semibold">{t.mediumFindingsCount}</span>
+                        <span className="text-slate-400 mx-0.5">/</span>
+                        <span className="text-slate-600 dark:text-slate-300 font-semibold">{t.lowFindingsCount}</span>
+                      </td>
+                      <td className="py-3 px-3 whitespace-nowrap font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                        {t.driftedRulesCount} / {t.totalEvaluatedRules}
+                      </td>
+                      <td className="py-3 px-3.5 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => setTenantFilter(t.tenantId)}
+                          className="px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-sm inline-flex items-center gap-1 hover:bg-slate-50 dark:hover:bg-slate-700"
+                        >
+                          <span>View Findings</span>
+                          <ChevronRight size={12} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 

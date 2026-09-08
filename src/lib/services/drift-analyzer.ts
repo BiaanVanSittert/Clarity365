@@ -8,6 +8,7 @@ import {
 } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { validateCaPolicyCompliance } from "./ca-baseline-matcher";
+import { findLicensedGlobalAdmins } from "./admin-hygiene-matcher";
 
 /**
  * The standard default MSP Golden Baseline Template.
@@ -31,7 +32,20 @@ export const DEFAULT_GOLDEN_BASELINE: GoldenBaselineTemplate = {
   requireMailboxAuditLogging: true,
   requireDkimSigning: true,
   requireModernAuthOnly: true,
+  requireNoLicensedGlobalAdmins: true,
   minimumSecureScore: 60,
+};
+
+/**
+ * Points deducted per finding severity when computing a tenant's weightedDriftScore.
+ * Deliberately not normalized by rule count: one critical finding should dominate
+ * the score regardless of how many other rules passed.
+ */
+export const DRIFT_SEVERITY_WEIGHTS: Record<TenantDriftFinding["severity"], number> = {
+  critical: 30,
+  high: 15,
+  medium: 6,
+  low: 2,
 };
 
 /**
@@ -254,7 +268,33 @@ export function evaluateTenantDrift(
     }
   }
 
-  // 5. Evaluate Secure Score Floor
+  // 5. Evaluate Global Admin / Daily-Use License Segregation (break-glass hygiene)
+  if (template.requireNoLicensedGlobalAdmins) {
+    evaluatedRulesCount++;
+    const licensedAdmins = findLicensedGlobalAdmins(snapshot);
+
+    if (licensedAdmins.length > 0) {
+      findings.push({
+        id: `drift-admin-license-${snapshot.tenant.id}`,
+        tenantId: snapshot.tenant.id,
+        tenantName: snapshot.tenant.displayName,
+        component: "identity",
+        ruleCode: "SEC-ADMIN-LICENSE",
+        ruleName: "Segregate Privileged Admin Accounts from Daily-Use Licenses",
+        severity: "critical",
+        expectedState: "0 Administrator Accounts with Exchange/Teams Licenses",
+        actualState: `${licensedAdmins.length} Administrator Account(s) Provisioned for Daily Use`,
+        driftDescription: `${licensedAdmins.map((a) => a.userPrincipalName).join(", ")} hold privileged directory roles but are also provisioned with a daily-use mailbox/Teams license, meaning the same credential used for email/chat also carries tenant-wide administrative power - a single phished mailbox becomes a full tenant compromise.`,
+        detectedTimestamp: new Date().toISOString(),
+        remediationAction: "Provision a dedicated, unlicensed break-glass/admin identity for privileged directory roles and remove the Exchange/Teams license (or the admin role) from the daily-use account.",
+        remediationSupported: false,
+      });
+    } else {
+      passingRulesCount++;
+    }
+  }
+
+  // 6. Evaluate Secure Score Floor
   evaluatedRulesCount++;
   const currentScore = snapshot.secureScore?.percentage || 0;
   if (currentScore < template.minimumSecureScore) {
@@ -285,6 +325,8 @@ export function evaluateTenantDrift(
 
   const criticalFindings = findings.filter((f) => f.severity === "critical");
   const highFindings = findings.filter((f) => f.severity === "high");
+  const mediumFindings = findings.filter((f) => f.severity === "medium");
+  const lowFindings = findings.filter((f) => f.severity === "low");
 
   let status: "in_sync" | "minor_drift" | "critical_drift" = "in_sync";
   if (criticalFindings.length > 0 || alignmentScore < 70) {
@@ -293,15 +335,36 @@ export function evaluateTenantDrift(
     status = "minor_drift";
   }
 
+  // Compute severity-weighted drift score (0-100, higher = further from the Golden
+  // Standard). Unlike alignmentScore, this is not a flat pass/total ratio - a single
+  // critical finding outweighs many low-severity ones, so it ranks tenants by actual
+  // risk exposure rather than by how many boxes happen to be unchecked.
+  const weightedDriftFactors = {
+    critical: criticalFindings.length * DRIFT_SEVERITY_WEIGHTS.critical,
+    high: highFindings.length * DRIFT_SEVERITY_WEIGHTS.high,
+    medium: mediumFindings.length * DRIFT_SEVERITY_WEIGHTS.medium,
+    low: lowFindings.length * DRIFT_SEVERITY_WEIGHTS.low,
+  };
+  const weightedDriftScore = Math.min(
+    100,
+    weightedDriftFactors.critical + weightedDriftFactors.high + weightedDriftFactors.medium + weightedDriftFactors.low
+  );
+
   return {
     tenantId: snapshot.tenant.id,
     tenantName: snapshot.tenant.displayName,
     defaultDomainName: snapshot.tenant.defaultDomainName,
     alignmentScore,
+    weightedDriftScore,
+    weightedDriftFactors,
     status,
     totalEvaluatedRules: evaluatedRulesCount,
     passingRulesCount,
     driftedRulesCount: findings.length,
+    criticalFindingsCount: criticalFindings.length,
+    highFindingsCount: highFindings.length,
+    mediumFindingsCount: mediumFindings.length,
+    lowFindingsCount: lowFindings.length,
     findings,
   };
 }
@@ -320,6 +383,7 @@ export function evaluateFleetDrift(
   let minorDriftCount = 0;
   let criticalDriftCount = 0;
   let totalAlignmentSum = 0;
+  let totalWeightedDriftSum = 0;
 
   for (const snap of snapshots) {
     const assessment = evaluateTenantDrift(snap, template);
@@ -327,19 +391,27 @@ export function evaluateFleetDrift(
     allFindings.push(...assessment.findings);
 
     totalAlignmentSum += assessment.alignmentScore;
+    totalWeightedDriftSum += assessment.weightedDriftScore;
 
     if (assessment.status === "in_sync") inSyncCount++;
     else if (assessment.status === "minor_drift") minorDriftCount++;
     else if (assessment.status === "critical_drift") criticalDriftCount++;
   }
 
-  // Sort assessments: worst alignment (critical drift) first
-  tenantAssessments.sort((a, b) => a.alignmentScore - b.alignmentScore);
+  // Sort assessments: worst severity-weighted drift first (the Tenant Drift Leaderboard
+  // relies on this order - a tenant with one critical finding ranks above one with
+  // several low-severity findings, even if the latter has a lower alignmentScore).
+  tenantAssessments.sort((a, b) => b.weightedDriftScore - a.weightedDriftScore);
 
   const overallFleetAlignmentPercentage =
     tenantAssessments.length > 0
       ? Math.round(totalAlignmentSum / tenantAssessments.length)
       : 100;
+
+  const overallFleetWeightedDriftScore =
+    tenantAssessments.length > 0
+      ? Math.round(totalWeightedDriftSum / tenantAssessments.length)
+      : 0;
 
   return {
     totalTenantsEvaluated: tenantAssessments.length,
@@ -347,6 +419,7 @@ export function evaluateFleetDrift(
     minorDriftCount,
     criticalDriftCount,
     overallFleetAlignmentPercentage,
+    overallFleetWeightedDriftScore,
     tenantAssessments,
     allFindings,
   };

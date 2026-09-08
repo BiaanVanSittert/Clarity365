@@ -5,6 +5,7 @@ import {
   realignFindingLocally,
   tenantHasEntraP2,
   DEFAULT_GOLDEN_BASELINE,
+  DRIFT_SEVERITY_WEIGHTS,
 } from "./drift-analyzer";
 import { MOCK_TENANT_DATA } from "../data/mock-tenants";
 import { createBlankSnapshot } from "../data/default-snapshot";
@@ -47,6 +48,21 @@ describe("drift-analyzer service", () => {
       expect(assessment.findings.some((f) => f.ruleCode === "CA01")).toBe(true);
     });
 
+    it("flags a licensed Global Admin account as a critical SEC-ADMIN-LICENSE finding", () => {
+      const assessment = evaluateTenantDrift(contosoSnap);
+      const adminLicenseFinding = assessment.findings.find((f) => f.ruleCode === "SEC-ADMIN-LICENSE");
+      expect(adminLicenseFinding).toBeDefined();
+      expect(adminLicenseFinding?.severity).toBe("critical");
+      expect(adminLicenseFinding?.component).toBe("identity");
+      expect(adminLicenseFinding?.remediationSupported).toBe(false);
+    });
+
+    it("does not false-positive SEC-ADMIN-LICENSE on a blank tenant with no admins", () => {
+      const blankSnap = createBlankSnapshot(INITIAL_TENANTS[0]);
+      const assessment = evaluateTenantDrift(blankSnap);
+      expect(assessment.findings.some((f) => f.ruleCode === "SEC-ADMIN-LICENSE")).toBe(false);
+    });
+
     it("flags external forwarding rules as critical mailflow drift", () => {
       const snapWithFwd = JSON.parse(JSON.stringify(contosoSnap));
       snapWithFwd.emailForwarding = [
@@ -69,6 +85,54 @@ describe("drift-analyzer service", () => {
     });
   });
 
+  describe("weighted drift scoring", () => {
+    it("caps weightedDriftScore at 100 for a heavily non-compliant blank tenant", () => {
+      const blankSnap = createBlankSnapshot(INITIAL_TENANTS[0]);
+      const assessment = evaluateTenantDrift(blankSnap);
+      expect(assessment.weightedDriftScore).toBe(100);
+      expect(assessment.weightedDriftFactors.critical).toBeGreaterThan(0);
+    });
+
+    it("weighs a single critical finding above several medium/low findings combined", () => {
+      const criticalOnlySnap = JSON.parse(JSON.stringify(contosoSnap));
+      criticalOnlySnap.emailForwarding = [
+        {
+          id: "fwd-test-01",
+          scope: "transport_rule",
+          name: "Exfil Rule",
+          forwardingAddress: "attacker@external-evil.com",
+          isExternal: true,
+          state: "Enabled",
+          dateCreated: "2026-08-20T00:00:00Z",
+          alertLevel: "critical",
+        },
+      ];
+      const assessment = evaluateTenantDrift(criticalOnlySnap);
+      const singleCriticalContribution = DRIFT_SEVERITY_WEIGHTS.critical;
+      // Simulated "several medium/low findings" tenant: 3 medium + 3 low, no criticals.
+      const severalMediumLowContribution = 3 * DRIFT_SEVERITY_WEIGHTS.medium + 3 * DRIFT_SEVERITY_WEIGHTS.low;
+      expect(singleCriticalContribution).toBeGreaterThan(severalMediumLowContribution);
+      expect(assessment.weightedDriftFactors.critical).toBeGreaterThanOrEqual(singleCriticalContribution);
+    });
+
+    it("computes weightedDriftScore as the severity-weighted sum of finding counts, capped at 100", () => {
+      for (const snap of allSnapshots) {
+        const a = evaluateTenantDrift(snap);
+        const expected = Math.min(
+          100,
+          a.criticalFindingsCount * DRIFT_SEVERITY_WEIGHTS.critical +
+            a.highFindingsCount * DRIFT_SEVERITY_WEIGHTS.high +
+            a.mediumFindingsCount * DRIFT_SEVERITY_WEIGHTS.medium +
+            a.lowFindingsCount * DRIFT_SEVERITY_WEIGHTS.low
+        );
+        expect(a.weightedDriftScore).toBe(expected);
+        expect(a.criticalFindingsCount + a.highFindingsCount + a.mediumFindingsCount + a.lowFindingsCount).toBe(
+          a.driftedRulesCount
+        );
+      }
+    });
+  });
+
   describe("evaluateFleetDrift", () => {
     it("aggregates fleet drift across all 4 customer tenants", () => {
       const fleetSummary = evaluateFleetDrift(allSnapshots);
@@ -77,6 +141,17 @@ describe("drift-analyzer service", () => {
       expect(fleetSummary.overallFleetAlignmentPercentage).toBeLessThanOrEqual(100);
       expect(fleetSummary.tenantAssessments.length).toBe(4);
       expect(fleetSummary.allFindings.length).toBeGreaterThan(0);
+    });
+
+    it("computes overallFleetWeightedDriftScore in range and sorts tenants worst-drift-first", () => {
+      const fleetSummary = evaluateFleetDrift(allSnapshots);
+      expect(fleetSummary.overallFleetWeightedDriftScore).toBeGreaterThanOrEqual(0);
+      expect(fleetSummary.overallFleetWeightedDriftScore).toBeLessThanOrEqual(100);
+
+      const scores = fleetSummary.tenantAssessments.map((t) => t.weightedDriftScore);
+      for (let i = 1; i < scores.length; i++) {
+        expect(scores[i - 1]).toBeGreaterThanOrEqual(scores[i]);
+      }
     });
   });
 

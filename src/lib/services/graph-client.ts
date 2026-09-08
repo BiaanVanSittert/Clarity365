@@ -175,7 +175,10 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       permission: "RoleManagement.Read.Directory",
       scope: "Application",
       description: "Read directory role assignments (Global Admin, Security Admin, etc.) to identify privileged accounts.",
-      endpoint: "https://graph.microsoft.com/v1.0/directoryRoles?$top=1",
+      // directoryRoles does not support $top/paging - Graph returns HTTP 400
+      // ("This resource does not support custom page sizes") if it's passed,
+      // regardless of whether the permission is actually granted.
+      endpoint: "https://graph.microsoft.com/v1.0/directoryRoles",
       requiredFor: "Module 6: Privileged Admin Role Assignment & Unprotected Admin Detection",
     },
     {
@@ -546,6 +549,16 @@ export async function fetchLiveTenantSnapshot(
       const detectedCode = matchCaBaselineCode(p);
       const baselineDef = CA_BASELINE_STANDARDS.find((b) => b.code === detectedCode);
 
+      // Graph's grantControls.authenticationStrength is a sibling object to
+      // builtInControls, not an entry inside it - encode its presence as a marker
+      // string in the array (matching this app's own convention, e.g. the
+      // "authenticationStrength:PhishingResistantMFA" strings used when Clarity365
+      // deploys its own CA10 policy) so ca-baseline-matcher.ts's array-based
+      // hasAuthStrengthOrSession/controlsInclude checks can see it.
+      const builtInControls: string[] = p.grantControls?.builtInControls || [];
+      const authStrengthName = p.grantControls?.authenticationStrength?.displayName || p.grantControls?.authenticationStrength?.id;
+      const grantControls = authStrengthName ? [...builtInControls, `authenticationStrength:${authStrengthName}`] : builtInControls;
+
       return {
         id: p.id,
         name: p.displayName,
@@ -554,18 +567,35 @@ export async function fetchLiveTenantSnapshot(
         state: p.state as any,
         modifiedDateTime: p.modifiedDateTime || new Date().toISOString(),
         createdDateTime: p.createdDateTime || new Date().toISOString(),
-        grantControls: p.grantControls?.builtInControls || [],
+        grantControls,
         conditions: {
           users: {
             include: p.conditions?.users?.includeUsers || p.conditions?.users?.includeRoles || [],
             exclude: p.conditions?.users?.excludeUsers || [],
             excludeGroupIds: p.conditions?.users?.excludeGroups || [],
+            includeRoles: p.conditions?.users?.includeRoles || [],
           },
           applications: {
             include: p.conditions?.applications?.includeApplications || [],
             exclude: p.conditions?.applications?.excludeApplications || [],
           },
           clientAppTypes: p.conditions?.clientAppTypes || [],
+          // Previously dropped entirely - CA06 (signInRiskLevels), CA07
+          // (userRiskLevels), and CA08 (locations) all validate structurally
+          // against these fields, so a live-synced policy that legitimately
+          // satisfies them was still failing re-validation against the stored
+          // snapshot even though the initial sync-time classification (run
+          // against the raw Graph response above) correctly detected the code.
+          platforms: {
+            include: p.conditions?.platforms?.includePlatforms || [],
+            exclude: p.conditions?.platforms?.excludePlatforms || [],
+          },
+          locations: {
+            include: p.conditions?.locations?.includeLocations || [],
+            exclude: p.conditions?.locations?.excludeLocations || [],
+          },
+          userRiskLevels: p.conditions?.userRiskLevels || [],
+          signInRiskLevels: p.conditions?.signInRiskLevels || [],
         },
         matchesBaseline: !!detectedCode,
       };
@@ -1173,16 +1203,30 @@ export async function fetchLiveTenantSnapshot(
 
   // 8.96. Fetch Subscribed SKUs & detect Tenant Capabilities / Licenses
   let capabilitiesLive: TenantCapability[] | null = null;
+  const skuIdToPartNumber = new Map<string, string>();
   try {
     const skusResult = await fetchAllPages<any>("https://graph.microsoft.com/v1.0/subscribedSkus", headers);
     if (skusResult.error) {
       syncErrors.push(`Tenant Licenses (SubscribedSkus): ${skusResult.error}`);
     } else if (skusResult.items.length > 0) {
       capabilitiesLive = mapSubscribedSkusToCapabilities(skusResult.items);
+      skusResult.items.forEach((s: any) => {
+        if (s.skuId && s.skuPartNumber) skuIdToPartNumber.set(s.skuId, s.skuPartNumber);
+      });
     }
   } catch (err: any) {
     console.error("[Graph Client] Error fetching subscribed SKUs:", err);
     syncErrors.push(`Tenant Licenses: ${err.message || "Unexpected error while processing subscribed SKUs."}`);
+  }
+
+  // Resolve per-user assignedLicenses skuId GUIDs (fetched in step 2 above, before this
+  // tenant-wide SKU list was available) into human-readable skuPartNumber tokens, e.g.
+  // "SPE_E5" - required for any per-user license-name matching (see admin-hygiene-matcher.ts).
+  if (skuIdToPartNumber.size > 0 && usersList.length > 0) {
+    usersList = usersList.map((u) => ({
+      ...u,
+      licenses: u.licenses.map((skuId) => skuIdToPartNumber.get(skuId) || skuId),
+    }));
   }
 
   // 8.97. Fetch Microsoft Defender XDR Incidents (Module 8.6: SOC & Event Response)

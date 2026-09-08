@@ -30,6 +30,7 @@ import {
   Compass,
   Award,
   FileText,
+  Crown,
 } from "lucide-react";
 import { TenantSecuritySnapshot, FleetPostureSummary } from "@/lib/types";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
@@ -138,6 +139,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       signin_logs: true,
       mfa_audit: true,
       user_class: true,
+      privileged_access: true,
       mailboxes: true,
       forwarding: true,
       mailflow_rules: true,
@@ -174,6 +176,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const weakMfaCount = snapshot ? snapshot.mfaAudit.filter((m) => m.isWeakAuth || !m.mfaRegistered).length : 0;
 
   const orphanedUsersCount = snapshot ? snapshot.accountClassification.unlicensedActiveCount : 0;
+
+  const unprotectedAdminsCount = snapshot
+    ? snapshot.mfaAudit.filter((u) => u.isAdmin && (!u.mfaRegistered || u.isWeakAuth)).length
+    : 0;
 
   // Derived live from emailForwarding rather than a separate stored counter -
   // the old highRiskThreatIndicators.externalForwardingCount was mock-only
@@ -387,6 +393,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: Users,
           badgeCount: orphanedUsersCount > 0 ? orphanedUsersCount : undefined,
           badgeStatus: "warn",
+        },
+        {
+          id: "privileged_access",
+          label: "Privileged Access Review",
+          icon: Crown,
+          badgeCount: unprotectedAdminsCount > 0 ? unprotectedAdminsCount : undefined,
+          badgeStatus: "fail",
         },
       ],
     },

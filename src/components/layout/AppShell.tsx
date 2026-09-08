@@ -35,6 +35,7 @@ const SignInLogsModule = lazy(() => import("../modules/SignInLogsModule").then(m
 const SecureScoreModule = lazy(() => import("../modules/SecureScoreModule").then(m => ({ default: m.SecureScoreModule })));
 const MfaAuditModule = lazy(() => import("../modules/MfaAuditModule").then(m => ({ default: m.MfaAuditModule })));
 const UserClassificationModule = lazy(() => import("../modules/UserClassificationModule").then(m => ({ default: m.UserClassificationModule })));
+const PrivilegedAccessModule = lazy(() => import("../modules/PrivilegedAccessModule").then(m => ({ default: m.PrivilegedAccessModule })));
 const MailboxPermissionsModule = lazy(() => import("../modules/MailboxPermissionsModule").then(m => ({ default: m.MailboxPermissionsModule })));
 const EmailForwardingModule = lazy(() => import("../modules/EmailForwardingModule").then(m => ({ default: m.EmailForwardingModule })));
 const MailflowRulesModule = lazy(() => import("../modules/MailflowRulesModule").then(m => ({ default: m.MailflowRulesModule })));
@@ -588,6 +589,13 @@ export const AppShell: React.FC = () => {
                 />
               )}
               {activeView === "user_class" && !snapshot && <SkeletonLoader />}
+            </ErrorBoundary>
+
+            <ErrorBoundary moduleName="Privileged Access" key={`eb-privaccess-${activeTenantId}`}>
+              {activeView === "privileged_access" && snapshot && (
+                <PrivilegedAccessModule snapshot={snapshot} onOpenRemediation={handleOpenRemediation} />
+              )}
+              {activeView === "privileged_access" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Mailbox Permissions" key={`eb-mailbox-${activeTenantId}`}>

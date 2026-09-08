@@ -75,7 +75,10 @@ export interface CAPolicyRule {
     // people" and "exclude this specific group" as distinct properties, and
     // this app previously only captured the former (see the Groups baseline's
     // G03 check, which is the first thing that actually needs the latter).
-    users: { include: string[]; exclude: string[]; excludeGroupIds?: string[] };
+    // includeRoles preserves Graph's directory-role targeting (conditions.users.includeRoles)
+    // distinctly from includeUsers - collapsing the two into `include` loses the signal
+    // ca-baseline-matcher.ts's targetsAdminRoles() needs to recognize admin-scoped policies.
+    users: { include: string[]; exclude: string[]; excludeGroupIds?: string[]; includeRoles?: string[] };
     applications: { include: string[]; exclude: string[] };
     clientAppTypes: string[];
     platforms?: { include: string[]; exclude: string[] };
@@ -232,6 +235,35 @@ export interface TenantAccountSummary {
     lastSignInDateTime?: string;
     riskFlag?: string;
   }[];
+}
+
+// Cross-reference of mfaAudit (admin role membership) against accountClassification
+// (per-user license assignment) - a privileged admin account also provisioned with a
+// daily-use Exchange/Teams license, see admin-hygiene-matcher.ts
+export interface LicensedGlobalAdminRisk {
+  userId: string;
+  userPrincipalName: string;
+  displayName: string;
+  adminRoles: string[];
+  licenses: string[];
+}
+
+// The general superset of LicensedGlobalAdminRisk above - every admin account
+// (licensed or not), with full role lists and precomputed status flags, so
+// consumers (Privileged Access Review, User Classification) don't re-join.
+export interface PrivilegedAccountRecord {
+  userId: string;
+  userPrincipalName: string;
+  displayName: string;
+  adminRoles: string[];
+  accountEnabled: boolean;
+  lastSignInDateTime: string;
+  mfaRegistered: boolean;
+  isWeakAuth: boolean;
+  defaultMethod: AuthMethodType;
+  isUnprotected: boolean;
+  licenses: string[];
+  isLicensedForDailyUse: boolean;
 }
 
 // Module 6: Exchange Mailbox Permissions & Delegation
@@ -836,6 +868,7 @@ export interface GoldenBaselineTemplate {
   requireMailboxAuditLogging: boolean;
   requireDkimSigning: boolean;
   requireModernAuthOnly: boolean;
+  requireNoLicensedGlobalAdmins: boolean;
   minimumSecureScore: number;
 }
 
@@ -860,11 +893,22 @@ export interface TenantDriftAssessment {
   tenantId: string;
   tenantName: string;
   defaultDomainName: string;
-  alignmentScore: number; // 0 - 100%
+  alignmentScore: number; // 0 - 100%, higher = better (flat pass/total ratio)
+  weightedDriftScore: number; // 0 - 100, higher = worse (severity-weighted deviation from the Golden Standard)
+  weightedDriftFactors: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
   status: "in_sync" | "minor_drift" | "critical_drift";
   totalEvaluatedRules: number;
   passingRulesCount: number;
   driftedRulesCount: number;
+  criticalFindingsCount: number;
+  highFindingsCount: number;
+  mediumFindingsCount: number;
+  lowFindingsCount: number;
   findings: TenantDriftFinding[];
 }
 
@@ -874,6 +918,7 @@ export interface FleetDriftSummary {
   minorDriftCount: number;
   criticalDriftCount: number;
   overallFleetAlignmentPercentage: number;
+  overallFleetWeightedDriftScore: number;
   tenantAssessments: TenantDriftAssessment[];
   allFindings: TenantDriftFinding[];
 }
