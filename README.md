@@ -2,119 +2,139 @@
 
 Clarity365 is an enterprise-grade Information Rights Management (IRM) and Security Posture dashboard built for Managed Service Providers (MSPs) and internal IT security teams managing multiple Microsoft 365 tenants.
 
-Designed following strict, high-density sysadmin and cybersecurity principles (inspired by Bloomberg terminals and Dieter Rams), Clarity365 avoids aesthetic fluff and delivers immediate, actionable cloud security intelligence - backed by live Microsoft Graph data, not just point-in-time reports.
+Designed following strict, high-density sysadmin and cybersecurity principles (inspired by Bloomberg terminals and Dieter Rams), Clarity365 avoids aesthetic fluff and delivers immediate, actionable cloud security intelligence — backed by live Microsoft Graph data, not just point-in-time reports.
 
 ---
 
 ## Key Capabilities
 
-* **Multi-Tenant Engine & Hot-Swapping** - A persistent global tenant switcher supports live Azure App Registrations (Microsoft Graph SDK & Exchange REST) alongside four built-in demo tenants for evaluation without any real credentials.
-* **Live Graph Sync** - Manual "Sync Tenant" and a background auto-sync scheduler (configurable interval) pull real data via Microsoft Graph, with resilient retry/backoff on throttling (HTTP 429/503), per-request timeouts, and pagination across large tenants.
-* **Sync Health Transparency** - Partial sync failures (e.g. one endpoint unreachable due to a missing permission) surface as a specific warning rather than a silent fallback; a total sync failure is reported as an error with the last-known-good data clearly labeled as stale, and every sync failure is recorded in the Audit Log.
-* **Executive Overview Dashboard** - Six priority widgets in one screen: Microsoft Secure Score (with 30/90-day deltas and industry benchmark), a live critical sign-in event stream, an identity & asset count matrix, a license/capability detection matrix (Entra ID P1/P2, Intune, Defender for Endpoint, Defender for Office 365), a Conditional Access baseline health gauge (CA01–CA10), and high-risk threat indicators.
-* **16 Security Modules** - see the full list below.
-* **In-House Model Context Protocol (MCP) Server** - exposes 8 tools for AI agents and SOC automation, with an interactive in-app Playground to test calls before wiring up an external agent.
-* **Operator Authentication** - a single-operator password gate (first-run setup flow, HMAC-signed session cookies, 12-hour sessions) protects the whole app via Next.js middleware.
-* **Encrypted Secrets at Rest** - tenant client secrets are encrypted with AES-256-GCM before being written to disk; operator passwords are hashed with scrypt. Nothing sensitive is ever sent back to the browser unmasked.
-* **SQLite-Backed Storage** - tenant configuration, snapshots, settings, and the audit log live in a local SQLite database (WAL mode) under `data/`, with automatic migration from the legacy flat-file JSON store and a graceful connection close on shutdown.
-* **Reliability Hardening** - per-module React error boundaries (a crash in one module never takes down the rest of the app), lazy-loaded modules for a smaller initial bundle, request timeouts on all Graph calls, and audit-logged sync failures.
-* **Dark Mode & Collapsible Sidebar** - a persisted, flicker-free dark/light theme toggle and a collapsible icon-rail sidebar for a denser working view.
-* **CSV Export** - one-click export of filtered table data (sign-in logs, MFA audit, audit log, and more) for reporting or ticket attachments.
-* **Local Security Isolation** - binds strictly to `127.0.0.1:3000` by default (localhost only, not exposed to LAN/WAN) whether run directly or via Docker.
+* **Multi-Tenant Engine & Hot-Swapping** — A persistent global tenant switcher supports live Azure App Registrations (Microsoft Graph SDK & Exchange REST) alongside four built-in demo tenants (**Contoso E5**, **Northwind Business Premium**, **Fabrikam E3**, and **Woodgrove Zero-Trust**) for evaluation without real credentials.
+* **Live Graph Sync** — Manual "Sync Tenant" and a background auto-sync scheduler pull real data via Microsoft Graph with resilient retry/backoff on throttling (HTTP 429/503), per-request timeouts, and pagination across large tenants.
+* **Sync Health Transparency** — Partial sync failures surface as specific warnings rather than silent fallbacks; total sync failures report as errors with stale data clearly labeled, and every sync failure is recorded in the Audit Log.
+* **Executive Overview Dashboard** — Six priority widgets in one view: Microsoft Secure Score (with 30/90-day deltas and industry benchmarks), live critical sign-in event stream, identity & asset matrix, license/capability detection matrix (Entra ID P1/P2, Intune, Defender for Endpoint, Defender for Office 365), Conditional Access baseline health gauge (CA01–CA10), and high-risk threat indicators.
+* **24 Specialized Modules** — 15 tenant-scoped security audits, 5 cross-tenant fleet modules, 2 compliance & executive reporting engines, and 2 operational tools.
+* **In-House Model Context Protocol (MCP) Server** — Exposes 8 tools for external AI agents and SOC automation (`list_tenants`, `get_tenant_secure_score`, `audit_conditional_access`, `query_signin_logs`, `audit_mfa_methods`, `audit_email_forwarding`, `manage_tabl`, `generate_remediation_plan`), complete with an interactive in-app MCP Tools Playground.
+* **Obsidian-First Architectural Map** — A complete Obsidian knowledge vault (`ai-context-vault/`) maps architecture, domain models, service layers, API endpoints, and optimization backlogs.
+* **Operator Authentication** — A single-operator password gate (first-run setup flow, HMAC-SHA256 signed session cookies, 12-hour TTL) protects the app via Next.js Edge middleware.
+* **Encrypted Secrets at Rest** — Tenant client secrets and tokens are encrypted with AES-256-GCM before storage; operator passwords are hashed with `scrypt`. Sensitive values are never transmitted to the browser unmasked.
+* **SQLite-Backed Storage** — Database persistence powered by `better-sqlite3` in WAL mode (`data/clarity365.db`) with automatic legacy JSON store migration and graceful shutdown handling.
+* **High-Density Terminal Aesthetic** — Clean dark/light theme toggle, non-destructive table row hover outlining, collapsible sidebar, and one-click CSV exports.
+* **Local Security Isolation** — Binds strictly to `127.0.0.1:3000` (localhost only) by default, whether run natively or via Docker.
 
 ---
 
-## Security Modules
+## Security & Posture Modules
 
-| # | Module | What it audits |
-|---|--------|-----------------|
-| 1 | **Conditional Access Policy Baseline** | Structural matching of deployed CA policies against the CA01–CA10 industry baseline; flags missing policies and report-only-mode configurations; one-click deploy of missing baselines in Report-Only mode. |
-| 2 | **Sign-In Logs & CA Diagnostic Engine** | Real-time sign-in event stream with error-code translation, CA policy rule-chain inspection, KQL query generation for Sentinel/Defender, and CSV export. |
-| 3 | **Defender Secure Score & Historical Timeline** | Score trend over time, category breakdown, and categorized improvement actions with remediation guidance. |
-| 4 | **MFA Enforcement & Auth Methods Audit** | Per-user authentication method classification (Passkey/FIDO2, Microsoft Authenticator push/TOTP, SMS, voice, email OTP), flags weak or missing MFA, CSV export. |
-| 5 | **User & Account Classification** | Licensed, unlicensed-active (orphan risk), disabled, and guest account breakdowns. |
-| 6 | **Exchange Mailbox Permissions & Delegation** | Live Full Access / Send As / Send on Behalf delegation audit, licensed-shared-mailbox cost waste detection, a mailbox audit-logging gate (the prerequisite for investigating any finding here after the fact), and one-click delegation revocation. |
-| 7 | **Email Forwarding Rules Audit** | Live transport rules, inbox rules (including hidden ones), and mailbox-level SMTP forwarding, with critical alerts for external-domain targets and one-click per-rule remediation. |
-| 8 | **Defender for Office 365 (MDO) & TABL Manager** | Threat policy review plus an interactive Tenant Allow/Block List editor (domains, senders, URLs, file hashes). One-click remediation for baseline gaps. |
-| 9 | **Transport & Mail Flow Rules Baseline** | Scores every org-wide transport rule and connector against known abuse patterns (external redirects, spam-filter bypasses, unscoped permanent rules, anonymous-trusting connectors, missing TLS) plus the two tenant-wide auto-forward kill switches and the external-sender warning tag - with one-click remediation where a safe default exists. |
-| 10 | **Domain Authentication (SPF / DKIM / DMARC)** | Per accepted domain: DKIM signing status via Exchange Online, and SPF/DMARC record validity via live public DNS lookups - with exact DNS record text to publish when a check fails, since neither Microsoft 365 nor this app can write to a domain's DNS. |
-| 11 | **Enterprise Apps & App Registrations** | High-privilege Graph API scopes and expiring/expired credentials across app registrations. |
-| 12 | **Intune Endpoint Security** | Fleet antivirus and EDR onboarding coverage across Windows/macOS/Linux devices. |
-| 13 | **Microsoft Groups & Distribution Management** | Security groups, Microsoft 365 Unified groups, and distribution lists, with an interactive group creator. |
-| 14 | **SharePoint & Storage Policies** | Storage quota tracking and external sharing tier management. |
-| 15 | **MCP Tools & Playground** | Interactively invoke any of the 8 MCP tools against a live or demo tenant and inspect the JSON response. |
-| 16 | **Audit Log** | Searchable, filterable record of CA policy deployments, MCP tool calls, and sync failures across all tenants, with CSV export. |
+### Tenant-Scoped Security Audits
+| # | Module | What it Audits & Remediates |
+|---|--------|-----------------------------|
+| 1 | **Conditional Access Policy Baseline** | Structural matching of deployed CA policies against the CA01–CA10 baseline; flags missing policies and report-only modes; one-click deployment in Report-Only mode. |
+| 2 | **Sign-In Logs & CA Diagnostics** | Real-time sign-in event stream with error-code translation, CA policy rule-chain inspection, Sentinel/Defender KQL query generation, and CSV export. |
+| 3 | **Secure Score & Historical Timeline** | Defender Secure Score history (30/90 days), category breakdowns, and prioritized improvement actions with remediation guidance. |
+| 4 | **MFA Enforcement & Auth Audit** | Per-user authentication method classification (Passkey/FIDO2, Microsoft Authenticator push/TOTP, SMS, voice, email OTP); flags weak MFA and highlights licensed accounts missing MFA with dedicated tags and filter views. |
+| 5 | **User & Account Classification** | Licensed, unlicensed-active (orphan risk), disabled, and guest account breakdowns; detects privileged accounts carrying daily-use licenses. |
+| 6 | **Privileged Access Review** | Directory admin inventory, admin role assignments, auth method strengths, and least-privilege benchmarks; identifies unprotected privileged accounts. |
+| 7 | **Exchange Mailbox Permissions** | Live Full Access / Send As / Send on Behalf delegation audit, licensed-shared-mailbox waste detection, mailbox auditing status check, and one-click delegation revocation. |
+| 8 | **Email Forwarding Rules Audit** | Live transport rules, inbox rules (including hidden rules), and SMTP forwarding; critical alerts for external targets with one-click remediation. |
+| 9 | **Mailflow Rules & Transport Hygiene** | Evaluates transport rules and connectors against known abuse patterns (external redirects, spam bypasses, open connectors, missing TLS); one-click baseline remediation. |
+| 10 | **Defender for Office 365 (MDO) & TABL** | Threat policy review (Anti-Phish, Safe Attachments, Safe Links) plus an interactive Tenant Allow/Block List manager (domains, senders, URLs, file hashes). |
+| 11 | **Domain Authentication (SPF / DKIM / DMARC)** | Live DNS validation for SPF, DKIM (Exchange Online status), and DMARC records per accepted domain with exact DNS record publication guidance. |
+| 12 | **Enterprise Apps & App Registrations** | High-privilege Graph API scopes, credentials expiring within 30/60/90 days, and expired app secrets. |
+| 13 | **Intune Endpoint Security** | Device compliance, antivirus, and EDR onboarding status across Windows, macOS, and Linux endpoints. |
+| 14 | **Groups & Distribution Management** | Security groups, Microsoft 365 Unified groups, and distribution lists with role-assignable group tracking and interactive creation. |
+| 15 | **SharePoint & Storage Policies** | Tenant-wide sharing tiers, anonymous link expiration policies, and per-site storage quota tracking. |
+
+### Fleet-Scale Operations (Cross-Tenant)
+| # | Module | Fleet Capability |
+|---|--------|------------------|
+| 16 | **Fleet Baseline Rollout** | Multi-tenant CA policy deployment orchestrator; preview and execute CA01–CA10 baselines across multiple client tenants simultaneously. |
+| 17 | **Fleet Baseline Drift** | Automated drift detection across all managed tenants against Golden Baseline templates, with one-click drift realignment. |
+| 18 | **Fleet TABL Sync** | Cross-tenant Tenant Allow/Block List synchronization; deploy threat indicators across the entire client fleet. |
+| 19 | **Fleet License Optimization** | Fleet-wide license waste detection (orphaned licenses, disabled user seats, licensed shared mailboxes) with monthly cost-savings calculations. |
+| 20 | **Tenant License Optimization** | Single-tenant license waste analyzer with reclamation steps. |
+
+### Reporting, Compliance & Incident Operations
+| # | Module | Capability |
+|---|--------|------------|
+| 21 | **Executive Reporting (QBR)** | Client-ready Quarterly Business Review security report generator with health scoring, cost savings, achievements, and printable export. |
+| 22 | **Compliance Matrix** | Multi-framework compliance scoring across **CIS Microsoft 365 Benchmark v3**, **NIST CSF v2**, and **Essential 8**. |
+| 23 | **Event Response (Incident Response)** | Incident management with MITRE ATT&CK mapping; rapid remediation actions (contain user account, isolate endpoint device, trigger Defender scan). |
+| 24 | **Audit Log & MCP Playground** | Searchable audit trail of all mutating actions, policy deployments, and sync events; interactive testing workbench for the 8 MCP tools. |
 
 ---
 
 ## Tech Stack
 
-* **Framework:** Next.js 14 (App Router), React 18, TypeScript
-* **Styling:** Tailwind CSS (class-based dark mode)
-* **Storage:** better-sqlite3 (WAL mode), with automatic legacy JSON migration
-* **Testing:** Vitest
-* **Deployment:** Docker (multi-stage, `node:20-alpine`) or a plain Node.js process
+* **Framework:** Next.js 14 (App Router), React 18, TypeScript 5.5
+* **Styling:** Tailwind CSS 3 (class-based dark mode, high-density terminal grid styling)
+* **Storage:** better-sqlite3 13 (WAL mode) with automated JSON store migration
+* **Security:** Web Crypto (Edge-safe HMAC-SHA256), Node crypto (AES-256-GCM, scrypt)
+* **Testing:** Vitest 4 (25 suites, 287 unit tests)
+* **Deployment:** Docker (multi-stage `node:20-alpine`) or standalone Node process
+
+---
+
+## AI Context & Obsidian Vault
+
+Clarity365 includes a built-in Obsidian Knowledge Vault located in [`ai-context-vault/`](ai-context-vault).
+
+- **Map of Content:** Start at [`ai-context-vault/Clarity365 MOC.md`](ai-context-vault/Clarity365%20MOC.md) to navigate architecture, services, data types, and modules.
+- **Agent Directives:** Guidelines for AI pair programming are documented in [`AGENTS.md`](AGENTS.md), [`GEMINI.md`](GEMINI.md), and [`CLAUDE.md`](CLAUDE.md).
+- **Obsidian MCP Integration:** Supports `obsidian-mcp-rs` to allow AI coding assistants to directly query and maintain vault notes.
 
 ---
 
 ## Quick Start
 
-### 1. Install dependencies
+### 1. Install Dependencies
 ```bash
 npm install
 ```
 
-### 2. Configure environment secrets
-Clarity365 needs two secrets before it will start - copy the example file and generate real values:
+### 2. Configure Environment Secrets
+Clarity365 requires two secrets before starting. Copy `.env.example` and generate secure 32-byte hex keys:
 ```bash
 cp .env.example .env.local
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"   # run twice
 ```
-Paste the two generated values into `.env.local` as `CLARITY365_SESSION_SECRET` and `CLARITY365_ENCRYPTION_KEY`. `.env.local` is gitignored and must never be committed. (`CLARITY365_ENCRYPTION_KEY` derives the key that encrypts live tenant client secrets at rest - changing it later makes previously-stored secrets unreadable.)
+Set the generated values in `.env.local`:
+```env
+CLARITY365_SESSION_SECRET=<first-generated-secret>
+CLARITY365_ENCRYPTION_KEY=<second-generated-secret>
+```
+> **Important:** `CLARITY365_ENCRYPTION_KEY` encrypts live tenant credentials at rest. Store these keys securely in a password manager. Changing the encryption key later will render existing stored secrets unreadable.
 
-### 3. Run the local development server
+### 3. Run Development Server
 ```bash
 npm run dev
 ```
-Open **[http://127.0.0.1:3000](http://127.0.0.1:3000)** in your browser. On first run you'll be prompted to create the operator password used to sign in - there's no default credential.
+Open **[http://127.0.0.1:3000](http://127.0.0.1:3000)**. On first run, you will be prompted to create the operator password used to sign in.
 
-### 4. Production build
+### 4. Production Build & Start
 ```bash
 npm run build
 npm start
 ```
 
-### 5. Single-command Docker deployment
+### 5. Docker Deployment
 ```bash
 docker-compose up --build
 ```
-Set `CLARITY365_SESSION_SECRET` and `CLARITY365_ENCRYPTION_KEY` in `.env.local` first - `docker-compose.yml` loads it via `env_file`.
 
-### Other scripts
+### Other Scripts
 ```bash
-npm run stop         # frees port 3000 (graceful stop, then force-kill any survivor)
-npm run restart      # stop, then start the dev server
+npm run stop         # frees port 3000 (graceful SIGTERM, then force kill)
+npm run restart      # stops existing process and restarts dev server
 npm run type-check   # tsc --noEmit
-npm test             # run the Vitest suite
+npm test             # vitest run (executes all 25 test suites)
 npm run lint         # next lint
 ```
 
 ---
 
-## Getting Started In-App
+## Security & Privacy Invariants
 
-1. Sign in with the operator password you created on first run (or add a tenant right away - four demo tenants, Contoso, Northwind, Fabrikam, and Woodgrove, are seeded automatically for evaluation with no credentials required).
-2. To connect a real tenant, add an Azure App Registration with the required Microsoft Graph application permissions, then use **Add New Tenant** → the built-in **Permissions** check confirms every required scope is granted before you rely on the data.
-3. Use **Sync Tenant** to pull live data on demand, or configure an auto-sync interval in **Settings** to keep tenants refreshed in the background.
-
----
-
-## Security & Privacy Note
-
-Clarity365 is designed around zero-trust and least-exposure principles for a tool that holds sensitive tenant credentials:
-
-* The entire app sits behind a single-operator login (Next.js middleware gate); there is no default password.
-* Live tenant client secrets are encrypted at rest with AES-256-GCM and are never returned to the browser unmasked.
-* The operator password is hashed with scrypt, never stored or logged in plaintext.
-* The server binds strictly to `127.0.0.1` by default - not exposed to your LAN or the internet unless you deliberately change the bind address.
-* All mutating actions (CA policy deployments, MCP tool calls, sync failures) are recorded to a local, retention-pruned audit log.
+* **Zero Internet Exposure:** The server binds strictly to `127.0.0.1:3000` by default.
+* **Single-Operator Auth:** Every route is gated behind Edge middleware validating an HMAC-signed session cookie.
+* **Zero Plaintext Secrets:** Tenant secrets are encrypted with AES-256-GCM before writing to SQLite and are never sent unmasked to the browser.
+* **Audit Trail:** Every mutating action (CA policy deployment, mailbox delegation revocation, incident containment, MCP execution) is persisted to the local audit log.
