@@ -6,6 +6,11 @@ import { Modal } from "../common/Modal";
 import { Pagination } from "../common/Pagination";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import {
+  markSignInLogsReviewed,
+  clearSignInLogsReviewedWatermark,
+  countUnreviewedFlaggedSignIns,
+} from "@/lib/utils/sign-in-review-watermark";
+import {
   Key,
   Search,
   Filter,
@@ -100,8 +105,6 @@ const ERROR_CODE_TRANSLATIONS: Record<number, { title: string; explanation: stri
   },
 };
 
-const STORAGE_KEY_PREFIX = "clarity365_alerts_cleared_";
-
 export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
   snapshot,
   onRefresh,
@@ -134,53 +137,34 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
   // Copy & export feedback state
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [kqlModalOpen, setKqlModalOpen] = useState(false);
-  const [isAlertCleared, setIsAlertCleared] = useState(false);
+  // Unlike a plain sticky "dismissed" flag, this tracks how many flagged
+  // sign-ins have happened SINCE the last review - so the sidebar badge (and
+  // this button) naturally come back on their own when something new shows
+  // up, without ever needing a separate "restore" just to see new activity.
+  const [unreviewedCount, setUnreviewedCount] = useState(0);
 
-  // Load alert clearance status
-  React.useEffect(() => {
-    try {
-      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tenant.id}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.allCleared || parsed.modules?.signin_logs) {
-          setIsAlertCleared(true);
-        }
-      }
-    } catch {
-      // Fallback
-    }
-  }, [tenant.id]);
+  const refreshUnreviewedCount = () => {
+    setUnreviewedCount(countUnreviewedFlaggedSignIns(signIns, tenant.id));
+  };
+
+  useEffect(() => {
+    refreshUnreviewedCount();
+    // Other surfaces (e.g. the sidebar's global "Clear Badges") can also
+    // touch this same watermark - listen for that so this button's state
+    // stays in sync without requiring a reload.
+    window.addEventListener("storage", refreshUnreviewedCount);
+    return () => window.removeEventListener("storage", refreshUnreviewedCount);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenant.id, signIns]);
 
   const handleClearAlerts = () => {
-    setIsAlertCleared(true);
-    try {
-      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tenant.id}`);
-      const parsed = stored ? JSON.parse(stored) : { modules: {} };
-      parsed.modules = { ...(parsed.modules || {}), signin_logs: true };
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}${tenant.id}`, JSON.stringify(parsed));
-      // Dispatch storage event for sidebar update
-      window.dispatchEvent(new Event("storage"));
-    } catch {
-      // Ignore
-    }
+    markSignInLogsReviewed(tenant.id, signIns);
+    refreshUnreviewedCount();
   };
 
   const handleRestoreAlerts = () => {
-    setIsAlertCleared(false);
-    try {
-      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tenant.id}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.modules) {
-          delete parsed.modules.signin_logs;
-          parsed.allCleared = false;
-        }
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}${tenant.id}`, JSON.stringify(parsed));
-        window.dispatchEvent(new Event("storage"));
-      }
-    } catch {
-      // Ignore
-    }
+    clearSignInLogsReviewedWatermark(tenant.id);
+    refreshUnreviewedCount();
   };
 
   const copyToClipboard = (text: string, key: string) => {
@@ -431,10 +415,10 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
 
         <div className="flex items-center gap-2 flex-wrap">
           {/* Acknowledge / Clear Badges */}
-          {isAlertCleared ? (
+          {unreviewedCount === 0 ? (
             <button
               onClick={handleRestoreAlerts}
-              title="Restore sign-in alert badge on the sidebar"
+              title="Forget the review watermark and count every flagged sign-in again"
               className="px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
             >
               <RotateCcw size={13} className="text-slate-500 dark:text-slate-400" />
@@ -443,11 +427,11 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
           ) : (
             <button
               onClick={handleClearAlerts}
-              title="Acknowledge reviewed sign-in alerts and clear the sidebar number icon"
+              title="Clear the sidebar number for currently flagged sign-ins - it'll come back on its own if new risky/blocked/failed sign-ins happen"
               className="px-2.5 py-1.5 text-xs font-medium text-emerald-800 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 dark:hover:bg-emerald-900 border border-emerald-300 dark:border-emerald-800 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
             >
               <CheckCheck size={14} className="text-emerald-600 dark:text-emerald-400" />
-              <span>Mark All Reviewed (Clear Alert)</span>
+              <span>Mark All Reviewed ({unreviewedCount})</span>
             </button>
           )}
 

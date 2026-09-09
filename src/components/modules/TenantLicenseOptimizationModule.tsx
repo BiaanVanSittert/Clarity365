@@ -9,7 +9,6 @@ import {
   AlertTriangle,
   Download,
   Search,
-  ChevronRight,
   ShieldAlert,
   ArrowRight,
   ExternalLink,
@@ -18,8 +17,26 @@ import {
   UserX,
   UserCheck,
   CreditCard,
+  PackageOpen,
 } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
+import { getLicenseSkuDisplayName } from "@/lib/utils/license-sku-names";
+import { useTheme } from "../common/useTheme";
+
+const LicenseUtilizationTooltip: React.FC<any> = ({ active, payload, label }) => {
+  if (!active || !payload || payload.length === 0) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  return (
+    <div className="bg-[#0F172A] border border-slate-700 text-[#F8FAFC] rounded-sm px-2.5 py-2 text-[11px]">
+      <div className="font-bold mb-1">{label}</div>
+      <div>Used: {row.Used.toLocaleString()}</div>
+      <div>Unassigned: {row.Unassigned.toLocaleString()}</div>
+      <div className="text-slate-400 mt-0.5">Total: {row.Total.toLocaleString()}</div>
+    </div>
+  );
+};
 
 interface TenantLicenseOptimizationModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -36,6 +53,7 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const { isDark } = useTheme();
 
   const wasteAnalysis = useMemo(() => {
     return calculateTenantMonthlyWaste(snapshot);
@@ -60,6 +78,20 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
   const sharedMbWasteCount = items.filter((i) => i.category === "licensed_shared_mailbox").length;
   const disabledLicensedCount = items.filter((i) => i.category === "disabled_licensed_user").length;
   const orphanedAccountsCount = items.filter((i) => i.category === "orphaned_account").length;
+  const unassignedSkuItems = useMemo(() => items.filter((i) => i.category === "unassigned_license_sku"), [items]);
+  const unassignedSkuWasteUsd = unassignedSkuItems.reduce((sum, i) => sum + i.estimatedMonthlyCostUsd, 0);
+
+  const licenseSkuChartData = useMemo(
+    () =>
+      (snapshot.licenseSkus || []).map((sku) => ({
+        name: getLicenseSkuDisplayName(sku.skuPartNumber),
+        skuPartNumber: sku.skuPartNumber,
+        Used: sku.consumedUnits,
+        Unassigned: sku.availableUnits,
+        Total: sku.enabledUnits,
+      })),
+    [snapshot.licenseSkus]
+  );
 
   const filteredItems = useMemo(() => {
     return items.filter((it) => {
@@ -86,7 +118,8 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
         return (
           it.category === "licensed_shared_mailbox" ||
           it.category === "inactive_licensed_user" ||
-          it.category === "disabled_licensed_user"
+          it.category === "disabled_licensed_user" ||
+          it.category === "unassigned_license_sku"
         );
       }
       return it.category === categoryFilter;
@@ -155,14 +188,14 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-                  License & Cost Optimization — {snapshot.tenant.displayName}
+                  License & Cost Optimization - {snapshot.tenant.displayName}
                 </h1>
                 <span className="text-[10px] font-mono font-bold uppercase px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 rounded-sm">
                   ${annualWasteUsd.toLocaleString(undefined, { minimumFractionDigits: 0 })}/yr Recoverable Waste
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Complete inventory of paid non-free licenses, inactive accounts over 90 days, direct licenses on shared mailboxes, and disabled accounts holding active seats.
+                Complete inventory of paid non-free licenses, inactive accounts over 90 days, direct licenses on shared mailboxes, disabled accounts holding active seats, and purchased seats sitting unassigned.
               </p>
             </div>
           </div>
@@ -180,7 +213,7 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
       </div>
 
       {/* KPI Cards (Clickable Category Filters) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
         {/* Total Recoverable Savings */}
         <div
           onClick={() => setCategoryFilter("waste_only")}
@@ -290,6 +323,77 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
             Departed staff holding licenses
           </div>
         </div>
+
+        {/* Unassigned License SKUs */}
+        <div
+          onClick={() => setCategoryFilter(categoryFilter === "unassigned_license_sku" ? "all" : "unassigned_license_sku")}
+          className={`p-3 rounded-sm cursor-pointer transition-all border shadow-xs ${
+            categoryFilter === "unassigned_license_sku"
+              ? "bg-sky-100 dark:bg-sky-950/70 border-sky-500 ring-1 ring-sky-500"
+              : "bg-[#F8FAFC] dark:bg-slate-900/40 border-[#CBD5E1] dark:border-slate-700 hover:bg-sky-50/50 hover:border-sky-400"
+          }`}
+          title="Click to view purchased license seats not assigned to anyone"
+        >
+          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+            <span>Unassigned Seats</span>
+            <PackageOpen size={14} className="text-sky-500" />
+          </div>
+          <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
+            {unassignedSkuItems.length} {unassignedSkuItems.length === 1 ? "SKU" : "SKUs"}
+          </div>
+          <div className="text-[11px] text-sky-700 dark:text-sky-400 mt-1">
+            ${unassignedSkuWasteUsd.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}/mo waste
+          </div>
+        </div>
+      </div>
+
+      {/* License Utilization Chart */}
+      <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 p-4 rounded-sm shadow-xs">
+        <div className="flex items-center justify-between border-b border-[#E2E8F0] dark:border-slate-700 pb-2 mb-3">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+            License Utilization by SKU
+          </h3>
+          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">Used vs. Unassigned Seats (bar height = Total)</span>
+        </div>
+
+        {licenseSkuChartData.length === 0 ? (
+          <div className="h-40 flex items-center justify-center text-xs text-slate-500 dark:text-slate-400">
+            No license SKU data yet - sync this tenant to pull live data.
+          </div>
+        ) : (
+          <>
+            {/* Licenses in this tenant */}
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {licenseSkuChartData.map((sku) => (
+                <span
+                  key={sku.skuPartNumber}
+                  className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm border border-[#CBD5E1] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-900/50 text-slate-600 dark:text-slate-300"
+                >
+                  {sku.name} <span className="text-slate-400">&times;{sku.Total.toLocaleString()}</span>
+                </span>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto">
+              <div className="h-56" style={{ minWidth: Math.max(360, licenseSkuChartData.length * 140) }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={licenseSkuChartData} margin={{ top: 10, right: 20, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? "#334155" : "#E2E8F0"} vertical={false} />
+                    <XAxis dataKey="name" stroke={isDark ? "#94A3B8" : "#64748B"} fontSize={11} tickLine={false} />
+                    <YAxis allowDecimals={false} stroke={isDark ? "#94A3B8" : "#64748B"} fontSize={11} tickLine={false} />
+                    <Tooltip
+                      cursor={{ fill: isDark ? "#1E293B" : "#F1F5F9" }}
+                      content={<LicenseUtilizationTooltip />}
+                    />
+                    <Legend wrapperStyle={{ fontSize: "11px" }} />
+                    <Bar dataKey="Used" stackId="seats" fill={isDark ? "#34D399" : "#059669"} maxBarSize={48} />
+                    <Bar dataKey="Unassigned" stackId="seats" fill={isDark ? "#38BDF8" : "#0EA5E9"} radius={[2, 2, 0, 0]} maxBarSize={48} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Items Table */}
@@ -323,6 +427,7 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
               <option value="licensed_shared_mailbox">Licensed Shared Mailboxes ({sharedMbWasteCount})</option>
               <option value="disabled_licensed_user">Disabled Accounts with License ({disabledLicensedCount})</option>
               <option value="orphaned_account">Orphaned Active Accounts ({orphanedAccountsCount})</option>
+              <option value="unassigned_license_sku">Unassigned License SKUs ({unassignedSkuItems.length})</option>
             </select>
           </div>
         </div>
@@ -337,13 +442,12 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
                 <th className="py-2.5 px-3 whitespace-nowrap">Last Interactive Sign-In</th>
                 <th className="py-2.5 px-3 whitespace-nowrap">SKU & Monthly Cost</th>
                 <th className="py-2.5 px-3">Remediation Guidance</th>
-                <th className="py-2.5 px-3 text-right whitespace-nowrap">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E2E8F0] dark:divide-slate-700/60 bg-white dark:bg-slate-900/30 font-sans">
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-500 dark:text-slate-400">
+                  <td colSpan={5} className="py-8 text-center text-slate-500 dark:text-slate-400">
                     No license findings match the current filter criteria.
                   </td>
                 </tr>
@@ -376,6 +480,8 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
                               ? "bg-purple-50 dark:bg-purple-950 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-800"
                               : it.category === "active_licensed_user"
                               ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800"
+                              : it.category === "unassigned_license_sku"
+                              ? "bg-sky-50 dark:bg-sky-950 text-sky-800 dark:text-sky-300 border-sky-300 dark:border-sky-800"
                               : "bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800"
                           }`}
                         >
@@ -385,21 +491,31 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
 
                       {/* Impacted Identity */}
                       <td className="py-3 px-3">
-                        <div className="font-semibold text-slate-900 dark:text-slate-100 font-mono text-xs flex items-center gap-1.5">
-                          <span>{it.displayName || it.impactedIdentity}</span>
-                          {it.department && (
-                            <span className="text-[10px] font-sans text-slate-400">({it.department})</span>
-                          )}
-                        </div>
-                        <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
-                          {it.impactedIdentity}
-                        </div>
+                        {it.category === "unassigned_license_sku" ? (
+                          <div className="font-semibold text-slate-900 dark:text-slate-100 font-mono text-xs">
+                            {it.title}
+                          </div>
+                        ) : (
+                          <>
+                            <div className="font-semibold text-slate-900 dark:text-slate-100 font-mono text-xs flex items-center gap-1.5">
+                              <span>{it.displayName || it.impactedIdentity}</span>
+                              {it.department && (
+                                <span className="text-[10px] font-sans text-slate-400">({it.department})</span>
+                              )}
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
+                              {it.impactedIdentity}
+                            </div>
+                          </>
+                        )}
                       </td>
 
                       {/* Last Interactive Sign-In */}
                       <td className="py-3 px-3 whitespace-nowrap font-mono text-xs">
                         {it.accountState === "shared_mailbox" ? (
                           <span className="text-slate-400 text-[11px]">N/A (Shared Mailbox)</span>
+                        ) : it.category === "unassigned_license_sku" ? (
+                          <span className="text-slate-400 text-[11px]">N/A (License Pool)</span>
                         ) : it.lastSignInDateTime ? (
                           <div className="flex items-center gap-1.5">
                             <span
@@ -462,17 +578,6 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
                       {/* Remediation Guidance */}
                       <td className="py-3 px-3 text-xs text-slate-600 dark:text-slate-300 max-w-md">
                         {it.remediationAction}
-                      </td>
-
-                      {/* Action */}
-                      <td className="py-3 px-3.5 text-right whitespace-nowrap">
-                        <button
-                          onClick={() => onNavigate(it.remediationModule, it.impactedIdentity)}
-                          className="px-2.5 py-1 text-xs font-semibold text-slate-800 dark:text-slate-200 hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-900 dark:hover:bg-slate-100 dark:hover:text-slate-900 rounded-sm border border-slate-300 dark:border-slate-700 transition-colors inline-flex items-center gap-1"
-                        >
-                          <span>Triage</span>
-                          <ChevronRight size={13} />
-                        </button>
                       </td>
                     </tr>
                   );

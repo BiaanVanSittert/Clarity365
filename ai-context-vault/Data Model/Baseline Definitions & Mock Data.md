@@ -21,4 +21,6 @@ This is the natural top-level taxonomy for the whole app: every [[Clarity365 MOC
 - **default-snapshot.ts** :  `createBlankSnapshot()`, the single source of truth for an empty [[Domain Types#The hub type|`TenantSecuritySnapshot`]], seeded with 4 base capabilities. Used for brand-new tenants and as the pre-sync scaffold.
 - **mock-tenants.ts** (2330 lines) :  `INITIAL_TENANTS` (4 demo orgs: Contoso Pharma, Northwind Health, Fabrikam Logistics, Woodgrove FSI) + `MOCK_TENANT_DATA`, one full realistic snapshot per tenant. This is the entire demo/simulation-mode dataset :  see also `scripts/installer.js`, which seeds these same four tenants (named slightly differently there: Contoso E5, Northwind BP, Fabrikam E3, Woodgrove Zero-Trust) on first launch.
 
+Also fixed: Contoso's `ca-pol-04` was mislabeled - named/scoped as CA01 to CA10's slot 4 but actually a device-compliance policy (CA09's real shape: `compliantDevice`/`domainJoinedDevice` controls), not CA04's real definition (guest-access MFA, per [[Baseline Matchers]]). It only worked "by accident" because a CIS control's loose name-substring `.find()` picked it up as evidence for CA09 being satisfied. Now genuinely represents CA04 (MFA scoped to `GuestsOrExternalUsers`) - see [[Baseline Matchers]] for the related `ca-baseline-matcher.ts` naming-convention fix this uncovered.
+
 Part of [[Clarity365 MOC]].

@@ -13,7 +13,11 @@ export function mapSubscribedSkusToCapabilities(skus: any[]): TenantCapability[]
   const hasEntraP2 = hasSku(["AAD_PREMIUM_P2", "SPE_E5", "EMSPREMIUM", "ENTERPRISEPREMIUM"]);
   const hasEntraP1 = hasEntraP2 || hasSku(["AAD_PREMIUM", "SPE_E3", "EMS", "M365_BUSINESS_PREMIUM", "SPB"]);
   const hasIntune = hasSku(["INTUNE", "SPE_E3", "SPE_E5", "M365_BUSINESS_PREMIUM", "EMS", "EMSPREMIUM"]);
-  const hasMde = hasSku(["DEFENDER_ENDPOINT", "WINDOWS_DEFENDER_ATP", "SPE_E5", "MDE"]);
+  // SPB (Microsoft 365 Business Premium) and its Business Standard variant token
+  // bundle Defender for Business - the SMB-scoped equivalent of Defender for
+  // Endpoint - so a Business Premium tenant genuinely has this capability even
+  // though its SKU name never contains "DEFENDER_ENDPOINT" or "MDE".
+  const hasMde = hasSku(["DEFENDER_ENDPOINT", "WINDOWS_DEFENDER_ATP", "SPE_E5", "MDE", "SPB", "M365_BUSINESS_PREMIUM"]);
   const hasMdo = hasSku(["O365_ADVANCED_THREAT_PROTECTION", "ATP_ENTERPRISE", "SPE_E5", "M365_BUSINESS_PREMIUM", "THREAT_INTELLIGENCE"]);
   const hasPurview = hasSku(["ADVANCED_AUDITING", "COMPLIANCE", "INFORMATION_PROTECTION", "SPE_E5"]);
 

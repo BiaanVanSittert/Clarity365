@@ -43,6 +43,7 @@ const DomainAuthModule = lazy(() => import("../modules/DomainAuthModule").then(m
 const MdoPoliciesModule = lazy(() => import("../modules/MdoPoliciesModule").then(m => ({ default: m.MdoPoliciesModule })));
 const AppRegistrationsModule = lazy(() => import("../modules/AppRegistrationsModule").then(m => ({ default: m.AppRegistrationsModule })));
 const IntuneSecurityModule = lazy(() => import("../modules/IntuneSecurityModule").then(m => ({ default: m.IntuneSecurityModule })));
+const AsrRulesModule = lazy(() => import("../modules/AsrRulesModule").then(m => ({ default: m.AsrRulesModule })));
 const GroupsManagementModule = lazy(() => import("../modules/GroupsManagementModule").then(m => ({ default: m.GroupsManagementModule })));
 const SharePointStorageModule = lazy(() => import("../modules/SharePointStorageModule").then(m => ({ default: m.SharePointStorageModule })));
 const McpPlaygroundModule = lazy(() => import("../modules/McpPlaygroundModule").then(m => ({ default: m.McpPlaygroundModule })));
@@ -670,6 +671,11 @@ export const AppShell: React.FC = () => {
                 />
               )}
               {activeView === "intune" && !snapshot && <SkeletonLoader />}
+            </ErrorBoundary>
+
+            <ErrorBoundary moduleName="Attack Surface Reduction" key={`eb-asr-${activeTenantId}`}>
+              {activeView === "asr_rules" && snapshot && <AsrRulesModule snapshot={snapshot} />}
+              {activeView === "asr_rules" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Groups Management" key={`eb-groups-${activeTenantId}`}>

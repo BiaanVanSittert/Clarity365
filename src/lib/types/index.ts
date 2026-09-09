@@ -40,7 +40,6 @@ export interface TenantCredentials {
   exoWriteEnabled?: boolean;
   authMode: "mock" | "secret" | "certificate";
   verifiedAt?: string;
-  status: "connected" | "syncing" | "error" | "offline";
 }
 
 export interface Tenant {
@@ -52,7 +51,7 @@ export interface Tenant {
   tier: TenantLicenseType;
   createdDate: string;
   lastSyncTimestamp: string;
-  connectionStatus: "healthy" | "sync_in_progress" | "degraded" | "disconnected";
+  connectionStatus: "healthy" | "degraded" | "disconnected" | "error";
   credentials: TenantCredentials;
   isDemo?: boolean;
 }
@@ -539,6 +538,47 @@ export interface IntunePolicySummary {
   devices: IntuneDevice[];
 }
 
+// Attack Surface Reduction rule state, per tenant. "warn" behaves like Block
+// but the end user can click through it; both are treated as "in progress"
+// rather than fully protected - see asr-rule-matcher.ts.
+export type AsrRuleMode = "not_configured" | "audit" | "warn" | "block";
+
+export interface AsrRuleState {
+  ruleId: string; // GUID, matches AsrRuleDefinition.id in asr-rule-definitions.ts
+  mode: AsrRuleMode;
+  // Every source (Settings Catalog policy / legacy Device Configuration
+  // profile / Endpoint Security Template) that contributed a non-"not
+  // configured" opinion for this rule, deduped - see asr-configuration-mapper.ts.
+  sourcePolicyNames?: string[];
+  // True when 2+ sources set DIFFERENT modes for this rule. Intune's real
+  // merge behavior drops a conflicting setting entirely rather than picking
+  // a winner, so `mode` above is already "not_configured" in this case -
+  // this flag is what keeps that distinguishable from a rule nobody has
+  // ever touched, since a self-canceling policy pair is a real, actionable
+  // misconfiguration.
+  hasConflict?: boolean;
+}
+
+// On-demand only (Advanced Hunting) - never stored on TenantSecuritySnapshot,
+// see asr-detection-mapper.ts and Core Graph Layer notes for why.
+export interface AsrRuleActivitySummary {
+  ruleId: string;
+  auditHitCount: number;
+  blockHitCount: number;
+  warnBypassedCount: number; // only nonzero for the 2 rules with a WarnBypassed action type
+}
+
+export interface AsrDetectionEvent {
+  timestamp: string;
+  deviceName: string;
+  actionType: string; // raw Advanced Hunting ActionType, e.g. "AsrRansomwareBlocked"
+  fileName?: string;
+  folderPath?: string;
+  initiatingProcessFileName?: string;
+  initiatingProcessCommandLine?: string;
+  additionalFields?: Record<string, unknown>;
+}
+
 // Module 11: Groups & Distribution
 export interface TenantGroup {
   id: string;
@@ -625,10 +665,25 @@ export interface SyncResult {
 }
 
 // Full Tenant Aggregated Snapshot
+// GET /subscribedSkus - a tenant's purchased license pools. consumedUnits is
+// how many are assigned; enabledUnits is how many were paid for; the gap is
+// paid-for seats sitting unassigned (see calculateTenantMonthlyWaste's
+// "unassigned_license_sku" category, which prices this out).
+export interface TenantLicenseSku {
+  skuId: string;
+  skuPartNumber: string;
+  consumedUnits: number;
+  enabledUnits: number;
+  availableUnits: number;
+}
+
 export interface TenantSecuritySnapshot {
   tenant: Tenant;
   syncHealth?: SyncHealth;
   capabilities: TenantCapability[];
+  // Undefined until a live Graph sync has fetched /subscribedSkus (mock/blank
+  // snapshots have no purchased-seat data to report).
+  licenseSkus?: TenantLicenseSku[];
   secureScore: TenantSecureScore;
   conditionalAccess: {
     baselineCoverageScore: number;
@@ -664,6 +719,12 @@ export interface TenantSecuritySnapshot {
   };
   appRegistrations: AppRegistrationItem[];
   intune: IntunePolicySummary;
+  // Undefined until a live sync has resolved the tenant's Intune Attack
+  // Surface Reduction intent(s) - see Core Graph Layer notes. A rule with no
+  // entry here (or when this whole array is undefined) is treated as
+  // "not_configured", not as "unknown", since that's the true default state
+  // of any ASR rule nobody has ever touched.
+  asrRules?: AsrRuleState[];
   groups: TenantGroup[];
   // Tenant-wide Entra ID group settings (GET /groupSettings) - undefined
   // until a live sync has actually populated them. Each backs one specific
@@ -744,7 +805,7 @@ export interface FleetTenantPosture {
   displayName: string;
   defaultDomainName: string;
   tier: TenantLicenseType;
-  connectionStatus: "healthy" | "sync_in_progress" | "degraded" | "disconnected";
+  connectionStatus: "healthy" | "degraded" | "disconnected" | "error";
   isDemo?: boolean;
   lastSyncTimestamp: string;
   secureScore: {

@@ -5,7 +5,7 @@ import { CA_BASELINE_STANDARDS, CABaselinePolicyDefinition } from "@/lib/data/ba
 import { DeployCaPolicyModal } from "../modals/DeployCaPolicyModal";
 import { ShieldCheck, Lock, Terminal, Search, Filter, ShieldAlert, Code2, CheckCheck, RotateCcw, Key, Download, AlertTriangle } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
-import { validateCaPolicyCompliance, matchCaBaselineCode } from "@/lib/services/ca-baseline-matcher";
+import { validateCaPolicyCompliance, classifyPolicyBaselineCode } from "@/lib/services/ca-baseline-matcher";
 
 interface ConditionalAccessModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -129,7 +129,7 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
         });
       }
     } else {
-      const matched = matchCaBaselineCode(p);
+      const matched = classifyPolicyBaselineCode(p);
       if (matched && !baselineMap.has(matched)) {
         baselineMap.set(matched, p);
       }

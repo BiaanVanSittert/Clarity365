@@ -58,6 +58,23 @@ describe("fleet-analyzer service", () => {
       expect(wasteResult.monthlyWasteUsd).toBe(0);
       expect(wasteResult.items.length).toBe(0);
     });
+
+    it("surfaces unassigned license SKUs as purchased-but-idle seats and prices them into waste", () => {
+      const blankSnap = createBlankSnapshot(INITIAL_TENANTS[1]);
+      blankSnap.mailboxes = [];
+      blankSnap.accountClassification.users = [];
+      blankSnap.licenseSkus = [
+        { skuId: "sku-1", skuPartNumber: "SPE_E3", consumedUnits: 90, enabledUnits: 100, availableUnits: 10 },
+        { skuId: "sku-2", skuPartNumber: "SPE_E5", consumedUnits: 5, enabledUnits: 5, availableUnits: 0 },
+      ];
+      const wasteResult = calculateTenantMonthlyWaste(blankSnap);
+
+      const unassignedItems = wasteResult.items.filter((i) => i.category === "unassigned_license_sku");
+      expect(unassignedItems.length).toBe(1);
+      expect(unassignedItems[0].licenseSku).toBe("SPE_E3");
+      expect(unassignedItems[0].estimatedMonthlyCostUsd).toBeGreaterThan(0);
+      expect(wasteResult.monthlyWasteUsd).toBe(unassignedItems[0].estimatedMonthlyCostUsd);
+    });
   });
 
   describe("aggregateFleetFailingBaselines", () => {
@@ -158,6 +175,31 @@ describe("fleet-analyzer service", () => {
         expect(u.accountState).toBe("disabled");
         expect(u.estimatedMonthlyCostUsd).toBe(LICENSE_TIER_MONTHLY_COST["M365_E5"]);
       }
+    });
+
+    it("never reports a user with no sign-in record anywhere as having signed in today", () => {
+      const blankSnap = createBlankSnapshot(INITIAL_TENANTS[1]);
+      blankSnap.mailboxes = [];
+      blankSnap.signIns = [];
+      blankSnap.mfaAudit = [];
+      blankSnap.accountClassification.users = [
+        {
+          id: "usr-never-signed-in",
+          userPrincipalName: "new.hire@northwindtraders.com",
+          displayName: "New Hire",
+          classification: "licensed",
+          licenses: ["SPE_E3"],
+          accountEnabled: true,
+          department: "Ops",
+          createdDateTime: "2026-08-01T00:00:00Z",
+          // lastSignInDateTime intentionally omitted - user has never signed in
+        },
+      ];
+
+      const wasteResult = calculateTenantMonthlyWaste(blankSnap);
+      const item = wasteResult.items.find((i) => i.impactedIdentity === "new.hire@northwindtraders.com");
+      expect(item).toBeDefined();
+      expect(item!.lastSignInDateTime).toBeUndefined();
     });
   });
 });

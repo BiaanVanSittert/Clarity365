@@ -12,11 +12,11 @@ import {
   Download,
   Search,
   Filter,
-  ChevronRight,
   ShieldAlert,
   ArrowRight,
   UserX,
   CreditCard,
+  PackageOpen,
 } from "lucide-react";
 import { exportToCsv } from "@/lib/utils/csv";
 import { Skeleton } from "../common/SkeletonLoader";
@@ -62,6 +62,7 @@ export const FleetLicenseOptimizationModule: React.FC<FleetLicenseOptimizationMo
   const sharedMbCount = items.filter((i) => i.category === "licensed_shared_mailbox").length;
   const disabledUsersCount = items.filter((i) => i.category === "disabled_licensed_user").length;
   const orphanedCount = items.filter((i) => i.category === "orphaned_account").length;
+  const unassignedSkuCount = items.filter((i) => i.category === "unassigned_license_sku").length;
 
   const filteredItems = useMemo(() => {
     return items.filter((it) => {
@@ -89,7 +90,8 @@ export const FleetLicenseOptimizationModule: React.FC<FleetLicenseOptimizationMo
         return (
           it.category === "licensed_shared_mailbox" ||
           it.category === "inactive_licensed_user" ||
-          it.category === "disabled_licensed_user"
+          it.category === "disabled_licensed_user" ||
+          it.category === "unassigned_license_sku"
         );
       }
       return it.category === categoryFilter;
@@ -148,6 +150,7 @@ export const FleetLicenseOptimizationModule: React.FC<FleetLicenseOptimizationMo
   const wasteInactive = wasteByCategory?.inactiveLicensedUsers || 0;
   const wasteSharedMb = wasteByCategory?.licensedSharedMailboxes || 0;
   const wasteDisabled = wasteByCategory?.disabledLicensedUsers || 0;
+  const wasteUnassigned = wasteByCategory?.unassignedSkus || 0;
 
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto select-none">
@@ -168,7 +171,7 @@ export const FleetLicenseOptimizationModule: React.FC<FleetLicenseOptimizationMo
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Multi-tenant inventory of paid employee seats, dormant accounts (&gt;90d), direct licenses on shared mailboxes, and disabled accounts holding paid seats.
+                Multi-tenant inventory of paid employee seats, dormant accounts (&gt;90d), direct licenses on shared mailboxes, disabled accounts holding paid seats, and unassigned purchased licenses.
               </p>
             </div>
           </div>
@@ -186,7 +189,7 @@ export const FleetLicenseOptimizationModule: React.FC<FleetLicenseOptimizationMo
       </div>
 
       {/* KPI Cards (Clickable Category Filters) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
         {/* Total Recoverable Savings */}
         <div
           onClick={() => setCategoryFilter(categoryFilter === "waste_only" ? "all" : "waste_only")}
@@ -296,6 +299,28 @@ export const FleetLicenseOptimizationModule: React.FC<FleetLicenseOptimizationMo
             ${wasteDisabled.toFixed(0)}/mo waste
           </div>
         </div>
+
+        {/* Unassigned License SKUs */}
+        <div
+          onClick={() => setCategoryFilter(categoryFilter === "unassigned_license_sku" ? "all" : "unassigned_license_sku")}
+          className={`p-3 rounded-sm cursor-pointer transition-all border shadow-xs ${
+            categoryFilter === "unassigned_license_sku"
+              ? "bg-sky-100 dark:bg-sky-950/70 border-sky-500 ring-1 ring-sky-500"
+              : "bg-[#F8FAFC] dark:bg-slate-900/40 border-[#CBD5E1] dark:border-slate-700 hover:bg-sky-50/50 hover:border-sky-400"
+          }`}
+          title="Click to view purchased license seats not assigned to anyone"
+        >
+          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+            <span>Unassigned Seats</span>
+            <PackageOpen size={14} className="text-sky-500" />
+          </div>
+          <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
+            {unassignedSkuCount} {unassignedSkuCount === 1 ? "SKU" : "SKUs"}
+          </div>
+          <div className="text-[11px] text-sky-700 dark:text-sky-400 font-mono mt-1">
+            ${wasteUnassigned.toFixed(0)}/mo waste
+          </div>
+        </div>
       </div>
 
       {/* Items Table */}
@@ -330,6 +355,7 @@ export const FleetLicenseOptimizationModule: React.FC<FleetLicenseOptimizationMo
               <option value="licensed_shared_mailbox">Licensed Shared Mailboxes ({sharedMbCount})</option>
               <option value="disabled_licensed_user">Disabled Accounts with License ({disabledUsersCount})</option>
               <option value="orphaned_account">Orphaned Active Accounts ({orphanedCount})</option>
+              <option value="unassigned_license_sku">Unassigned License SKUs ({unassignedSkuCount})</option>
             </select>
 
             {/* Tenant Filter */}
@@ -359,13 +385,12 @@ export const FleetLicenseOptimizationModule: React.FC<FleetLicenseOptimizationMo
                 <th className="py-2.5 px-3 whitespace-nowrap">Last Interactive Sign-In</th>
                 <th className="py-2.5 px-3 whitespace-nowrap">SKU & Monthly Cost</th>
                 <th className="py-2.5 px-3">Remediation Guidance</th>
-                <th className="py-2.5 px-3 text-right whitespace-nowrap">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#E2E8F0] dark:divide-slate-700/60 bg-white dark:bg-slate-900/30 font-sans">
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-500 dark:text-slate-400">
+                  <td colSpan={6} className="py-8 text-center text-slate-500 dark:text-slate-400">
                     No license findings match the current filter criteria.
                   </td>
                 </tr>
@@ -392,6 +417,8 @@ export const FleetLicenseOptimizationModule: React.FC<FleetLicenseOptimizationMo
                             ? "bg-purple-50 dark:bg-purple-950 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-800"
                             : it.category === "active_licensed_user"
                             ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800"
+                            : it.category === "unassigned_license_sku"
+                            ? "bg-sky-50 dark:bg-sky-950 text-sky-800 dark:text-sky-300 border-sky-300 dark:border-sky-800"
                             : "bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800"
                         }`}
                       >
@@ -401,21 +428,31 @@ export const FleetLicenseOptimizationModule: React.FC<FleetLicenseOptimizationMo
 
                     {/* Impacted Identity */}
                     <td className="py-3 px-3">
-                      <div className="font-semibold text-slate-900 dark:text-slate-100 font-mono text-xs flex items-center gap-1.5">
-                        <span>{it.displayName || it.impactedIdentity}</span>
-                        {it.department && (
-                          <span className="text-[10px] font-sans text-slate-400">({it.department})</span>
-                        )}
-                      </div>
-                      <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
-                        {it.impactedIdentity}
-                      </div>
+                      {it.category === "unassigned_license_sku" ? (
+                        <div className="font-semibold text-slate-900 dark:text-slate-100 font-mono text-xs">
+                          {it.title}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="font-semibold text-slate-900 dark:text-slate-100 font-mono text-xs flex items-center gap-1.5">
+                            <span>{it.displayName || it.impactedIdentity}</span>
+                            {it.department && (
+                              <span className="text-[10px] font-sans text-slate-400">({it.department})</span>
+                            )}
+                          </div>
+                          <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
+                            {it.impactedIdentity}
+                          </div>
+                        </>
+                      )}
                     </td>
 
                     {/* Last Interactive Sign-In */}
                     <td className="py-3 px-3 whitespace-nowrap font-mono text-xs">
                       {it.accountState === "shared_mailbox" ? (
                         <span className="text-slate-400 text-[11px]">N/A (Shared Mailbox)</span>
+                      ) : it.category === "unassigned_license_sku" ? (
+                        <span className="text-slate-400 text-[11px]">N/A (License Pool)</span>
                       ) : it.lastSignInDateTime ? (
                         <div className="flex items-center gap-1.5">
                           <span
@@ -478,17 +515,6 @@ export const FleetLicenseOptimizationModule: React.FC<FleetLicenseOptimizationMo
                     {/* Remediation Guidance */}
                     <td className="py-3 px-3 text-xs text-slate-600 dark:text-slate-300 max-w-md">
                       {it.remediationAction}
-                    </td>
-
-                    {/* Action */}
-                    <td className="py-3 px-3.5 text-right whitespace-nowrap">
-                      <button
-                        onClick={() => onSelectTenant(it.tenantId, "license_optimizer", it.impactedIdentity || it.id)}
-                        className="px-2.5 py-1 text-xs font-semibold text-slate-800 dark:text-slate-200 hover:text-white bg-slate-100 dark:bg-slate-800 hover:bg-slate-900 dark:hover:bg-slate-100 dark:hover:text-slate-900 rounded-sm border border-slate-300 dark:border-slate-700 transition-colors inline-flex items-center gap-1"
-                      >
-                        <span>Triage</span>
-                        <ChevronRight size={13} />
-                      </button>
                     </td>
                   </tr>
                 ))

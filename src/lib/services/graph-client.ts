@@ -1,6 +1,6 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability, SecurityIncidentItem } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability, TenantLicenseSku, SecurityIncidentItem, AsrRuleMode, AsrRuleState, AsrRuleActivitySummary, AsrDetectionEvent } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
-import { matchCaBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
+import { classifyPolicyBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
 import { createBlankSnapshot } from "../data/default-snapshot";
 import { classifyUserAuthMethods } from "./mfa-classifier";
@@ -20,6 +20,16 @@ import { mapAppRegistration } from "./app-registration-mapper";
 import { mapSubscribedSkusToCapabilities } from "./capabilities-mapper";
 import { mapSecurityIncident, synthesizeIncidentsFromMdoAlerts } from "./incident-mapper";
 import { graphFetch } from "./graph-fetch";
+import { ASR_RULE_DEFINITIONS } from "../data/asr-rule-definitions";
+import { buildActivitySummaries, synthesizeMockActivity } from "./asr-detection-mapper";
+import {
+  AsrConfigSignal,
+  LEGACY_ASR_PROPERTY_TO_RULE_ID,
+  buildAsrSlugMap,
+  mapAsrSettingDefinitionIdsToSignals,
+  mapNamedPropertyValuesToSignals,
+  mergeAsrRuleStates,
+} from "./asr-configuration-mapper";
 
 
 
@@ -52,11 +62,27 @@ if (!tokenCacheGlobal.clarity365GraphTokenCache) {
 }
 const tokenCache = tokenCacheGlobal.clarity365GraphTokenCache;
 
+interface AsrSlugMapCacheGlobal {
+  clarity365AsrSlugMapCache?: Map<string, string>;
+}
+
+// Microsoft's Settings Catalog metadata for the ASR root setting is global,
+// tenant-agnostic catalog data (which rule slugs exist and what they're
+// called), not per-tenant state - so it's fetched once per process and
+// reused across every tenant in a fleet sync, on the same globalThis
+// pattern as tokenCache above, rather than refetched on every single sync.
+const asrSlugMapCacheGlobal = globalThis as unknown as AsrSlugMapCacheGlobal;
+
 export interface PermissionTestResult {
   permission: string;
   scope: "Application" | "Delegated";
   description: string;
   endpoint: string;
+  // Defaults to GET when omitted. Only a permission with no GET-able Graph
+  // surface (e.g. ThreatHunting.Read.All - Advanced Hunting is POST-only)
+  // needs this set explicitly.
+  method?: "GET" | "POST";
+  body?: string;
   status: "granted" | "missing" | "untested";
   statusCode?: number;
   errorMessage?: string;
@@ -66,10 +92,13 @@ export interface PermissionTestResult {
   // UI so granting it is a conscious choice, not lost among read-only scopes.
   isWriteAccess?: boolean;
   // True for a permission the app doesn't need to function - it unlocks one
-  // additional write-capable feature on top of the read-only reporting this
-  // app already provides without it. Excluded from the pass/fail rollup in
-  // overallStatus so declining it (choosing read-only/reporting-only mode)
-  // never shows as a problem needing attention.
+  // additional feature (read-only or write-capable) on top of the reporting
+  // this app already provides without it. Excluded from the pass/fail rollup
+  // in overallStatus so declining it never shows as a problem needing
+  // attention - whether that's choosing read-only/reporting-only mode
+  // (declining the one write-capable permission) or simply not having the
+  // separately-consented, separately-licensed permission Advanced Hunting
+  // needs (declining ThreatHunting.Read.All).
   optional?: boolean;
 }
 
@@ -129,12 +158,15 @@ export async function getGraphAccessToken(credentials: Tenant["credentials"]): P
 }
 
 export async function testAppRegistrationPermissions(tenant: Tenant): Promise<TenantPermissionReport> {
-  // Ordered read-only first, write-capable last - Policy.ReadWrite.ConditionalAccess
-  // is the only write permission this app ever requests, and it's optional: every
-  // other permission below already gives Clarity365 full audit/reporting coverage
-  // (including generating a copy-pasteable PowerShell script for CA baseline gaps)
-  // without it. Granting it additionally enables one specific feature - in-app
-  // one-click auto-deployment - rather than being required for the app to work.
+  // Ordered read-only first, optional last (write-capable last of all) -
+  // ThreatHunting.Read.All and Policy.ReadWrite.ConditionalAccess are the
+  // only two optional permissions this app ever requests: every other
+  // permission below already gives Clarity365 full audit/reporting coverage
+  // without either of them (including generating a copy-pasteable PowerShell
+  // script for CA baseline gaps in place of the write permission). Granting
+  // ThreatHunting.Read.All additionally enables ASR rule detection-activity
+  // reporting; granting the CA write permission additionally enables in-app
+  // one-click auto-deployment - neither is required for the app to work.
   const permissionsToTest: Omit<PermissionTestResult, "status">[] = [
     {
       permission: "Policy.Read.All",
@@ -191,9 +223,10 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
     {
       permission: "DeviceManagementConfiguration.Read.All",
       scope: "Application",
-      description: "Read Intune Endpoint Security policy assignments (antivirus, EDR) used to compute policy coverage counts.",
+      description:
+        "Read Intune Endpoint Security policy assignments (antivirus, EDR) and Attack Surface Reduction rule configuration - the Settings Catalog, classic Device Configuration profiles, and Endpoint Security Template policies that can each configure ASR rules all share this one permission, so granting it once covers all three.",
       endpoint: "https://graph.microsoft.com/beta/deviceManagement/intents?$top=1",
-      requiredFor: "Module 10: Intune Endpoint Security (antivirus/EDR policy counts)",
+      requiredFor: "Module 10: Intune Endpoint Security (antivirus/EDR policy counts) & ASR Rules (live configuration state)",
     },
     {
       permission: "SecurityEvents.Read.All",
@@ -229,6 +262,17 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       description: "Read tenant-wide SharePoint sharing settings (sharing capability ceiling, default link type, anonymous link expiration) - a separate, narrower permission from Sites.Read.All that Microsoft requires specifically for the admin settings API.",
       endpoint: "https://graph.microsoft.com/v1.0/admin/sharepoint/settings",
       requiredFor: "Module 12: SharePoint & OneDrive Storage (tenant-wide policy)",
+    },
+    {
+      permission: "ThreatHunting.Read.All",
+      scope: "Application",
+      description:
+        "Optional - read live Microsoft Defender for Endpoint Advanced Hunting telemetry (the DeviceEvents table) to show ASR rule detection activity (30-day hit counts and event detail). A materially more restrictive, separately-consented permission than anything else Clarity365 requests, and typically also needs a Defender for Endpoint P2 (or equivalent Business Premium) license on top of the Graph permission itself. Without it, ASR rule configuration reporting (which rule is Block/Audit/Warn/Not Configured) still works fully - only the event-count badges and event list are unavailable.",
+      endpoint: "https://graph.microsoft.com/v1.0/security/runHuntingQuery",
+      method: "POST",
+      body: JSON.stringify({ Query: "DeviceEvents | where Timestamp > ago(1d) | take 1", Timespan: "P1D" }),
+      requiredFor: "Optional: ASR Rules detection activity (event counts and event detail)",
+      optional: true,
     },
     {
       permission: "Policy.ReadWrite.ConditionalAccess",
@@ -273,7 +317,12 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
   for (const perm of permissionsToTest) {
     try {
       const res = await graphFetch(perm.endpoint, {
-        headers: { Authorization: `Bearer ${token}` },
+        method: perm.method || "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(perm.body ? { "Content-Type": "application/json" } : {}),
+        },
+        body: perm.body,
       });
 
       if (res.ok) {
@@ -519,6 +568,245 @@ export async function deployConditionalAccessPolicy(
   }
 }
 
+// Shared by both ASR detection functions below. Graph's runHuntingQuery
+// (v1.0, not beta) returns { schema, results }, with result row keys
+// camelCased regardless of how the KQL `project`/`summarize` columns were
+// capitalized - e.g. a `project ActionType` column comes back as
+// `row.actionType`, not `row.ActionType`.
+async function runHuntingQuery(token: string, query: string): Promise<{ rows?: any[]; error?: string }> {
+  try {
+    const res = await graphFetch(
+      "https://graph.microsoft.com/v1.0/security/runHuntingQuery",
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ Query: query, Timespan: "P30D" }),
+      },
+      { retryOnNetworkError: false }
+    );
+    const data = await res.json();
+    if (!res.ok) {
+      return { error: data?.error?.message || `Advanced Hunting query failed (HTTP ${res.status}: ${res.statusText})` };
+    }
+    return { rows: data.results || [] };
+  } catch (err: any) {
+    return { error: err.message || "Network error while running the Advanced Hunting query." };
+  }
+}
+
+/**
+ * Aggregate ASR detection activity for every rule at once (last 30 days),
+ * for the module's per-row "N events" badges. On-demand only - never part of
+ * fetchLiveTenantSnapshot - since it needs a separate ThreatHunting.Read.All
+ * permission and a Defender for Endpoint P2 license many tenants may not
+ * have, and would slow down every sync for one module's data otherwise.
+ */
+export async function fetchAsrDetectionSummaries(
+  tenant: Tenant,
+  currentRuleStates: { ruleId: string; mode: AsrRuleMode }[]
+): Promise<{ summaries?: AsrRuleActivitySummary[]; error?: string }> {
+  if (tenant.credentials.authMode === "mock") {
+    return { summaries: synthesizeMockActivity(currentRuleStates, tenant.id) };
+  }
+
+  const { token, error } = await getGraphAccessToken(tenant.credentials);
+  if (error || !token) {
+    return { error: `Authentication Error: ${error}` };
+  }
+
+  const { rows, error: queryError } = await runHuntingQuery(
+    token,
+    `DeviceEvents | where Timestamp > ago(30d) | where ActionType startswith "Asr" | summarize Count=count() by ActionType`
+  );
+  if (queryError) return { error: queryError };
+
+  const actionTypeCounts: Record<string, number> = {};
+  for (const row of rows || []) {
+    if (row.actionType) actionTypeCounts[row.actionType] = row.count || 0;
+  }
+  return { summaries: buildActivitySummaries(actionTypeCounts) };
+}
+
+/**
+ * Recent raw detection events for one specific rule (last 30 days, capped at
+ * 50), fetched only when that rule's drawer is actually opened.
+ */
+export async function fetchAsrDetectionEvents(
+  tenant: Tenant,
+  ruleId: string
+): Promise<{ events?: AsrDetectionEvent[]; error?: string }> {
+  const def = ASR_RULE_DEFINITIONS.find((d) => d.id === ruleId);
+  if (!def || !def.hasAdvancedHuntingTelemetry) {
+    return { events: [] };
+  }
+
+  if (tenant.credentials.authMode === "mock") {
+    const now = Date.now();
+    const sampleFiles = ["invoice_2026.xlsm", "update_installer.exe", "quarterly_report.docm", "setup.ps1"];
+    const count = Math.abs(
+      def.advancedHuntingActionTypes.reduce((acc, t) => acc + t.length, 0) + tenant.id.length
+    ) % 6;
+    const events: AsrDetectionEvent[] = Array.from({ length: count }, (_, i) => ({
+      timestamp: new Date(now - i * 6 * 60 * 60 * 1000).toISOString(),
+      deviceName: `DEMO-WKS-${(i % 4) + 1}`,
+      actionType: def.advancedHuntingActionTypes[i % def.advancedHuntingActionTypes.length],
+      fileName: sampleFiles[i % sampleFiles.length],
+      initiatingProcessFileName: i % 2 === 0 ? "winword.exe" : "powershell.exe",
+    }));
+    return { events };
+  }
+
+  const { token, error } = await getGraphAccessToken(tenant.credentials);
+  if (error || !token) {
+    return { error: `Authentication Error: ${error}` };
+  }
+
+  const actionTypesList = def.advancedHuntingActionTypes.map((t) => `"${t}"`).join(", ");
+  const { rows, error: queryError } = await runHuntingQuery(
+    token,
+    `DeviceEvents | where Timestamp > ago(30d) | where ActionType in (${actionTypesList}) | project Timestamp, DeviceName, ActionType, FileName, FolderPath, InitiatingProcessFileName, InitiatingProcessCommandLine, AdditionalFields | order by Timestamp desc | take 50`
+  );
+  if (queryError) return { error: queryError };
+
+  const events: AsrDetectionEvent[] = (rows || []).map((row: any) => ({
+    timestamp: row.timestamp,
+    deviceName: row.deviceName,
+    actionType: row.actionType,
+    fileName: row.fileName || undefined,
+    folderPath: row.folderPath || undefined,
+    initiatingProcessFileName: row.initiatingProcessFileName || undefined,
+    initiatingProcessCommandLine: row.initiatingProcessCommandLine || undefined,
+    additionalFields: (() => {
+      try {
+        return row.additionalFields ? JSON.parse(row.additionalFields) : undefined;
+      } catch {
+        return undefined;
+      }
+    })(),
+  }));
+  return { events };
+}
+
+const ASR_SETTINGS_CATALOG_ROOT_DEFINITION_ID = "device_vendor_msft_policy_config_defender_attacksurfacereductionrules";
+
+// Fetches (once per process, cached on globalThis - see asrSlugMapCacheGlobal
+// above) Microsoft's own tenant-agnostic Settings Catalog metadata for the
+// ASR root setting, then builds the slug->rule-GUID map via the pure,
+// tested buildAsrSlugMap. A metadata fetch failure or an unmatched entry is
+// pushed to syncErrors rather than thrown, so one missing/renamed slug never
+// blocks every other rule from resolving correctly.
+async function getAsrSettingsCatalogSlugMap(
+  headers: HeadersInit,
+  syncErrors: string[]
+): Promise<Map<string, string>> {
+  if (asrSlugMapCacheGlobal.clarity365AsrSlugMapCache) {
+    return asrSlugMapCacheGlobal.clarity365AsrSlugMapCache;
+  }
+
+  try {
+    const metadataResult = await fetchAllPages<any>(
+      `https://graph.microsoft.com/beta/deviceManagement/configurationSettings?$filter=rootDefinitionId eq '${ASR_SETTINGS_CATALOG_ROOT_DEFINITION_ID}'`,
+      headers
+    );
+    if (metadataResult.error) {
+      syncErrors.push(`ASR Rules (Settings Catalog): could not load rule catalog metadata - ${metadataResult.error}`);
+    }
+
+    const { slugToRuleId, unmatchedCount } = buildAsrSlugMap(
+      metadataResult.items.map((s: any) => ({
+        settingDefinitionId: s.settingDefinitionId || s.id,
+        displayName: s.displayName || "",
+      }))
+    );
+    if (unmatchedCount > 0) {
+      syncErrors.push(
+        `ASR Rules (Settings Catalog): ${unmatchedCount} rule(s) in Microsoft's catalog could not be matched to a known ASR rule - they will be skipped rather than misattributed.`
+      );
+    }
+
+    asrSlugMapCacheGlobal.clarity365AsrSlugMapCache = slugToRuleId;
+    return slugToRuleId;
+  } catch (err: any) {
+    syncErrors.push(`ASR Rules (Settings Catalog): could not load rule catalog metadata - ${err.message || "network error"}`);
+    return new Map();
+  }
+}
+
+// Walks a Settings Catalog policy's /settings response to collect every
+// selected leaf choice id (e.g.
+// "..._blockexecutionofpotentiallyobfuscatedscripts_block"). The exact
+// nested settingInstance shape below (choiceSettingValue / groupSettingCollectionValue
+// / choiceSettingCollectionValue, each carrying further "children") follows
+// Microsoft's generally-documented Settings Catalog pattern but was not
+// verified against a live tenant response in this environment - if a real
+// tenant's shape differs, this is the one place that needs correcting; the
+// pure mapAsrSettingDefinitionIdsToSignals function downstream is unaffected
+// either way since it only ever sees the flat string array this returns.
+function flattenSettingsCatalogSelectedIds(settings: any[]): string[] {
+  const ids: string[] = [];
+
+  const visitInstance = (instance: any) => {
+    if (!instance || typeof instance !== "object") return;
+
+    const choiceValue = instance.choiceSettingValue;
+    if (choiceValue) {
+      if (typeof choiceValue.value === "string") ids.push(choiceValue.value);
+      (choiceValue.children || []).forEach(visitInstance);
+    }
+
+    const choiceCollection = instance.choiceSettingCollectionValue;
+    if (Array.isArray(choiceCollection)) {
+      choiceCollection.forEach((entry: any) => {
+        if (typeof entry?.value === "string") ids.push(entry.value);
+        (entry?.children || []).forEach(visitInstance);
+      });
+    }
+
+    const groupCollection = instance.groupSettingCollectionValue;
+    if (Array.isArray(groupCollection)) {
+      groupCollection.forEach((group: any) => (group?.children || []).forEach(visitInstance));
+    }
+
+    if (Array.isArray(instance.children)) {
+      instance.children.forEach(visitInstance);
+    }
+  };
+
+  settings.forEach((setting: any) => visitInstance(setting.settingInstance || setting));
+
+  return ids;
+}
+
+// Flattens a legacy "Endpoint Security Template" intent's definitionValues
+// (each an { id, definitionId, valueJson } row - definitionId is prefixed
+// with "deviceConfiguration--windows10EndpointProtectionConfiguration_")
+// into the same { propertyName, rawValue } shape the classic Device
+// Configuration profile surface already produces directly, so both funnel
+// through the one shared mapNamedPropertyValuesToSignals function.
+const INTENT_DEFINITION_ID_PREFIX = "deviceConfiguration--windows10EndpointProtectionConfiguration_";
+
+function extractIntentAsrProperties(definitionValues: any[]): { propertyName: string; rawValue: string }[] {
+  const properties: { propertyName: string; rawValue: string }[] = [];
+
+  for (const entry of definitionValues) {
+    const definitionId: string = entry.definitionId || "";
+    if (!definitionId.startsWith(INTENT_DEFINITION_ID_PREFIX)) continue;
+    const propertyName = definitionId.slice(INTENT_DEFINITION_ID_PREFIX.length);
+
+    let rawValue: unknown = entry.value;
+    if (rawValue == null && typeof entry.valueJson === "string") {
+      try {
+        rawValue = JSON.parse(entry.valueJson);
+      } catch {
+        continue;
+      }
+    }
+    if (typeof rawValue === "string") properties.push({ propertyName, rawValue });
+  }
+
+  return properties;
+}
+
 export async function fetchLiveTenantSnapshot(
   tenant: Tenant,
   existingSnapshot?: TenantSecuritySnapshot,
@@ -546,7 +834,7 @@ export async function fetchLiveTenantSnapshot(
     if (caResult.error) syncErrors.push(`Conditional Access policies: ${caResult.error}`);
 
     livePolicies = caResult.items.map((p: any) => {
-      const detectedCode = matchCaBaselineCode(p);
+      const detectedCode = classifyPolicyBaselineCode(p);
       const baselineDef = CA_BASELINE_STANDARDS.find((b) => b.code === detectedCode);
 
       // Graph's grantControls.authenticationStrength is a sibling object to
@@ -611,7 +899,7 @@ export async function fetchLiveTenantSnapshot(
 
   try {
     const usersResult = await fetchAllPages<any>(
-      "https://graph.microsoft.com/v1.0/users?$top=999&$select=id,displayName,userPrincipalName,accountEnabled,jobTitle,department,createdDateTime,assignedLicenses,userType",
+      "https://graph.microsoft.com/v1.0/users?$top=999&$select=id,displayName,userPrincipalName,accountEnabled,jobTitle,department,createdDateTime,assignedLicenses,userType,signInActivity",
       headers
     );
     if (usersResult.error) syncErrors.push(`Users: ${usersResult.error}`);
@@ -641,6 +929,10 @@ export async function fetchLiveTenantSnapshot(
         accountEnabled: isEnabled,
         department: u.department || "General",
         createdDateTime: u.createdDateTime || new Date().toISOString(),
+        // signInActivity.lastSignInDateTime is Graph's authoritative "last
+        // interactive sign-in" - undefined for a user who has never signed in
+        // (requires AuditLog.Read.All, already held for auditLogs/signIns below).
+        lastSignInDateTime: u.signInActivity?.lastSignInDateTime || undefined,
         riskFlag: classification === "unlicensed_active" ? "Active account without license assigned." : undefined,
       };
     });
@@ -820,7 +1112,15 @@ export async function fetchLiveTenantSnapshot(
           registeredMethods: registeredMethods.length > 0 ? registeredMethods : ["none"],
           isWeakAuth,
           passwordLastSetDateTime: u.createdDateTime,
-          lastSignInDateTime: new Date().toISOString(),
+          // Prefer the authoritative signInActivity value captured on the user
+          // object above; fall back to the most recent audit log sign-in event,
+          // and finally "" (never signed in) - NOT today's date, which would
+          // misrepresent every unused account as active.
+          lastSignInDateTime:
+            u.lastSignInDateTime ||
+            signInsList.find((s) => s.userPrincipalName.toLowerCase() === u.userPrincipalName.toLowerCase())
+              ?.createdDateTime ||
+            "",
           isSsprRegistered: reg ? !!reg.isSsprRegistered : false,
           isPasswordlessCapable: reg ? !!reg.isPasswordlessCapable : defaultMethod === "passkey_fido2",
           methodsCount: registeredMethods.length,
@@ -858,7 +1158,7 @@ export async function fetchLiveTenantSnapshot(
           registeredMethods: mfaRegistered ? ["ms_authenticator_push"] : ["none"],
           isWeakAuth,
           passwordLastSetDateTime: u.createdDateTime,
-          lastSignInDateTime: userSignIns[0]?.createdDateTime || new Date().toISOString(),
+          lastSignInDateTime: u.lastSignInDateTime || userSignIns[0]?.createdDateTime || "",
           isSsprRegistered: mfaRegistered,
           isPasswordlessCapable: false,
           methodsCount: mfaRegistered ? 1 : 0,
@@ -891,13 +1191,18 @@ export async function fetchLiveTenantSnapshot(
   // real tenant; a failure here doesn't block the device inventory above.
   let antivirusPoliciesCount = 0;
   let edrPoliciesCount = 0;
+  // Hoisted so the ASR configuration section below can reuse this same list
+  // (it's the "Endpoint Security Templates" intents surface) instead of
+  // issuing a second, identical $expand=categories request.
+  let intentsItems: any[] = [];
   try {
     const intentsResult = await fetchAllPages<any>(
       "https://graph.microsoft.com/beta/deviceManagement/intents?$expand=categories",
       headers
     );
     if (intentsResult.error) syncErrors.push(`Intune Endpoint Security policies: ${intentsResult.error}`);
-    intentsResult.items.forEach((intent: any) => {
+    intentsItems = intentsResult.items;
+    intentsItems.forEach((intent: any) => {
       const categoryNames: string[] = (intent.categories || []).map((c: any) => (c.displayName || "").toLowerCase());
       if (categoryNames.some((c) => c.includes("antivirus"))) antivirusPoliciesCount++;
       if (categoryNames.some((c) => c.includes("detection and response") || c.includes("edr"))) edrPoliciesCount++;
@@ -906,6 +1211,118 @@ export async function fetchLiveTenantSnapshot(
     console.error("[Graph Client] Error fetching Intune Endpoint Security policies:", err);
     syncErrors.push(`Intune Endpoint Security policies: ${err.message || "Unexpected error while processing policies."}`);
   }
+
+  // 6b. Fetch real Attack Surface Reduction rule configuration state. Real
+  // tenants can configure ASR rules via up to three independent, mergeable
+  // Intune surfaces (verified against Microsoft Learn, not guessed) - a
+  // partial implementation covering only one would silently under-report
+  // for tenants using another, which is exactly the class of bug this
+  // section exists to close (see ai-context-vault/Optimization/Optimization
+  // Plan.md item 7). All signal collection/merge logic lives in the pure,
+  // tested asr-configuration-mapper.ts; this section only walks raw Graph
+  // JSON into the flat shapes those functions expect.
+  const asrSignals: AsrConfigSignal[] = [];
+  let asrConfigFetchSucceeded = false;
+
+  // Surface 1: modern Settings Catalog ("Endpoint security > Attack surface
+  // reduction policy"). Microsoft's own docs say most tenants use this
+  // format today, making it the highest-value of the three.
+  try {
+    const catalogPoliciesResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies?$filter=templateReference/templateFamily eq 'endpointSecurityAttackSurfaceReduction'",
+      headers
+    );
+    if (catalogPoliciesResult.error) {
+      syncErrors.push(`ASR Rules (Settings Catalog): ${catalogPoliciesResult.error}`);
+    } else {
+      asrConfigFetchSucceeded = true;
+    }
+
+    if (catalogPoliciesResult.items.length > 0) {
+      const slugToRuleId = await getAsrSettingsCatalogSlugMap(headers, syncErrors);
+
+      for (const policy of catalogPoliciesResult.items) {
+        const settingsResult = await fetchAllPages<any>(
+          `https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('${policy.id}')/settings`,
+          headers
+        );
+        if (settingsResult.error) {
+          syncErrors.push(`ASR Rules (Settings Catalog): ${settingsResult.error}`);
+          continue;
+        }
+        const selectedIds = flattenSettingsCatalogSelectedIds(settingsResult.items);
+        const policyName = policy.name || policy.displayName || "Attack Surface Reduction Policy";
+        asrSignals.push(...mapAsrSettingDefinitionIdsToSignals(selectedIds, policyName, slugToRuleId));
+      }
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching ASR Settings Catalog policies:", err);
+    syncErrors.push(`ASR Rules (Settings Catalog): ${err.message || "Unexpected error while processing policies."}`);
+  }
+
+  // Surface 2: legacy classic Device Configuration profile ("Endpoint
+  // protection" profile, windows10EndpointProtectionConfiguration). Simplest
+  // to read - each rule is a flat, named top-level property - but only 15 of
+  // the 19 catalog rules are expressible in this older schema.
+  try {
+    const deviceConfigResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations",
+      headers
+    );
+    if (deviceConfigResult.error) {
+      syncErrors.push(`ASR Rules (Device Configuration): ${deviceConfigResult.error}`);
+    } else {
+      asrConfigFetchSucceeded = true;
+    }
+
+    deviceConfigResult.items
+      .filter((c: any) => c["@odata.type"] === "#microsoft.graph.windows10EndpointProtectionConfiguration")
+      .forEach((profile: any) => {
+        const properties = Object.keys(LEGACY_ASR_PROPERTY_TO_RULE_ID)
+          .filter((propertyName) => profile[propertyName] != null)
+          .map((propertyName) => ({ propertyName, rawValue: profile[propertyName] }));
+        const profileName = profile.displayName || "Endpoint Protection Profile";
+        asrSignals.push(...mapNamedPropertyValuesToSignals(properties, profileName));
+      });
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching ASR device configuration profiles:", err);
+    syncErrors.push(`ASR Rules (Device Configuration): ${err.message || "Unexpected error while processing profiles."}`);
+  }
+
+  // Surface 3: older "Endpoint Security Templates" intent-based policies -
+  // being phased out in favor of the Settings Catalog but not yet retired.
+  // Reuses intentsItems already fetched above instead of a second request,
+  // and the exact same category-name-matching convention already
+  // established there for antivirus/EDR.
+  try {
+    const asrIntents = intentsItems.filter((intent: any) => {
+      const categoryNames: string[] = (intent.categories || []).map((c: any) => (c.displayName || "").toLowerCase());
+      return categoryNames.some((c) => c.includes("attack surface reduction"));
+    });
+
+    for (const intent of asrIntents) {
+      const definitionValuesResult = await fetchAllPages<any>(
+        `https://graph.microsoft.com/beta/deviceManagement/intents('${intent.id}')/definitionValues?$expand=settingInstances`,
+        headers
+      );
+      if (definitionValuesResult.error) {
+        syncErrors.push(`ASR Rules (Endpoint Security Templates): ${definitionValuesResult.error}`);
+        continue;
+      }
+      asrConfigFetchSucceeded = true;
+      const properties = extractIntentAsrProperties(definitionValuesResult.items);
+      const intentName = intent.displayName || "Endpoint Security Template";
+      asrSignals.push(...mapNamedPropertyValuesToSignals(properties, intentName));
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching ASR Endpoint Security Template policies:", err);
+    syncErrors.push(`ASR Rules (Endpoint Security Templates): ${err.message || "Unexpected error while processing policies."}`);
+  }
+
+  // If literally every surface failed, leave asrRules untouched below
+  // (preserves last-good data on a transient/permission failure) rather than
+  // overwriting it with a confident-looking but empty result.
+  const asrRulesLive: AsrRuleState[] | null = asrConfigFetchSucceeded ? mergeAsrRuleStates(asrSignals) : null;
 
   // 7. Fetch Microsoft Secure Score & control profiles
   let secureScoreData: TenantSecureScore | null = null;
@@ -1203,6 +1620,7 @@ export async function fetchLiveTenantSnapshot(
 
   // 8.96. Fetch Subscribed SKUs & detect Tenant Capabilities / Licenses
   let capabilitiesLive: TenantCapability[] | null = null;
+  let licenseSkusLive: TenantLicenseSku[] | null = null;
   const skuIdToPartNumber = new Map<string, string>();
   try {
     const skusResult = await fetchAllPages<any>("https://graph.microsoft.com/v1.0/subscribedSkus", headers);
@@ -1210,6 +1628,17 @@ export async function fetchLiveTenantSnapshot(
       syncErrors.push(`Tenant Licenses (SubscribedSkus): ${skusResult.error}`);
     } else if (skusResult.items.length > 0) {
       capabilitiesLive = mapSubscribedSkusToCapabilities(skusResult.items);
+      licenseSkusLive = skusResult.items.map((s: any) => {
+        const consumedUnits = s.consumedUnits || 0;
+        const enabledUnits = s.prepaidUnits?.enabled || 0;
+        return {
+          skuId: s.skuId,
+          skuPartNumber: s.skuPartNumber,
+          consumedUnits,
+          enabledUnits,
+          availableUnits: Math.max(0, enabledUnits - consumedUnits),
+        };
+      });
       skusResult.items.forEach((s: any) => {
         if (s.skuId && s.skuPartNumber) skuIdToPartNumber.set(s.skuId, s.skuPartNumber);
       });
@@ -1309,12 +1738,23 @@ export async function fetchLiveTenantSnapshot(
     };
   }
 
+  // Only overwrite when at least one of the three surfaces succeeded -
+  // preserves the last-good result on a transient/permission failure rather
+  // than replacing it with a confident-looking but empty one.
+  if (asrRulesLive !== null) {
+    base.asrRules = asrRulesLive;
+  }
+
   if (secureScoreData) {
     base.secureScore = secureScoreData;
   }
 
   if (capabilitiesLive !== null) {
     base.capabilities = capabilitiesLive;
+  }
+
+  if (licenseSkusLive !== null) {
+    base.licenseSkus = licenseSkusLive;
   }
 
   if (appRegistrationsLive !== null) {

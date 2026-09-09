@@ -3,6 +3,8 @@ import {
   matchCaBaselineCode,
   validateCaPolicyCompliance,
   computeBaselineCoveragePercent,
+  policyNameMatchesCode,
+  classifyPolicyBaselineCode,
   RawGraphCaPolicy,
 } from "./ca-baseline-matcher";
 
@@ -100,9 +102,17 @@ describe("matchCaBaselineCode", () => {
   it("returns null for a custom policy matching no baseline shape", () => {
     const policy: RawGraphCaPolicy = {
       conditions: { applications: { includeApplications: ["some-custom-app"] } },
-      grantControls: { builtInControls: ["approvedApplication"] },
+      grantControls: { builtInControls: ["requireTermsOfUse"] },
     };
     expect(matchCaBaselineCode(policy)).toBeNull();
+  });
+
+  it("matches CA09 via the BYOD-equivalent approved-app/app-protection-policy controls, not just device compliance", () => {
+    const policy: RawGraphCaPolicy = {
+      conditions: {},
+      grantControls: { builtInControls: ["approvedApplication", "appProtectionPolicy"] },
+    };
+    expect(matchCaBaselineCode(policy)).toBe("CA09");
   });
 
   it("returns null for a completely empty policy", () => {
@@ -212,5 +222,82 @@ describe("validateCaPolicyCompliance", () => {
     const result = validateCaPolicyCompliance(policy, "CA05");
     expect(result.isValid).toBe(false);
     expect(result.missingProperties?.some((p) => p.includes("Microsoft Azure Management"))).toBe(true);
+  });
+
+  it("rejects a structurally-correct CA06 policy that isn't named per convention (real-world repro: policy named 'mod')", () => {
+    const policy = {
+      name: "mod",
+      grantControls: ["mfa"],
+      conditions: { signInRiskLevels: ["medium", "high"] },
+    };
+    const result = validateCaPolicyCompliance(policy, "CA06");
+    expect(result.isValid).toBe(false);
+    expect(result.missingProperties).toContain('Policy name must start with "CA06:"');
+  });
+
+  it("rejects a structurally-correct CA09 policy that isn't named per convention (real-world repro: policy named 'Test Md102')", () => {
+    const policy = {
+      name: "Test Md102",
+      grantControls: ["compliantDevice"],
+      conditions: {},
+    };
+    const result = validateCaPolicyCompliance(policy, "CA09");
+    expect(result.isValid).toBe(false);
+    expect(result.missingProperties).toContain('Policy name must start with "CA09:"');
+  });
+});
+
+describe("policyNameMatchesCode", () => {
+  it("accepts the colon-suffixed and space-suffixed naming convention, case-insensitively", () => {
+    expect(policyNameMatchesCode("CA06: Require MFA for risky sign-ins", "CA06")).toBe(true);
+    expect(policyNameMatchesCode("ca06 Require MFA for risky sign-ins", "CA06")).toBe(true);
+  });
+
+  it("rejects names that don't carry the expected prefix", () => {
+    expect(policyNameMatchesCode("mod", "CA06")).toBe(false);
+    expect(policyNameMatchesCode("Test Md102", "CA09")).toBe(false);
+    expect(policyNameMatchesCode(undefined, "CA06")).toBe(false);
+  });
+
+  it("does not false-positive on a code appearing mid-string without the expected prefix shape", () => {
+    expect(policyNameMatchesCode("Require MFA (see CA06 for reference)", "CA06")).toBe(false);
+  });
+});
+
+describe("classifyPolicyBaselineCode", () => {
+  it("returns null for a structurally-matching CA06 policy that isn't named per convention (the 'mod' repro)", () => {
+    const policy: RawGraphCaPolicy = {
+      name: "mod",
+      conditions: { signInRiskLevels: ["medium", "high"] },
+      grantControls: { builtInControls: ["mfa"] },
+    };
+    expect(classifyPolicyBaselineCode(policy)).toBeNull();
+  });
+
+  it("returns null for a structurally-matching CA09 policy that isn't named per convention (the 'Test Md102' repro)", () => {
+    const policy: RawGraphCaPolicy = {
+      name: "Test Md102",
+      conditions: {},
+      grantControls: { builtInControls: ["compliantDevice"] },
+    };
+    expect(classifyPolicyBaselineCode(policy)).toBeNull();
+  });
+
+  it("returns the code when both structure and naming agree", () => {
+    const policy: RawGraphCaPolicy = {
+      displayName: "CA06: Require multifactor authentication for risky sign-ins",
+      conditions: { signInRiskLevels: ["medium", "high"] },
+      grantControls: { builtInControls: ["mfa"] },
+    };
+    expect(classifyPolicyBaselineCode(policy)).toBe("CA06");
+  });
+
+  it("returns null when there is no structural match regardless of naming", () => {
+    const policy: RawGraphCaPolicy = {
+      name: "CA06: Require multifactor authentication for risky sign-ins",
+      conditions: {},
+      grantControls: { builtInControls: ["mfa"] },
+    };
+    expect(classifyPolicyBaselineCode(policy)).toBeNull();
   });
 });

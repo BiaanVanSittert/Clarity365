@@ -85,7 +85,6 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
           clientId: clientId.trim() || undefined,
           clientSecret: clientSecret.trim() || undefined,
           authMode: mode === "live" ? "secret" : "mock",
-          status: "connected",
         },
       };
 
@@ -288,6 +287,15 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
               - <strong>optional, write access.</strong> Only grant this if you want Clarity365 to auto-deploy CA
               baseline policies directly from the app. Without it, the read-only permissions above still give full
               CA policy audit/reporting, and Clarity365 generates a PowerShell script you can run manually instead.
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <code className="bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-400 border border-amber-400 dark:border-amber-800 px-1 py-0.5 rounded font-mono font-semibold">
+                ThreatHunting.Read.All
+              </code>{" "}
+              - <strong>optional, read-only.</strong> Only needed for ASR Rules detection activity (event counts and
+              detail) - a separately-consented permission that typically also needs a Defender for Endpoint P2 (or
+              equivalent Business Premium) license. Without it, ASR rule configuration reporting (Block/Audit/Warn/Not
+              Configured per rule) still works fully.
             </p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               Defender for Office 365 policy sync (MDO Policies) needs a separate one-time Exchange Online sign-in, not a

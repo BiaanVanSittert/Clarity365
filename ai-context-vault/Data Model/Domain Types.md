@@ -14,7 +14,7 @@ tags: [data-model]
 
 | Type | Domain |
 |---|---|
-| `Tenant` / `TenantCredentials` | Core :  one MSP client org, incl. `authMode: mock\|secret\|certificate`, encrypted `clientSecret`/`exoRefreshToken` |
+| `Tenant` / `TenantCredentials` | Core :  one MSP client org, incl. `authMode: mock\|secret\|certificate`, encrypted `clientSecret`/`exoRefreshToken`. `Tenant.connectionStatus`: `healthy \| degraded \| disconnected \| error` :  render via the shared `getConnectionStatusDisplay()` (`src/lib/utils/tenant-connection-status.ts`), never a one-off ternary - two independent copies of that logic previously drifted apart (see [[Services/Tenant Store\|Tenant Store]]). |
 | `CAPolicyRule` / `CABaselineItem` | Conditional Access :  live policy vs. the CA01 to CA10 baseline it should match |
 | `SignInEvent` | Sign-in log entry incl. applied CA policies, report-only failure tracking |
 | `TenantSecureScore` / `SecureScoreControl` | Microsoft Secure Score, 90-day history |
@@ -27,6 +27,8 @@ tags: [data-model]
 | `SecurityIncidentItem` | Incident Response :  MITRE techniques, impacted users/devices |
 | `AppRegistrationItem` | App registrations, high-privilege Graph scopes, expiring creds |
 | `IntuneDevice` / `IntunePolicySummary` | Endpoint compliance, AV/EDR onboarding |
+| `AsrRuleState` (`AsrRuleMode`) | Per-tenant Attack Surface Reduction rule state (not_configured/audit/warn/block), stored on the snapshot :  see [[Attack Surface Reduction Rules]]. The 19-rule catalog itself (GUIDs, descriptions) lives outside this file, in `asr-rule-definitions.ts` |
+| `AsrRuleActivitySummary` / `AsrDetectionEvent` | On-demand Advanced Hunting detection data for the same module :  deliberately **not** stored on `TenantSecuritySnapshot`, fetched fresh per request |
 | `TenantGroup` | Groups incl. `isAssignableToRole` (role-assignable = admin grant) |
 | `SharePointSiteItem` / `SharePointTenantPolicy` | Storage + external-sharing tiers |
 | `AuditLogEntry` | Mutating-action audit trail |
@@ -34,7 +36,8 @@ tags: [data-model]
 | `GoldenBaselineTemplate` / `TenantDriftFinding` / `TenantDriftAssessment` | Golden-baseline drift detection + realignment |
 | `LicensedGlobalAdminRisk` | Cross-reference of `UserMfaProfile` (admin role) + `TenantAccountSummary` (license) :  a privileged account with a daily-use license |
 | `PrivilegedAccountRecord` | General superset of `LicensedGlobalAdminRisk` :  every admin account (licensed or not), full role list, auth strength, `isUnprotected` |
-| `FleetLicenseOptimizationItem` | Cost-waste findings (orphaned/inactive/shared-mailbox licenses) |
+| `FleetLicenseOptimizationItem` | Cost-waste findings (orphaned/inactive/shared-mailbox/disabled licenses, plus `unassigned_license_sku`: purchased seats nobody's assigned to) |
+| `TenantLicenseSku` | Per-SKU purchased-vs-consumed seat counts from `/subscribedSkus` (`consumedUnits`, `enabledUnits`, `availableUnits`) :  what [[Fleet License Optimization]]/[[Tenant License Optimization]] price the unassigned-seat waste from |
 | `ExecutiveQbrReport` | QBR generator output (health score, cost savings, achievements) |
 | `ComplianceControlItem` / `TenantComplianceAssessment` | CIS M365 v3 / NIST CSF v2 / Essential 8 scoring |
 

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { StatusPill } from "../common/StatusPill";
 import { useTheme } from "../common/useTheme";
+import { getConnectionStatusDisplay } from "@/lib/utils/tenant-connection-status";
 
 interface HeaderProps {
   tenants: Tenant[];
@@ -225,8 +226,8 @@ export const Header: React.FC<HeaderProps> = ({
         {!isFleetMode && activeTenant && (
           <div className="hidden md:flex items-center gap-2">
             <StatusPill
-              status={activeTenant.connectionStatus === "healthy" ? "pass" : activeTenant.connectionStatus === "degraded" ? "warn" : "fail"}
-              label={activeTenant.connectionStatus === "healthy" ? "Sync Healthy" : "Degraded"}
+              status={getConnectionStatusDisplay(activeTenant.connectionStatus, "header").pillStatus}
+              label={getConnectionStatusDisplay(activeTenant.connectionStatus, "header").label}
               size="sm"
             />
             <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 tabular-nums">

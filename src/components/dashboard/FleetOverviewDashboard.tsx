@@ -2,6 +2,7 @@ import React, { useState, useMemo } from "react";
 import { FleetPostureSummary, FleetTenantPosture, TrafficStatus } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Skeleton } from "../common/SkeletonLoader";
+import { getConnectionStatusDisplay } from "@/lib/utils/tenant-connection-status";
 import {
   Building2,
   Shield,
@@ -352,6 +353,19 @@ export const FleetOverviewDashboard: React.FC<FleetOverviewDashboardProps> = ({
               <option value="M365_BP">Business Premium</option>
             </select>
 
+            {/* Connection Status Filter */}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-2 py-1 text-xs bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm text-slate-700 dark:text-slate-200"
+            >
+              <option value="all">All Statuses</option>
+              <option value="healthy">Healthy</option>
+              <option value="degraded">Degraded</option>
+              <option value="error">Error</option>
+              <option value="disconnected">Not Connected</option>
+            </select>
+
             {/* Sort By */}
             <select
               value={sortField}
@@ -420,8 +434,8 @@ export const FleetOverviewDashboard: React.FC<FleetOverviewDashboardProps> = ({
                     {/* Sync Status */}
                     <td className="py-3 px-3">
                       <StatusPill
-                        status={t.connectionStatus === "healthy" ? "pass" : t.connectionStatus === "degraded" ? "warn" : "fail"}
-                        label={t.connectionStatus === "healthy" ? "Healthy" : t.connectionStatus === "degraded" ? "Degraded" : "Error"}
+                        status={getConnectionStatusDisplay(t.connectionStatus, "fleet").pillStatus}
+                        label={getConnectionStatusDisplay(t.connectionStatus, "fleet").label}
                         size="sm"
                       />
                     </td>

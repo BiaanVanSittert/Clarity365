@@ -22,6 +22,10 @@ Every `src/app/api/**/route.ts` file, plus [[Fleet Operations]] and `scheduler.t
 ## Representative methods
 `getSnapshot`, `syncTenant` (live Graph pull, falls back to cache), `deployBaselinePolicy`, `addTablEntry`/`removeTablEntry`, `applyMdoBaselineFix`, `disableForwardingRule`, `revokeMailboxDelegation`, `containUserAccount`/`restoreUserAccount`, `isolateEndpointDevice`, `getAuditLog`, `getSettings`/`updateSettings`, `saveSnapshot`.
 
+Also fixed: `syncTenant()`'s fully-failed path (Graph token acquisition fails entirely - bad/expired/revoked credentials) previously never updated `Tenant.connectionStatus`, so a tenant that was last "healthy" kept showing "healthy" everywhere indefinitely even while every subsequent sync attempt kept failing - the only trace was a toast at the moment of a manual sync. It now persists a new `"error"` status onto the raw tenant row (same `getTenantRow`/`putTenantRow` patch pattern as `persistExoRefreshToken()`) and reflects it in the stale-fallback snapshot returned to the caller, so a broken live tenant reads as broken everywhere, durably, not just in a dismissable toast.
+
+A second, deeper instance of the same class of bug: `syncTenant()`'s **success** path only ever called `putSnapshotRow()` - persisting the freshly-computed `connectionStatus`/`lastSyncTimestamp` inside the *snapshot's* embedded tenant copy - and never `putTenantRow()`. `getAllTenants()`/`getTenant()` (what the Header badge, the tenant switcher, and `computeFleetPosture()`'s tenant list all actually read) only ever read the raw `tenants` table row, which was therefore frozen at whatever `connectionStatus` it had at creation forever, no matter how many times the tenant synced successfully afterward. Now `syncTenant()`'s success branch also calls `putTenantRow(snapshot.tenant)` (the already-re-encrypted tenant object) so the canonical row and the snapshot's embedded copy never diverge.
+
 ## Risk note
 See [[Optimization Plan]] :  a 1700-line single file that's the transitive dependency of *everything* is the single highest-leverage place a bug or a slow query can hurt, and the one place a future split would pay off most.
 

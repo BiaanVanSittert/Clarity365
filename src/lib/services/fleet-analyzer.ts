@@ -112,6 +112,7 @@ export function resolveUserLastSignIn(
  * 3. Disabled Accounts with Paid Licenses (departed staff still consuming seats - pure waste).
  * 4. Active Licensed Users (actively using paid non-free licenses).
  * 5. Orphaned Active Accounts (active accounts without license or hygiene - security risk).
+ * 6. Unassigned License SKUs (purchased seats sitting idle - pure waste).
  */
 export function calculateTenantMonthlyWaste(snapshot: TenantSecuritySnapshot): {
   monthlyWasteUsd: number;
@@ -238,9 +239,36 @@ export function calculateTenantMonthlyWaste(snapshot: TenantSecuritySnapshot): {
     }
   }
 
-  // Total monthly waste is the sum of pure waste items: shared mailboxes + dormant accounts + disabled accounts with license
+  // 5. Unassigned License SKUs (paid seats purchased but assigned to no one)
+  for (const sku of snapshot.licenseSkus || []) {
+    if (sku.availableUnits > 0) {
+      items.push({
+        id: `waste-unassigned-sku-${snapshot.tenant.id}-${sku.skuId}`,
+        tenantId: snapshot.tenant.id,
+        tenantName: snapshot.tenant.displayName,
+        category: "unassigned_license_sku",
+        title: `${sku.availableUnits} Unassigned ${sku.skuPartNumber} License${sku.availableUnits === 1 ? "" : "s"}`,
+        description: `${sku.consumedUnits} of ${sku.enabledUnits} purchased ${sku.skuPartNumber} seats are assigned. ${sku.availableUnits} paid seat${sku.availableUnits === 1 ? " is" : "s are"} available and unassigned.`,
+        impactedIdentity: sku.skuPartNumber,
+        displayName: sku.skuPartNumber,
+        licenseSku: sku.skuPartNumber,
+        estimatedMonthlyCostUsd: tierCost * sku.availableUnits,
+        accountState: undefined,
+        remediationAction: "Assign these seats to pending users, or reduce the subscription quantity at next renewal.",
+        remediationModule: "license_optimizer",
+      });
+    }
+  }
+
+  // Total monthly waste is the sum of pure waste items: shared mailboxes + dormant accounts + disabled accounts with license + unassigned seats
   const monthlyWasteUsd = items
-    .filter((i) => i.category === "licensed_shared_mailbox" || i.category === "inactive_licensed_user" || i.category === "disabled_licensed_user")
+    .filter(
+      (i) =>
+        i.category === "licensed_shared_mailbox" ||
+        i.category === "inactive_licensed_user" ||
+        i.category === "disabled_licensed_user" ||
+        i.category === "unassigned_license_sku"
+    )
     .reduce((sum, item) => sum + item.estimatedMonthlyCostUsd, 0);
 
   return { monthlyWasteUsd, items };
@@ -603,8 +631,8 @@ export function computeFleetLicenseWaste(
 
   // Sort: pure waste items first, then by highest monthly cost descending
   allItems.sort((a, b) => {
-    const isWasteA = a.category === "licensed_shared_mailbox" || a.category === "inactive_licensed_user" || a.category === "disabled_licensed_user";
-    const isWasteB = b.category === "licensed_shared_mailbox" || b.category === "inactive_licensed_user" || b.category === "disabled_licensed_user";
+    const isWasteA = a.category === "licensed_shared_mailbox" || a.category === "inactive_licensed_user" || a.category === "disabled_licensed_user" || a.category === "unassigned_license_sku";
+    const isWasteB = b.category === "licensed_shared_mailbox" || b.category === "inactive_licensed_user" || b.category === "disabled_licensed_user" || b.category === "unassigned_license_sku";
     if (isWasteA && !isWasteB) return -1;
     if (!isWasteA && isWasteB) return 1;
     return b.estimatedMonthlyCostUsd - a.estimatedMonthlyCostUsd;

@@ -31,6 +31,7 @@ import {
   Award,
   FileText,
   Crown,
+  ShieldHalf,
 } from "lucide-react";
 import { TenantSecuritySnapshot, FleetPostureSummary } from "@/lib/types";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
@@ -38,6 +39,13 @@ import { evaluateMailflowBaseline } from "@/lib/services/mailflow-baseline-match
 import { evaluateGroupsBaseline } from "@/lib/services/groups-baseline-matcher";
 import { evaluateSharePointBaseline } from "@/lib/services/sharepoint-baseline-matcher";
 import { calculateTenantMonthlyWaste } from "@/lib/services/fleet-analyzer";
+import {
+  countUnreviewedFlaggedSignIns,
+  markSignInLogsReviewed,
+} from "@/lib/utils/sign-in-review-watermark";
+import { ASR_RULE_DEFINITIONS } from "@/lib/data/asr-rule-definitions";
+import { classifyAsrRuleTier } from "@/lib/services/asr-rule-matcher";
+import { hasDefenderForEndpointCapability } from "@/lib/utils/defender-for-endpoint";
 
 interface SidebarProps {
   activeView: string;
@@ -123,10 +131,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setAllCleared(newAllCleared);
     setLocalDismissed(newModules);
     try {
-      localStorage.setItem(
-        `${STORAGE_KEY_PREFIX}${tenantId}`,
-        JSON.stringify({ allCleared: newAllCleared, modules: newModules, updatedAt: new Date().toISOString() })
-      );
+      // Merge into whatever is already stored rather than overwriting it -
+      // this same key also holds signInLogsReviewedThrough (see
+      // sign-in-review-watermark.ts), which a blind overwrite here would
+      // silently wipe out on every Clear Badges/Restore click regardless of
+      // call order, bringing back every historical flagged sign-in.
+      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${tenantId}`);
+      const parsed = stored ? JSON.parse(stored) : {};
+      parsed.allCleared = newAllCleared;
+      parsed.modules = newModules;
+      parsed.updatedAt = new Date().toISOString();
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}${tenantId}`, JSON.stringify(parsed));
     } catch {
       // Ignore
     }
@@ -136,7 +151,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     e.stopPropagation();
     saveDismissedState(true, {
       ca_baseline: true,
-      signin_logs: true,
       mfa_audit: true,
       user_class: true,
       privileged_access: true,
@@ -148,12 +162,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
       sharepoint: true,
       mdo_tabl: true,
     });
+    // Sign-in logs isn't muted by the blanket toggle above (it's an event
+    // stream, not a point-in-time state) - instead this records the same
+    // review watermark the module's own "Mark All Reviewed" button does, so
+    // it still clears now but naturally comes back for genuinely new activity.
+    if (snapshot) markSignInLogsReviewed(tenantId, snapshot.signIns);
     if (propOnClearAllAlerts) propOnClearAllAlerts();
   };
 
   const handleRestoreAll = (e: React.MouseEvent) => {
     e.stopPropagation();
     saveDismissedState(false, {});
+    // Deliberately does NOT clear the sign-in logs review watermark - this
+    // button only un-mutes the other, state-based badges. Sign-in logs was
+    // never muted by them in the first place (see handleClearAll), so
+    // restoring here shouldn't un-review it and bring back every historical
+    // flagged event; that's what the module's own "Restore Alert Badge"
+    // button is for, as a deliberate, separate action.
     if (propOnRestoreAlerts) propOnRestoreAlerts();
   };
 
@@ -169,11 +194,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
       new Set(snapshot.conditionalAccess.policies.map((p) => p.baselineCode).filter(Boolean)).size
     : 0;
 
-  const riskySignInsCount = snapshot
-    ? snapshot.signIns.filter((s) => s.isRisky || s.status === "ca_blocked" || s.status === "failed").length
-    : 0;
+  // Unreviewed since the last watermark, not a raw total - so this badge
+  // clears when acknowledged and comes back on its own for genuinely new
+  // activity, instead of needing the blanket "mute everything" toggle below
+  // just to stop re-surfacing sign-ins already reviewed. See
+  // sign-in-review-watermark.ts and SignInLogsModule's "Mark All Reviewed".
+  const riskySignInsCount = snapshot ? countUnreviewedFlaggedSignIns(snapshot.signIns, tenantId) : 0;
 
   const weakMfaCount = snapshot ? snapshot.mfaAudit.filter((m) => m.isWeakAuth || !m.mfaRegistered).length : 0;
+
+  // Excludes the one server-only rule with no telemetry (Webshell creation)
+  // from the badge, same as AsrRulesModule's own tier counts - see
+  // SERVER_ONLY_RULE_IDS there. Also gated on MDE licensing so a tenant
+  // without Defender for Endpoint (where AsrRulesModule itself renders a
+  // license-required message instead of the rule list) doesn't show a
+  // misleading gap count in the nav.
+  const asrRuleGapCount =
+    snapshot && hasDefenderForEndpointCapability(snapshot)
+      ? ASR_RULE_DEFINITIONS.filter((def) => def.id !== "a8f5898e-1dc8-49a9-9878-85004b8a61e6").filter((def) => {
+          const state = (snapshot.asrRules || []).find((r) => r.ruleId === def.id);
+          const tier = classifyAsrRuleTier({
+            mode: state?.mode || "not_configured",
+            isStandardProtection: def.category === "standard",
+          });
+          return tier === "critical" || tier === "gap";
+        }).length
+      : 0;
 
   const orphanedUsersCount = snapshot ? snapshot.accountClassification.unlicensedActiveCount : 0;
 
@@ -361,6 +407,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ? `${activeIncidentsCount} active incident(s), ${criticalHighIncidentsCount} critical/high`
               : undefined,
         },
+        {
+          id: "sec_score",
+          label: "Defender Secure Score",
+          icon: ShieldAlert,
+        },
       ],
     },
     {
@@ -404,17 +455,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ],
     },
     {
-      label: "Threat & Endpoint",
+      label: "Endpoint Security",
       items: [
-        {
-          id: "sec_score",
-          label: "Defender Secure Score",
-          icon: ShieldAlert,
-        },
         {
           id: "intune",
           label: "Intune Security (AV & EDR)",
           icon: HardDrive,
+        },
+        {
+          id: "asr_rules",
+          label: "Attack Surface Reduction",
+          icon: ShieldHalf,
+          badgeCount: asrRuleGapCount > 0 ? asrRuleGapCount : undefined,
+          badgeStatus: "fail",
         },
       ],
     },
@@ -613,7 +666,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {group.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeView === item.id;
-                const isDismissed = isModuleDismissed(item.id);
+                // Sign-in logs is watermark-driven (see riskySignInsCount above) -
+                // its count is already "unreviewed since last cleared", so it's
+                // exempt from the blanket mute/dismiss toggle everything else uses.
+                const isDismissed = item.id === "signin_logs" ? false : isModuleDismissed(item.id);
                 const hasBadge = item.badgeCount !== undefined && item.badgeCount > 0;
 
                 return (

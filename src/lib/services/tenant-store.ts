@@ -13,6 +13,8 @@ import {
   FleetPostureSummary,
   FleetLicenseOptimizationSummary,
   FleetSearchResultItem,
+  AsrRuleActivitySummary,
+  AsrDetectionEvent,
 } from "../types";
 import {
   computeFleetPosture,
@@ -29,6 +31,8 @@ import {
   deployConditionalAccessPolicy,
   TenantPermissionReport,
   getGraphAccessToken,
+  fetchAsrDetectionSummaries,
+  fetchAsrDetectionEvents,
 } from "./graph-client";
 import { graphFetch } from "./graph-fetch";
 
@@ -486,6 +490,13 @@ class TenantStore {
       // Never let a decrypted secret end up persisted in the snapshot's embedded tenant.
       snapshot.tenant = this.encryptTenantSecret(snapshot.tenant);
       this.putSnapshotRow(tenantId, snapshot);
+      // The snapshot's embedded tenant carries the freshly-computed connectionStatus/
+      // lastSyncTimestamp (see graph-client.ts), but that's a copy living inside the
+      // snapshot blob - the canonical `tenants` row (what getAllTenants()/getTenant()
+      // return, i.e. what the Header badge and Fleet Posture Matrix actually read) was
+      // never being updated here, so a tenant could sync successfully forever and still
+      // show whatever status it had at creation.
+      this.putTenantRow(snapshot.tenant);
       return { snapshot: this.sanitizeSnapshot(snapshot), outcome: "synced" };
     }
 
@@ -505,8 +516,22 @@ class TenantStore {
           : `Live Graph sync failed; no cached data available. ${error || ""}`.trim(),
     });
 
+    // Persist the failure onto the tenant record itself - otherwise
+    // connectionStatus silently stays whatever it was from the last
+    // successful sync (e.g. "healthy") even while every subsequent attempt
+    // keeps failing. Patch the raw row (never the decrypted `tenant` local)
+    // so the encrypted clientSecret/exoRefreshToken are never re-persisted
+    // in plaintext, same pattern as persistExoRefreshToken().
+    const rawRow = this.getTenantRow(tenantId);
+    if (rawRow && rawRow.connectionStatus !== "error") {
+      this.putTenantRow({ ...rawRow, connectionStatus: "error" });
+    }
+
+    const sanitizedExisting = existing ? this.sanitizeSnapshot(existing) : undefined;
     return {
-      snapshot: existing ? this.sanitizeSnapshot(existing) : undefined,
+      snapshot: sanitizedExisting
+        ? { ...sanitizedExisting, tenant: { ...sanitizedExisting.tenant, connectionStatus: "error" } }
+        : undefined,
       outcome,
       error,
     };
@@ -516,6 +541,26 @@ class TenantStore {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return null;
     return await testAppRegistrationPermissions(tenant);
+  }
+
+  // On-demand only (Advanced Hunting) - not part of syncTenant, see
+  // graph-client.fetchAsrDetectionSummaries for why.
+  public async getAsrDetectionSummaries(
+    tenantId: string
+  ): Promise<{ summaries?: AsrRuleActivitySummary[]; error?: string } | null> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return null;
+    const currentRuleStates = this.getSnapshot(tenantId)?.asrRules || [];
+    return await fetchAsrDetectionSummaries(tenant, currentRuleStates);
+  }
+
+  public async getAsrDetectionEvents(
+    tenantId: string,
+    ruleId: string
+  ): Promise<{ events?: AsrDetectionEvent[]; error?: string } | null> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return null;
+    return await fetchAsrDetectionEvents(tenant, ruleId);
   }
 
   public async testExoConnectivity(tenantId: string): Promise<ExoConnectivityResult | null> {
@@ -658,7 +703,6 @@ class TenantStore {
       credentials: tenantData.credentials || {
         tenantId: tenantData.organizationId || crypto.randomUUID(),
         authMode: "mock",
-        status: "connected",
       },
       isDemo: tenantData.isDemo ?? false,
     };

@@ -38,4 +38,18 @@ describe("capabilities-mapper", () => {
     expect(entra?.licensed).toBe(false);
     expect(entra?.tier).toContain("Free");
   });
+
+  it("detects Defender for Endpoint (as Defender for Business) from the SPB (Business Premium) SKU", () => {
+    const skus = [
+      {
+        skuPartNumber: "SPB",
+        capabilityStatus: "Enabled",
+        consumedUnits: 25,
+      },
+    ];
+
+    const caps = mapSubscribedSkusToCapabilities(skus);
+    const mde = caps.find((c) => c.id === "cap-mde");
+    expect(mde?.licensed).toBe(true);
+  });
 });
