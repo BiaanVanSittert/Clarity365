@@ -85,24 +85,19 @@ Clarity365 includes a structured Obsidian Knowledge Vault located in [`ai-contex
 npm install
 ```
 
-### 2. Configure Environment Secrets
+### 2. Environment Secrets
 
-Clarity365 requires two secrets before starting. Copy `.env.example` and generate secure 32-byte hex keys:
+Clarity365 needs two secrets to run: `CLARITY365_SESSION_SECRET` (signs session cookies) and `CLARITY365_ENCRYPTION_KEY` (encrypts tenant client secrets at rest). **`npm run dev`/`build`/`start` generate both automatically into `.env.local` on first run if they're missing** (see `scripts/ensure-env.js`), so no manual step is required to get started.
+
+> **Important:** `CLARITY365_ENCRYPTION_KEY` encrypts live tenant credentials at rest. Once `.env.local` is generated, back up both values to a password manager. Changing the encryption key later will render existing stored secrets unreadable.
+
+To set your own values instead (e.g. for a shared/production deployment), set real environment variables or edit `.env.local` yourself before starting - either takes priority over auto-generation:
 
 ```bash
 cp .env.example .env.local
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
-
-Set the generated values in `.env.local`:
-
-```env
-CLARITY365_SESSION_SECRET=<first-generated-secret>
-CLARITY365_ENCRYPTION_KEY=<second-generated-secret>
-```
-
-> **Important:** `CLARITY365_ENCRYPTION_KEY` encrypts live tenant credentials at rest. Store these keys securely in a password manager. Changing the encryption key later will render existing stored secrets unreadable.
 
 ### 3. Run Development Server
 

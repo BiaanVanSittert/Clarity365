@@ -22,9 +22,10 @@ Links back to [[Clarity365 MOC]].
 ## Scripts (`package.json`)
 | Script            | Purpose                                                                                                                                  |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `predev`/`prebuild`/`prestart` | `scripts/ensure-env.js` :  auto-generates `CLARITY365_SESSION_SECRET`/`CLARITY365_ENCRYPTION_KEY` into `.env.local` if either is blank, so a fresh clone doesn't need manual setup (see [[Security & Auth]]) |
 | `dev`             | `next dev -H 127.0.0.1 -p 3000`                                                                                                          |
 | `stop`            | `scripts/stop.js` :  frees ports 3000 and 8365 (graceful SIGTERM/taskkill, then force-kill after ~1.5s)                                   |
-| `restart`         | stop + dev                                                                                                                               |
+| `restart`         | stop + `ensure-env.js` + dev (calls `next dev` directly, so `ensure-env.js` is inlined rather than relying on the `predev` hook)         |
 | `build` / `start` | production build/serve, still localhost-bound                                                                                            |
 | `type-check`      | `tsc --noEmit`                                                                                                                           |
 | `test`            | `vitest run`                                                                                                                             |
