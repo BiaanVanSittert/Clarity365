@@ -2,7 +2,9 @@ import React from "react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Skeleton } from "../common/SkeletonLoader";
+import { CountryFlag } from "../common/CountryFlag";
 import { computeExchangeMailflowScore } from "@/lib/services/exchange-mailflow-score";
+import { getCountryDisplayName } from "@/lib/utils/sign-in-country";
 import {
   Shield,
   ShieldAlert,
@@ -435,8 +437,9 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                     </div>
                     <div className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center justify-between">
                       <span className="font-medium truncate max-w-[160px]">{event.appDisplayName}</span>
-                      <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
-                        {event.location.city || "Unknown"}, {event.location.country || "ZA"}
+                      <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                        <CountryFlag code={event.location.country} size={9} />
+                        <span>{event.location.city || "Unknown"}, {getCountryDisplayName(event.location.country)}</span>
                       </span>
                     </div>
                   </div>

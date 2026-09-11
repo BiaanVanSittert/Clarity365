@@ -4,12 +4,20 @@ import { StatusPill } from "../common/StatusPill";
 import { Drawer } from "../common/Drawer";
 import { Modal } from "../common/Modal";
 import { Pagination } from "../common/Pagination";
+import { CountryFlag } from "../common/CountryFlag";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import {
   markSignInLogsReviewed,
   clearSignInLogsReviewedWatermark,
   countUnreviewedFlaggedSignIns,
 } from "@/lib/utils/sign-in-review-watermark";
+import {
+  UNKNOWN_COUNTRY,
+  getCountryDisplayName,
+  summarizeSignInsByCountry,
+  detectMostCommonCountry,
+  normalizeCountryCode,
+} from "@/lib/utils/sign-in-country";
 import {
   Key,
   Search,
@@ -38,6 +46,7 @@ import {
   RotateCcw,
   RefreshCw,
   SlidersHorizontal,
+  Globe,
 } from "lucide-react";
 
 interface SignInLogsModuleProps {
@@ -118,6 +127,12 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [serviceFilter, setServiceFilter] = useState<string>("all");
   const [errorCodeFilter, setErrorCodeFilter] = useState<number | "all">("all");
+  // "all" | "outside_home" | a specific ISO-2 code | UNKNOWN_COUNTRY.
+  const [countryFilter, setCountryFilter] = useState<string>("all");
+  // null until the user overrides it - falls back to the auto-detected most
+  // common country wherever it's actually used, so the dropdown always shows
+  // a sensible default without needing an effect to sync state.
+  const [homeCountry, setHomeCountry] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<SignInEvent | null>(null);
 
   const highlightedRowRef = useRef<HTMLTableRowElement | null>(null);
@@ -276,6 +291,23 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
     };
   }, [timeFilteredSignIns]);
 
+  // Country breakdown for the "Sign-ins by Country" chip bar, and the
+  // effective Home Country - the user's manual pick if they've made one,
+  // otherwise the auto-detected most common real country in the current
+  // timeframe. Recomputing the auto-detect default per timeframe (rather
+  // than freezing it on first render) means switching to "Last 7 Days"
+  // naturally re-suggests whichever country actually dominates that window.
+  const countryBreakdown = useMemo(() => summarizeSignInsByCountry(timeFilteredSignIns), [timeFilteredSignIns]);
+  const effectiveHomeCountry = homeCountry ?? detectMostCommonCountry(timeFilteredSignIns);
+  const availableCountries = useMemo(
+    () =>
+      countryBreakdown
+        .filter((c) => c.code !== UNKNOWN_COUNTRY)
+        .map((c) => c.code)
+        .sort((a, b) => getCountryDisplayName(a).localeCompare(getCountryDisplayName(b))),
+    [countryBreakdown]
+  );
+
   // Full filter pipeline
   const filteredSignIns = useMemo(() => {
     return timeFilteredSignIns.filter((evt) => {
@@ -292,7 +324,14 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
       const matchesService = serviceFilter === "all" || evt.appDisplayName === serviceFilter;
       const matchesErrorCode = errorCodeFilter === "all" || evt.errorCode === errorCodeFilter;
 
-      if (!matchesSearch || !matchesService || !matchesErrorCode) return false;
+      const evtCountry = normalizeCountryCode(evt.location?.country);
+      const matchesCountry =
+        countryFilter === "all" ||
+        (countryFilter === "outside_home"
+          ? evtCountry !== UNKNOWN_COUNTRY && evtCountry !== effectiveHomeCountry
+          : evtCountry === countryFilter);
+
+      if (!matchesSearch || !matchesService || !matchesErrorCode || !matchesCountry) return false;
 
       if (statusFilter === "all") return true;
       if (statusFilter === "success") return evt.status === "success" || evt.errorCode === 0;
@@ -302,7 +341,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
       if (statusFilter === "risky") return evt.isRisky;
       return true;
     });
-  }, [timeFilteredSignIns, searchQuery, statusFilter, serviceFilter, errorCodeFilter]);
+  }, [timeFilteredSignIns, searchQuery, statusFilter, serviceFilter, errorCodeFilter, countryFilter, effectiveHomeCountry]);
 
   // Client-side pagination - a live tenant sync can pull thousands of
   // sign-in rows, and rendering them all as literal <tr>s doesn't scale.
@@ -310,7 +349,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
   const [page, setPage] = useState(1);
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, statusFilter, serviceFilter, errorCodeFilter, timePreset, customStartDate, customEndDate, specificDate]);
+  }, [searchQuery, statusFilter, serviceFilter, errorCodeFilter, countryFilter, timePreset, customStartDate, customEndDate, specificDate]);
   const paginatedSignIns = useMemo(
     () => filteredSignIns.slice((page - 1) * SIGNIN_PAGE_SIZE, page * SIGNIN_PAGE_SIZE),
     [filteredSignIns, page]
@@ -582,9 +621,22 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
         )}
       </div>
 
-      {/* Analytics KPI Metric Cards */}
+      {/* Analytics KPI Metric Cards - each one is also a click-to-filter
+          toggle for statusFilter (same state the dropdown below controls),
+          same pattern as the MFA & Auth Methods tier chips. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
+        <div
+          onClick={() => setStatusFilter("all")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setStatusFilter("all"))}
+          title="Show every sign-in event"
+          className={`p-3 border rounded-sm cursor-pointer transition-colors ${
+            statusFilter === "all"
+              ? "bg-slate-200 dark:bg-slate-700 border-slate-400 dark:border-slate-500"
+              : "bg-white dark:bg-slate-800 border-[#CBD5E1] dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/70"
+          }`}
+        >
           <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Sign-Ins</div>
           <div className="text-xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">{stats.total}</div>
           <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
@@ -592,7 +644,18 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
           </div>
         </div>
 
-        <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
+        <div
+          onClick={() => setStatusFilter(statusFilter === "success" ? "all" : "success")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setStatusFilter(statusFilter === "success" ? "all" : "success"))}
+          title="Click to filter to only succeeded sign-ins"
+          className={`p-3 border rounded-sm cursor-pointer transition-colors ${
+            statusFilter === "success"
+              ? "bg-emerald-100 dark:bg-emerald-950 border-emerald-400 dark:border-emerald-800"
+              : "bg-white dark:bg-slate-800 border-[#CBD5E1] dark:border-slate-700 hover:bg-emerald-50/60 dark:hover:bg-emerald-900"
+          }`}
+        >
           <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1">
             <CheckCircle2 size={12} />
             <span>Succeeded</span>
@@ -600,20 +663,35 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
           <div className="text-xl font-bold font-mono text-emerald-900 dark:text-emerald-400 mt-1">
             {stats.successful} <span className="text-xs font-normal text-emerald-600 dark:text-emerald-400">({stats.successRate}%)</span>
           </div>
-          <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">Passed all evaluations</div>
+          <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">Passed all evaluations (Click to filter)</div>
         </div>
 
-        <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
+        <div
+          onClick={() => setStatusFilter(statusFilter === "failed" ? "all" : "failed")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setStatusFilter(statusFilter === "failed" ? "all" : "failed"))}
+          title="Click to filter to only failed sign-ins (bad credentials or policy blocks)"
+          className={`p-3 border rounded-sm cursor-pointer transition-colors ${
+            statusFilter === "failed"
+              ? "bg-rose-100 dark:bg-red-950 border-rose-400 dark:border-red-800"
+              : "bg-white dark:bg-slate-800 border-[#CBD5E1] dark:border-slate-700 hover:bg-rose-50/60 dark:hover:bg-red-900"
+          }`}
+        >
           <div className="text-[11px] font-semibold text-rose-700 dark:text-red-400 uppercase tracking-wider flex items-center gap-1">
             <XCircle size={12} />
             <span>Auth Failures</span>
           </div>
           <div className="text-xl font-bold font-mono text-rose-900 dark:text-red-400 mt-1">{stats.failed}</div>
-          <div className="text-[10px] text-rose-600 dark:text-red-400 mt-0.5">Bad credentials / policy blocks</div>
+          <div className="text-[10px] text-rose-600 dark:text-red-400 mt-0.5">Bad credentials / policy blocks (Click to filter)</div>
         </div>
 
         <div
           onClick={() => setStatusFilter(statusFilter === "report_only_failed" ? "all" : "report_only_failed")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setStatusFilter(statusFilter === "report_only_failed" ? "all" : "report_only_failed"))}
+          title="Click to filter to only sign-ins that would have failed a Conditional Access policy still in report-only mode"
           className={`p-3 border rounded-sm cursor-pointer transition-colors ${
             statusFilter === "report_only_failed"
               ? "bg-amber-100 dark:bg-amber-950 border-amber-400 dark:border-amber-800"
@@ -628,7 +706,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
           <div className="text-[10px] text-amber-700 dark:text-amber-400 mt-0.5">
             {reportOnlyImpact.uniqueUsersImpacted > 0
               ? `${reportOnlyImpact.uniqueUsersImpacted} users impacted (Click to filter)`
-              : "No report-only block events"}
+              : "No report-only block events (Click to filter)"}
           </div>
         </div>
       </div>
@@ -672,6 +750,94 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Sign-ins by Country - breakdown chips double as a click-to-filter,
+          same convention as the Frequent Error Codes bar above, plus a Home
+          Country selector and an "outside home" toggle for spotting unusual
+          countries at a glance. */}
+      {countryBreakdown.length > 0 && (
+        <div className="bg-slate-50 dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 p-2.5 rounded-sm space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 flex items-center gap-1">
+              <Globe size={12} className="text-sky-600 dark:text-sky-400" />
+              <span>Sign-ins by Country:</span>
+            </span>
+
+            <button
+              onClick={() => setCountryFilter("all")}
+              className={`px-2 py-0.5 text-[11px] font-mono rounded-sm transition-colors border ${
+                countryFilter === "all"
+                  ? "bg-slate-800 text-white border-slate-800 font-bold"
+                  : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
+              }`}
+            >
+              All Countries
+            </button>
+
+            {countryBreakdown.map(({ code, count }) => {
+              const isSelected = countryFilter === code;
+              const isHome = code === effectiveHomeCountry;
+              return (
+                <button
+                  key={code}
+                  onClick={() => setCountryFilter(isSelected ? "all" : code)}
+                  title={isHome ? `${getCountryDisplayName(code)} (Home Country)` : getCountryDisplayName(code)}
+                  className={`px-2 py-0.5 text-[11px] font-mono rounded-sm transition-colors border flex items-center gap-1.5 ${
+                    isSelected
+                      ? "bg-sky-700 text-white border-sky-700 font-bold shadow-2xs"
+                      : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  <CountryFlag code={code} />
+                  <span className="font-sans font-medium">{getCountryDisplayName(code)}</span>
+                  {isHome && <MapPin size={9} className={isSelected ? "text-white" : "text-slate-400 dark:text-slate-500"} />}
+                  <span
+                    className={`px-1 rounded text-[9px] font-bold ${
+                      isSelected ? "bg-sky-600 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1">
+              <MapPin size={12} className="text-slate-500 dark:text-slate-400" />
+              <span>Home Country:</span>
+            </span>
+            <select
+              value={effectiveHomeCountry || ""}
+              onChange={(e) => setHomeCountry(e.target.value || null)}
+              disabled={availableCountries.length === 0}
+              className="px-2 py-1 text-[11px] border border-[#CBD5E1] dark:border-slate-600 rounded-sm focus:outline-none focus:border-slate-800 dark:focus:border-slate-400 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-medium"
+            >
+              {availableCountries.length === 0 && <option value="">No resolvable countries</option>}
+              {availableCountries.map((code) => (
+                <option key={code} value={code}>
+                  {getCountryDisplayName(code)}
+                </option>
+              ))}
+            </select>
+
+            <button
+              onClick={() => setCountryFilter(countryFilter === "outside_home" ? "all" : "outside_home")}
+              disabled={!effectiveHomeCountry}
+              title="Show only sign-ins from countries other than the selected Home Country"
+              className={`px-2.5 py-1 text-[11px] font-semibold rounded-sm transition-colors border flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed ${
+                countryFilter === "outside_home"
+                  ? "bg-rose-700 text-white border-rose-700 shadow-2xs"
+                  : "bg-white dark:bg-slate-800 text-rose-800 dark:text-red-400 border-rose-300 dark:border-red-800 hover:bg-rose-50 dark:hover:bg-red-950"
+              }`}
+            >
+              <Globe size={12} />
+              <span>Outside Home Country</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -723,12 +889,19 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
             </select>
           </div>
 
-          {(statusFilter !== "all" || serviceFilter !== "all" || errorCodeFilter !== "all" || searchQuery || timePreset !== "all") && (
+          {(statusFilter !== "all" ||
+            serviceFilter !== "all" ||
+            errorCodeFilter !== "all" ||
+            countryFilter !== "all" ||
+            searchQuery ||
+            timePreset !== "all") && (
             <button
               onClick={() => {
                 setStatusFilter("all");
                 setServiceFilter("all");
                 setErrorCodeFilter("all");
+                setCountryFilter("all");
+                setHomeCountry(null);
                 setSearchQuery("");
                 setTimePreset("all");
                 setCustomStartDate("");
@@ -832,8 +1005,8 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
                         <span className="truncate">{evt.appDisplayName}</span>
                       </div>
                       <div className="text-[10px] font-mono text-slate-400 dark:text-slate-500 mt-0.5 flex items-center gap-1">
-                        <MapPin size={10} />
-                        <span>{evt.location.city || "Unknown"}, {evt.location.country || "ZA"}</span>
+                        <CountryFlag code={evt.location.country} size={10} />
+                        <span>{evt.location.city || "Unknown"}, {getCountryDisplayName(evt.location.country)}</span>
                       </div>
                     </td>
 
@@ -985,7 +1158,10 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
               <div>
                 <span className="text-slate-500 dark:text-slate-400 block text-[11px]">IP & Location:</span>
                 <span className="font-mono text-slate-800 dark:text-slate-200">{selectedEvent.ipAddress}</span>
-                <span className="text-slate-600 dark:text-slate-400 block text-[11px]">{selectedEvent.location.city || "Unknown"}, {selectedEvent.location.country || "ZA"}</span>
+                <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1 text-[11px] mt-0.5">
+                  <CountryFlag code={selectedEvent.location.country} size={11} />
+                  <span>{selectedEvent.location.city || "Unknown"}, {getCountryDisplayName(selectedEvent.location.country)}</span>
+                </span>
               </div>
             </div>
 

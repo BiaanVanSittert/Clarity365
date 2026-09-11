@@ -15,6 +15,7 @@ import { evaluateMdoBaseline } from "./mdo-baseline-matcher";
 import { evaluateMailflowBaseline } from "./mailflow-baseline-matcher";
 import { evaluateGroupsBaseline } from "./groups-baseline-matcher";
 import { evaluateSharePointBaseline } from "./sharepoint-baseline-matcher";
+import { getCountryDisplayName } from "../utils/sign-in-country";
 
 // Estimated standard commercial Microsoft 365 licensing cost per seat per month (USD)
 export const LICENSE_TIER_MONTHLY_COST: Record<TenantLicenseType, number> = {
@@ -786,7 +787,11 @@ export function searchAcrossFleet(
           sign.ipAddress.toLowerCase().includes(q) ||
           sign.userPrincipalName.toLowerCase().includes(q) ||
           sign.appDisplayName?.toLowerCase().includes(q) ||
-          sign.location?.country?.toLowerCase().includes(q)
+          sign.location?.country?.toLowerCase().includes(q) ||
+          // location.country is a stored ISO-2 code (e.g. "US") - also check
+          // the resolved display name so searching "united states" finds it
+          // too, not just literally typing "us".
+          getCountryDisplayName(sign.location?.country).toLowerCase().includes(q)
         ) {
           results.push({
             id: `srch-sign-${tId}-${sign.id}`,
@@ -794,7 +799,7 @@ export function searchAcrossFleet(
             tenantName: tName,
             category: "ip_address",
             title: `Sign-in from IP: ${sign.ipAddress}`,
-            subtitle: `${sign.userPrincipalName} via ${sign.appDisplayName || "App"} (${sign.location?.city || "Unknown"}, ${sign.location?.country || "Unknown"})`,
+            subtitle: `${sign.userPrincipalName} via ${sign.appDisplayName || "App"} (${sign.location?.city || "Unknown"}, ${getCountryDisplayName(sign.location?.country)})`,
             matchField: sign.ipAddress.toLowerCase().includes(q) ? "ipAddress" : "userPrincipalName",
             matchValue: sign.ipAddress,
             statusPill: {

@@ -321,6 +321,18 @@ class TenantStore {
         ? mockSnap.mailboxes
         : (snapshot.mailboxes || mockSnap?.mailboxes || []);
 
+    // Same "demo tenants always reflect current mock-tenants.ts" rule as
+    // users/mailboxes above - without this, a demo tenant seeded before a
+    // mock-tenants.ts edit keeps serving its old, already-persisted signIns
+    // forever, since nothing else ever rewrites a mock tenant's snapshot
+    // (fetchLiveTenantSnapshot short-circuits unchanged for authMode ===
+    // "mock"). Found via exactly that: normalizing mock signIns' country
+    // values to ISO-2 codes had no visible effect until this was added.
+    const signIns =
+      snapshot.tenant.isDemo && mockSnap?.signIns && mockSnap.signIns.length > 0
+        ? mockSnap.signIns
+        : (snapshot.signIns || mockSnap?.signIns || []);
+
     return {
       ...blank,
       ...snapshot,
@@ -331,6 +343,7 @@ class TenantStore {
         users,
       },
       mailboxes,
+      signIns,
       mdoThreat: { ...blank.mdoThreat, ...snapshot.mdoThreat },
       intune: {
         ...blank.intune,
