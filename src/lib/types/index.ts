@@ -110,6 +110,15 @@ export interface SignInEvent {
   location: {
     city: string;
     state: string;
+    // Always an ISO 3166-1 alpha-2 code (e.g. "US", "BG"), uppercase - this
+    // is what Graph's real signInLocation.countryOrRegion field actually
+    // returns ("the country code info (two letter code)", per Microsoft's
+    // own resource reference), and graph-client.ts stores it unmodified.
+    // Never a full country name - mock data used to disagree with this
+    // (e.g. "United States") until that was normalized to match live data,
+    // exactly the kind of two-representations-of-one-fact drift this
+    // project has hit before. Resolve to a display name via
+    // sign-in-country.ts's getCountryDisplayName(), never re-derived ad hoc.
     country: string;
   };
   clientApp: string;
