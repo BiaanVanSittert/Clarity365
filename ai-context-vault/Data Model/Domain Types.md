@@ -46,6 +46,7 @@ tags: [data-model]
 | `TenantLicenseSku` | Per-SKU purchased-vs-consumed seat counts from `/subscribedSkus` (`consumedUnits`, `enabledUnits`, `availableUnits`) :  what [[Fleet License Optimization]]/[[Tenant License Optimization]] price the unassigned-seat waste from |
 | `ExecutiveQbrReport` | QBR generator output (health score, cost savings, achievements) |
 | `ComplianceControlItem` / `TenantComplianceAssessment` | CIS M365 v3 / NIST CSF v2 / Essential 8 scoring |
+| `UserMfaProfile.adminRoleTemplateIds` | Role template GUIDs from real directory-role membership (Security Simulations Stage 2). Never set for the placeholder "Global Administrator" name the sync infers from the MFA registration report. Active assignments only (not PIM-eligible, not role-assignable-group grants) |
 | `CaSessionControls` / `CaNamedLocation` / `TenantIdentitySettings` | Added for [[Security Simulations Plan]] Stage 1. `CAPolicyRule` also gained optional `includeGroupIds`, `excludeRoles`, guest types, `userActions`, `authenticationContexts`, `authenticationFlows`, `insiderRiskLevels`, `deviceFilter`, `clientApplications`, `servicePrincipalRiskLevels`, `grantOperator` and `sessionControls`. On the snapshot: `conditionalAccess.namedLocations` and top-level `identitySettings`. All optional: undefined means "not synced yet". |
 
 ## See also

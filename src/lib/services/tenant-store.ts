@@ -42,6 +42,7 @@ import {
 } from "./fleet-analyzer";
 import { INITIAL_TENANTS, MOCK_TENANT_DATA } from "../data/mock-tenants";
 import { mergeDemoCaPolicies } from "../utils/demo-ca-policy-merge";
+import { SNAPSHOT_SYNC_SCHEMA_VERSION, shouldRefuseSnapshotOverwrite, storedSchemaVersion } from "../utils/sync-schema-version";
 import { createBlankSnapshot } from "../data/default-snapshot";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { encryptSecret, decryptSecret, isEncrypted, SECRET_MASK } from "./crypto";
@@ -669,6 +670,9 @@ class TenantStore {
     source: "manual" | "scheduled",
     startedAt: number
   ): Promise<SyncResult | undefined> {
+    // Read before fetching: fetchLiveTenantSnapshot builds on `existing`
+    // and mutates it in place, including its syncSchemaVersion.
+    const storedVersion = storedSchemaVersion(existing);
     const runFetch = () =>
       fetchLiveTenantSnapshot(
         tenant,
@@ -699,6 +703,25 @@ class TenantStore {
         snapshot = retry.snapshot;
         error = retry.error;
       }
+    }
+
+    if (snapshot && shouldRefuseSnapshotOverwrite(storedVersion)) {
+      // This build is older than the one that wrote the stored snapshot
+      // (typically a long-running dev server that predates a sync change).
+      // Saving would silently drop the newer build's data - see
+      // src/lib/utils/sync-schema-version.ts. Keep what's stored.
+      const detail = `Sync skipped: stored data was written by a newer version of Clarity365 (sync schema ${storedVersion}, this server runs ${SNAPSHOT_SYNC_SCHEMA_VERSION}). Restart the server to load the current code.`;
+      this.addAuditLogEntry({
+        timestamp: new Date().toISOString(),
+        category: "tenant_sync_failure",
+        action: `${source === "scheduled" ? "Scheduled" : "Manual"} sync skipped`,
+        tenantId: tenant.id,
+        tenantName: tenant.displayName,
+        success: false,
+        detail,
+      });
+      const stored = this.getSnapshotRow(tenantId);
+      return { snapshot: stored ? this.sanitizeSnapshot(stored) : undefined, outcome: "stale_fallback", error: detail };
     }
 
     if (snapshot) {

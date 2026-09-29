@@ -4,7 +4,7 @@ tags: [optimization, plan, ca, simulation]
 
 # Security Simulations - Plan
 
-Status: **reviewed 2026-09-29. Stage 1 built 2026-09-29 (pending live-tenant verification); Stage 2 next.**
+Status: **reviewed 2026-09-29. Stages 1 and 2 built 2026-09-29; Stage 3 (Sign-in Situations UI) next.** Live data needs a dev-server restart and re-sync first (see Stage 2 record).
 
 ## Decisions (user review, 2026-09-29)
 1. **Colours**: green (prevented) and red (not prevented) are the main states. **Orange** is used only where needed: partial coverage, report-only, and "not assessed" states.
@@ -98,6 +98,19 @@ Findings made while building, which change later stages:
 2. An enforced policy would have, but this user or context is **excluded**: "Remove the exclusion of *group Y* from *X*, or confirm it is a break-glass account".
 3. A matching **CA0x baseline** exists ([[Baseline Definitions & Mock Data]]): "Deploy CA0x", deep-linked to [[Conditional Access Policy Scanner]]'s existing deploy flow.
 4. Otherwise: "Create a new policy", with the concrete assignment, conditions and grant spelled out.
+
+### Stage 2 build record (2026-09-29)
+Built: `ca-policy-evaluator.ts`, `ca-sim-context.ts`, `ca-fix-recommender.ts`, each with tests (665 tests pass). Full description: [[CA Simulation Engine]].
+
+**Stage 1 live verification, and what it found.** Nine tenants were synced. Only three got Stage 1 data, and within 30 minutes two of those three (Axiomatic, then Zubat Nine and Gustav Barkhuysen) had lost it again. Cause: the dev server had been running since 2026-09-28, and its background scheduler runs boot-time code, so it re-synced tenants with the old mapper and **overwrote** the new fields. Stage 1's code is correct (the three manual syncs proved every new field populates: extended policy fields on every policy, named locations resolving every policy reference, identity settings). **Action: `npm run restart`, then re-sync.**
+
+Stage 1 follow-ups made during Stage 2:
+- `UserMfaProfile.adminRoleTemplateIds`: the sync now keeps each role's template GUID. Live tenants hold many roles no hand-written map covers (Service Support Administrator, Groups Administrator, ...), and live CA policies target role GUIDs not in the map (3 found). Also: when only the MFA registration report says "admin", the sync writes a placeholder "Global Administrator" role name; the "Sign in as Global Admin" list relies on template ids, and flags name-derived entries as `inferred`.
+- Token protection is now explicitly `false` when the beta read returned a policy without it. Before, "beta confirmed off" and "beta never ran" were both undefined.
+
+Engine behaviours found live and now handled: a CA08 targeting app `"None"`; pre-Stage-1 policies evaluated as unknown (a device-code block had read as "block everything"); break-glass accounts being the first Global Admin in two tenants (the picker now flags them).
+
+Notes for Stage 3: show a single tenant-level "re-sync needed" banner when `incompletePolicyIds` is non-empty, not per-policy reasons; flag `inferred` Global Admins and `breakGlassReasons` in the picker.
 
 ## Stage 3 : Sign-in Situations view
 

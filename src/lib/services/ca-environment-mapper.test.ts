@@ -125,7 +125,13 @@ describe("beta session extras", () => {
     ] as unknown as CAPolicyRule[];
     const merged = applyCaBetaSessionExtras(policies, new Map([["a", { tokenProtection: true }], ["b", {}]]));
     expect(merged[0].sessionControls).toEqual({ signInFrequency: { isEnabled: true, value: 1, type: "hours" }, tokenProtection: true });
-    expect(merged[1]).toBe(policies[1]);
+    // Returned by beta with no token protection: explicitly false, not undefined.
+    expect(merged[1].sessionControls).toEqual({ tokenProtection: false });
+  });
+
+  it("leaves policies the beta read did not return untouched (undefined = not assessed)", () => {
+    const policies = [{ id: "a" }] as unknown as CAPolicyRule[];
+    expect(applyCaBetaSessionExtras(policies, new Map([["other", {}]]))[0]).toBe(policies[0]);
   });
 });
 

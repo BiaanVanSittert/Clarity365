@@ -19,6 +19,7 @@ import {
 import { mapSharePointSite, mapTenantSharingSettings } from "./sharepoint-mapper";
 import { mapAppRegistration } from "./app-registration-mapper";
 import { mapSubscribedSkusToCapabilities } from "./capabilities-mapper";
+import { SNAPSHOT_SYNC_SCHEMA_VERSION } from "../utils/sync-schema-version";
 import { mapCaPolicyExtendedFields, mapCaBetaSessionExtras, applyCaBetaSessionExtras, mapNamedLocation, mapTenantIdentitySettings } from "./ca-environment-mapper";
 import { mapSecurityIncident, synthesizeIncidentsFromMdoAlerts } from "./incident-mapper";
 import { graphFetch } from "./graph-fetch";
@@ -2269,6 +2270,7 @@ export async function fetchLiveTenantSnapshot(
   onProgress?.("Users & directory roles", 2, TOTAL_SYNC_STEPS);
   let usersList: TenantAccountSummary["users"] = [];
   const adminUserRolesMap = new Map<string, string[]>(); // userId -> roleNames[]
+  const adminUserRoleTemplateIdsMap = new Map<string, string[]>(); // userId -> role template GUIDs (lower-case)
 
   try {
     const usersResult = await fetchAllPages<any>(
@@ -2327,12 +2329,20 @@ export async function fetchLiveTenantSnapshot(
 
     rolesResult.items.forEach((role: any) => {
       const roleName = role.displayName || "Directory Role";
+      const roleTemplateId: string | undefined = typeof role.roleTemplateId === "string" ? role.roleTemplateId.toLowerCase() : undefined;
       if (role.members && Array.isArray(role.members)) {
         role.members.forEach((m: any) => {
           if (m.id) {
             const existing = adminUserRolesMap.get(m.id) || [];
             existing.push(roleName);
             adminUserRolesMap.set(m.id, existing);
+            // Security Simulations: CA targets roles by template GUID, so keep
+            // the exact id rather than re-deriving it from the display name.
+            if (roleTemplateId) {
+              const ids = adminUserRoleTemplateIdsMap.get(m.id) || [];
+              if (!ids.includes(roleTemplateId)) ids.push(roleTemplateId);
+              adminUserRoleTemplateIdsMap.set(m.id, ids);
+            }
           }
         });
       }
@@ -2481,6 +2491,9 @@ export async function fetchLiveTenantSnapshot(
           accountEnabled: u.accountEnabled,
           isAdmin,
           adminRoles: roles.length > 0 ? roles : isAdmin ? ["Global Administrator"] : undefined,
+          // Only real directory-role memberships - never the "Global Administrator"
+          // placeholder above, which is inferred from the registration report alone.
+          adminRoleTemplateIds: adminUserRoleTemplateIdsMap.get(u.id),
           mfaRegistered,
           mfaEnforcedByPolicy: hasCaMfaEnforced || isAdmin,
           defaultMethod,
@@ -2527,6 +2540,7 @@ export async function fetchLiveTenantSnapshot(
           accountEnabled: u.accountEnabled,
           isAdmin,
           adminRoles: roles.length > 0 ? roles : undefined,
+          adminRoleTemplateIds: adminUserRoleTemplateIdsMap.get(u.id),
           mfaRegistered,
           mfaEnforcedByPolicy: hasCaMfaEnforced || isAdmin,
           defaultMethod,
@@ -3282,6 +3296,7 @@ export async function fetchLiveTenantSnapshot(
     connectionStatus: syncHealth.isPartial ? "degraded" : "healthy",
   };
   base.syncHealth = syncHealth;
+  base.syncSchemaVersion = SNAPSHOT_SYNC_SCHEMA_VERSION;
   base.conditionalAccess = {
     baselineCoverageScore: coveragePercent,
     baselineDefinitions: CA_BASELINE_STANDARDS,

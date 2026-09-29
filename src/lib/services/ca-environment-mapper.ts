@@ -132,6 +132,11 @@ export function mapCaBetaSessionExtras(betaPolicy: any): Pick<CaSessionControls,
 
 // Merges beta-only session extras onto already-mapped v1.0 policies by id.
 // A policy the beta read didn't return keeps its v1.0 sessionControls as-is.
+// A policy the beta read DID return always gets an explicit tokenProtection
+// (false when secureSignInSession is absent), so consumers can tell "beta
+// confirmed no token protection" (false) from "beta never read" (undefined).
+// continuousAccessEvaluation stays undefined when absent: that means the
+// default CAE behaviour, which is the correct reading once beta was read.
 export function applyCaBetaSessionExtras(
   policies: CAPolicyRule[],
   extrasById: Map<string, Pick<CaSessionControls, "tokenProtection" | "continuousAccessEvaluation">>
@@ -139,8 +144,11 @@ export function applyCaBetaSessionExtras(
   if (extrasById.size === 0) return policies;
   return policies.map((policy) => {
     const extras = extrasById.get(policy.id);
-    if (!extras || (extras.tokenProtection === undefined && extras.continuousAccessEvaluation === undefined)) return policy;
-    return { ...policy, sessionControls: { ...(policy.sessionControls || {}), ...extras } };
+    if (!extras) return policy;
+    return {
+      ...policy,
+      sessionControls: { ...(policy.sessionControls || {}), ...extras, tokenProtection: extras.tokenProtection ?? false },
+    };
   });
 }
 

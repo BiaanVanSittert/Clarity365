@@ -365,6 +365,14 @@ export interface UserMfaProfile {
   accountEnabled: boolean;
   isAdmin: boolean;
   adminRoles?: string[];
+  // Role template GUIDs (lower-case) from real directoryRoles membership -
+  // what Conditional Access includeRoles/excludeRoles compare against.
+  // Undefined on snapshots synced before Security Simulations Stage 2, and
+  // never set for the "Global Administrator" placeholder adminRoles gets when
+  // only the registration report says isAdmin. Note directoryRoles lists
+  // active assignments only: PIM-eligible (not activated) roles and roles
+  // held via a role-assignable group are not included here.
+  adminRoleTemplateIds?: string[];
   mfaRegistered: boolean;
   mfaEnforcedByPolicy: boolean;
   defaultMethod: AuthMethodType;
@@ -1087,6 +1095,9 @@ export interface TenantLicenseSku {
 
 export interface TenantSecuritySnapshot {
   tenant: Tenant;
+  // Shape version of the build that last live-synced this snapshot - see
+  // src/lib/utils/sync-schema-version.ts. Absent on older snapshots.
+  syncSchemaVersion?: number;
   syncHealth?: SyncHealth;
   capabilities: TenantCapability[];
   // Undefined until a live Graph sync has fetched /subscribedSkus (mock/blank
