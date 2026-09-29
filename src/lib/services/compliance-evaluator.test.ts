@@ -92,4 +92,59 @@ describe("compliance-evaluator service", () => {
       expect(Array.isArray(summary.topFailingControls)).toBe(true);
     });
   });
+
+  describe("evaluateTenantCompliance - POPIA/GDPR/HIPAA Readiness", () => {
+    it("evaluates POPIA/GDPR/HIPAA with the right framework titles and both auto and manual sections", () => {
+      for (const [framework, expectedTitle] of [
+        ["popia", "POPIA Compliance Readiness"],
+        ["gdpr_uk_gdpr", "GDPR / UK GDPR Compliance Readiness"],
+        ["hipaa", "HIPAA Compliance Readiness"],
+      ] as const) {
+        const assessment = evaluateTenantCompliance(contosoSnap, framework);
+        expect(assessment.framework).toBe(framework);
+        expect(assessment.frameworkTitle).toBe(expectedTitle);
+        expect(assessment.controls.some((c) => c.section === "1. Technical Safeguards")).toBe(true);
+        expect(assessment.controls.some((c) => c.section === "2. Organizational & Legal")).toBe(true);
+        // Every organizational item must carry an attestationKey - that's what
+        // drives the UI's "Attest" control; a missing key would silently make
+        // an item permanently unattestable.
+        const orgItems = assessment.controls.filter((c) => c.section === "2. Organizational & Legal");
+        expect(orgItems.length).toBeGreaterThan(0);
+        expect(orgItems.every((c) => !!c.attestationKey)).toBe(true);
+      }
+    });
+
+    it("never defaults an unattested organizational item to compliant", () => {
+      const blankSnap = createBlankSnapshot(INITIAL_TENANTS[0]);
+      const assessment = evaluateTenantCompliance(blankSnap, "popia");
+      const infoOfficerCtrl = assessment.controls.find((c) => c.attestationKey === "popia-information-officer-registered");
+      expect(infoOfficerCtrl?.status).toBe("non_compliant");
+      expect(infoOfficerCtrl?.evidence).toContain("Not yet attested");
+    });
+
+    it("marks an item compliant once the tenant has a real attestation record", () => {
+      const blankSnap = createBlankSnapshot(INITIAL_TENANTS[0]);
+      blankSnap.tenant = {
+        ...blankSnap.tenant,
+        complianceAttestations: {
+          "popia-information-officer-registered": {
+            attested: true,
+            attestedAt: "2026-09-22T00:00:00Z",
+            attestedBy: "test-operator",
+          },
+        },
+      };
+      const assessment = evaluateTenantCompliance(blankSnap, "popia");
+      const infoOfficerCtrl = assessment.controls.find((c) => c.attestationKey === "popia-information-officer-registered");
+      expect(infoOfficerCtrl?.status).toBe("compliant");
+      expect(infoOfficerCtrl?.evidence).toContain("test-operator");
+    });
+
+    it("caps the DLP-eligibility auto control at partially_compliant, never a full pass, since eligibility isn't deployment", () => {
+      const assessment = evaluateTenantCompliance(contosoSnap, "popia");
+      const dlpCtrl = assessment.controls.find((c) => c.controlNumber === "1.4");
+      expect(dlpCtrl?.status).not.toBe("compliant");
+      expect(["partially_compliant", "non_compliant"]).toContain(dlpCtrl?.status);
+    });
+  });
 });

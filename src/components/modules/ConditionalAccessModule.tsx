@@ -3,9 +3,12 @@ import { TenantSecuritySnapshot, CAPolicyRule } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { CA_BASELINE_STANDARDS, CABaselinePolicyDefinition } from "@/lib/data/baseline-definitions";
 import { DeployCaPolicyModal } from "../modals/DeployCaPolicyModal";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
 import { ShieldCheck, Lock, Terminal, Search, Filter, ShieldAlert, Code2, CheckCheck, RotateCcw, Key, Download, AlertTriangle } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { validateCaPolicyCompliance, classifyPolicyBaselineCode } from "@/lib/services/ca-baseline-matcher";
+import { hasEntraP2Capability } from "@/lib/utils/entra-p2";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 
 interface ConditionalAccessModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -26,7 +29,7 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
   highlightEntityId,
   onClearHighlight,
 }) => {
-  const { conditionalAccess, tenant, capabilities } = snapshot;
+  const { conditionalAccess, tenant } = snapshot;
   const [searchQuery, setSearchQuery] = useState("");
   const [filterState, setFilterState] = useState<string>("all");
   const [deployModalPolicy, setDeployModalPolicy] = useState<CABaselinePolicyDefinition | null>(null);
@@ -89,20 +92,10 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
   const deployedPolicies = conditionalAccess.policies;
   const baselineDefinitions = CA_BASELINE_STANDARDS;
 
-  // Check if tenant has Entra ID P2 (E5 native, EMS E5, or Entra ID P2 license)
-  const hasEntraP2 = Boolean(
-    capabilities?.some(
-      (c) =>
-        c.licensed &&
-        (c.id === "cap-entra-p2" ||
-          c.name.toLowerCase().includes("entra id p2") ||
-          c.name.toLowerCase().includes("azure ad premium p2") ||
-          c.name.toLowerCase().includes("identity protection"))
-    ) ||
-    tenant.tier === "M365_E5" ||
-    (tenant.tier as string) === "Microsoft 365 E5" ||
-    (tenant.tier as string) === "EMS_E5"
-  );
+  // Shared with drift-analyzer.ts and anywhere else Entra P2 needs checking -
+  // see entra-p2.ts for why the previous inline version here silently never
+  // matched a live tenant's real capability data.
+  const hasEntraP2 = hasEntraP2Capability(snapshot);
 
   // Map deployed policies strictly by name AND verified properties
   const baselineMap = new Map<string, CAPolicyRule>();
@@ -138,6 +131,17 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
 
   const missingBaselineCount = baselineDefinitions.filter((b) => !baselineMap.has(b.code)).length;
   const coveragePercent = Math.round(((baselineDefinitions.length - missingBaselineCount) / baselineDefinitions.length) * 100);
+
+  // Live report: a tenant's CA10 policy was deleted in Entra, but kept showing
+  // as deployed here even after clicking Sync Tenant and refreshing - because
+  // the sync itself was failing outright (a Graph token quirk), so this
+  // module kept rendering the last-good cached snapshot from before the
+  // deletion with no indication anything was stale. Every field above this
+  // point is only ever as fresh as the last sync that actually succeeded in
+  // fetching Conditional Access policies specifically - mirrors the same
+  // syncHealth.errors-filtering pattern already used by MdoPoliciesModule/
+  // AsrRulesModule, just missing here until now.
+  const caSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Conditional Access policies:"]);
 
   const filteredBaseline = baselineDefinitions.filter((item) => {
     const matchesSearch =
@@ -260,6 +264,14 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
           </button>
         </div>
       </div>
+
+      <SyncErrorBanner errors={caSyncErrors} title="Conditional Access sync error - everything below may be stale">
+        <p className="text-[11px] leading-snug">
+          The last sync couldn't fetch current Conditional Access policies from this tenant. Baseline compliance and policy
+          status below reflect the last successful sync, not necessarily the tenant's real current state - a recently deleted
+          or changed policy may not be reflected yet. Re-sync once the error below clears.
+        </p>
+      </SyncErrorBanner>
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-800 p-3 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">

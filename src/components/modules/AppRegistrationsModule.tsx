@@ -3,6 +3,8 @@ import { TenantSecuritySnapshot, AppRegistrationItem } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Server, AlertTriangle, Key, Search, Filter, ShieldAlert, ShieldCheck, Download } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 
 interface AppRegistrationsModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -10,6 +12,7 @@ interface AppRegistrationsModuleProps {
 
 export const AppRegistrationsModule: React.FC<AppRegistrationsModuleProps> = ({ snapshot }) => {
   const { appRegistrations } = snapshot;
+  const appRegSyncErrors = getSyncErrorsForPrefixes(snapshot, ["App Registrations:"]);
   const [searchQuery, setSearchQuery] = useState("");
   const [riskFilter, setRiskFilter] = useState<string>("all");
 
@@ -64,6 +67,8 @@ export const AppRegistrationsModule: React.FC<AppRegistrationsModuleProps> = ({ 
           </div>
         </div>
       </div>
+
+      <SyncErrorBanner errors={appRegSyncErrors} title="App Registrations sync error - data below may be stale" />
 
       {/* Filter and Search */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-800 p-3 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">

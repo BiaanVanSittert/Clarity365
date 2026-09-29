@@ -8,7 +8,7 @@ import {
   RawGraphCaPolicy,
 } from "./ca-baseline-matcher";
 
-const AZURE_MGMT_APP_ID = "797f3427-79cd-4827-8132-47d473d450e4";
+const AZURE_MGMT_APP_ID = "797f4846-ba00-4fd7-ba43-dac1f8f63013";
 
 describe("matchCaBaselineCode", () => {
   it("matches CA01: block legacy authentication client app types", () => {
@@ -41,6 +41,25 @@ describe("matchCaBaselineCode", () => {
       grantControls: { builtInControls: ["mfa"] },
     };
     expect(matchCaBaselineCode(policy)).toBe("CA04");
+  });
+
+  it("matches CA04 via the real, current Graph shape (includeGuestsOrExternalUsers), not just the deprecated includeUsers string", () => {
+    // Confirmed live against a real dmafrica tenant: Graph silently accepts and
+    // auto-upgrades the deprecated "GuestsOrExternalUsers" string in includeUsers
+    // on create, but a live GET of the resulting policy only ever returns the
+    // structured includeGuestsOrExternalUsers object - includeUsers comes back
+    // empty. Without checking this field, a genuinely correct CA04 policy
+    // classifies as no baseline match at all (see the "rejects a genuinely
+    // correct CA04 policy" regression test below for the full-pipeline case).
+    const policy: RawGraphCaPolicy = {
+      displayName: "CA04: Require multifactor authentication for guest access",
+      conditions: {
+        users: { includeUsers: [], includeGuestsOrExternalUsers: { guestOrExternalUserTypes: "b2bCollaborationGuest" } },
+      },
+      grantControls: { builtInControls: ["mfa"] },
+    };
+    expect(matchCaBaselineCode(policy)).toBe("CA04");
+    expect(classifyPolicyBaselineCode(policy)).toBe("CA04");
   });
 
   it("matches CA05: MFA for Azure management (by app ID, not name)", () => {
@@ -210,6 +229,30 @@ describe("validateCaPolicyCompliance", () => {
     const result = validateCaPolicyCompliance(policy, "CA07");
     expect(result.isValid).toBe(false);
     expect(result.missingProperties).toContain("Grant control 'passwordChange'");
+  });
+
+  it("validates a genuinely correct, live-deployed CA04 policy against the mapped CAPolicyRule shape (regression: was falsely Misconfigured)", () => {
+    // Real shape graph-client.ts's read-side mapping now produces for a guest-
+    // targeting policy, re-encoding Graph's includeGuestsOrExternalUsers as the
+    // "GuestsOrExternalUsers" marker string in conditions.users.include - see
+    // that mapping's comment for why. Before that fix, this exact shape (with
+    // include: []) made isValid come back false for a policy dmafrica had
+    // correctly deployed and Microsoft was correctly enforcing - matched was
+    // null (not "CA04"), so isValid = matched === codeUpper && ... was false
+    // regardless of the lenient per-code mfa/block check passing.
+    const policy: RawGraphCaPolicy = {
+      name: "CA04: Require multifactor authentication for guest access",
+      state: "enabled",
+      grantControls: ["mfa"],
+      conditions: {
+        users: { include: ["GuestsOrExternalUsers"], exclude: [], includeRoles: [] },
+        applications: { include: ["All"], exclude: [] },
+        clientAppTypes: ["all"],
+      },
+    };
+    const result = validateCaPolicyCompliance(policy, "CA04");
+    expect(result.isValid).toBe(true);
+    expect(result.matchedCode).toBe("CA04");
   });
 
   it("rejects policy claiming CA05 that does not scope Azure management app ID", () => {

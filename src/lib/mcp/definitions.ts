@@ -147,6 +147,43 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     },
   },
   {
+    name: "query_data_protection_recommendations",
+    description: "Query Clarity365's DLP and sensitivity-label recommendation catalog by regulation and/or data type. Read-only and catalog-only - unlike every other tool here, this one takes no tenantId and never reads or writes any tenant's real DLP/label configuration. Every recommendation is guidance meant to be applied by hand in the Microsoft Purview portal, or via a generated (unverified) PowerShell script.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        regulation: {
+          type: "string",
+          enum: ["popia", "gdpr_uk_gdpr", "hipaa"],
+          description: "Optional filter to recommendations tagged with this regulation. A recommendation with no regulation (e.g. the IP/contracts entry) is only returned when this filter is omitted.",
+        },
+        dataCategory: {
+          type: "string",
+          enum: [
+            "government_id",
+            "health",
+            "financial_banking",
+            "payment_card",
+            "credentials_secrets",
+            "bulk_pii",
+            "ip_contracts",
+            "cross_border_transfer",
+          ],
+          description: "Optional filter to recommendations tagged with this data category.",
+        },
+        minimumLicenseTier: {
+          type: "string",
+          enum: ["business_premium_e3", "e5"],
+          description: "Optional filter to recommendations whose minimum license tier exactly matches this value.",
+        },
+        recommendationId: {
+          type: "string",
+          description: "If set, ignores the filters above and returns full detail (portal steps, generated PowerShell script, caveats) for this one recommendation id, as returned by a prior filtered query.",
+        },
+      },
+    },
+  },
+  {
     name: "generate_remediation_plan",
     description: "Generate comprehensive step-by-step PowerShell / Microsoft Graph API remediation scripts, impact analysis, and rollback procedures for security findings in a tenant.",
     inputSchema: {

@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { TenantSecuritySnapshot, AsrRuleActivitySummary, AsrDetectionEvent } from "@/lib/types";
+import { TenantSecuritySnapshot, AsrRuleActivitySummary, AsrDetectionEvent, AsrRuleMode, IntuneAssignmentTarget, AsrDetectionTimeRange } from "@/lib/types";
 import { ASR_RULE_DEFINITIONS, AsrRuleDefinition } from "@/lib/data/asr-rule-definitions";
 import { classifyAsrRuleTier, ASR_TIER_LABEL, ASR_TIER_SEVERITY, AsrTier } from "@/lib/services/asr-rule-matcher";
 import { hasDefenderForEndpointCapability } from "@/lib/utils/defender-for-endpoint";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 import { Drawer } from "../common/Drawer";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
 import {
   ShieldHalf,
   ShieldCheck,
@@ -18,10 +20,13 @@ import {
   ChevronRight,
   ChevronDown,
   AlertTriangle,
+  Rocket,
+  Loader2,
 } from "lucide-react";
 
 interface AsrRulesModuleProps {
   snapshot: TenantSecuritySnapshot;
+  onNavigate?: (view: string) => void;
 }
 
 // A rule with no telemetry and a narrow (server-only) applicability is
@@ -83,7 +88,25 @@ const TIER_BADGE_CLASSES: Record<AsrTier, string> = {
 
 const TIER_ORDER: AsrTier[] = ["critical", "gap", "in_progress", "protected"];
 
-export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot }) => {
+const TIME_RANGE_OPTIONS: { value: AsrDetectionTimeRange; label: string }[] = [
+  { value: "7d", label: "7 Days" },
+  { value: "30d", label: "30 Days" },
+  { value: "all", label: "All Time" },
+];
+
+const TIME_RANGE_LABEL: Record<AsrDetectionTimeRange, string> = {
+  "7d": "Last 7 Days",
+  "30d": "Last 30 Days",
+  all: "All Time",
+};
+
+const TIME_RANGE_SHORT_LABEL: Record<AsrDetectionTimeRange, string> = {
+  "7d": "7d",
+  "30d": "30d",
+  all: "all time",
+};
+
+export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot, onNavigate }) => {
   const [tierFilter, setTierFilter] = useState<AsrTier | "all">("all");
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -92,6 +115,7 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot }) => {
   // snapshot. null = still loading; an error means the tenant likely lacks
   // ThreatHunting.Read.All or a Defender for Endpoint P2 license, which is
   // an expected, non-alarming outcome, not a bug.
+  const [timeRange, setTimeRange] = useState<AsrDetectionTimeRange>("30d");
   const [activitySummaries, setActivitySummaries] = useState<Record<string, AsrRuleActivitySummary> | null>(null);
   const [activityError, setActivityError] = useState<string | null>(null);
 
@@ -100,6 +124,18 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot }) => {
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [expandedEventIndex, setExpandedEventIndex] = useState<number | null>(null);
 
+  // Phase 2 write path - gated behind both Tenant.endpointSecurityWriteMode
+  // and the DeviceManagementConfiguration.ReadWrite.All permission (the
+  // latter isn't re-checked client-side, same convention as the CA deploy
+  // button - a missing permission simply surfaces as a Graph 403).
+  const writeEnabled = snapshot.tenant.endpointSecurityWriteMode === "write_enabled";
+  const [deployDrawerOpen, setDeployDrawerOpen] = useState(false);
+  const [deployModes, setDeployModes] = useState<Record<string, AsrRuleMode>>({});
+  const [deployAssignmentMode, setDeployAssignmentMode] = useState<IntuneAssignmentTarget["mode"]>("none");
+  const [deployGroupId, setDeployGroupId] = useState("");
+  const [deploying, setDeploying] = useState(false);
+  const [deployResult, setDeployResult] = useState<{ success: boolean; message: string } | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     setActivitySummaries(null);
@@ -107,7 +143,7 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot }) => {
     fetch(`/api/tenants/${snapshot.tenant.id}/asr-detections`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ timeRange }),
     })
       .then((res) => res.json())
       .then((data) => {
@@ -126,11 +162,11 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot }) => {
     return () => {
       cancelled = true;
     };
-  }, [snapshot.tenant.id]);
+  }, [snapshot.tenant.id, timeRange]);
 
   const hasDefenderForEndpoint = hasDefenderForEndpointCapability(snapshot);
 
-  const asrSyncErrors = (snapshot.syncHealth?.errors || []).filter((e) => e.startsWith("ASR Rules"));
+  const asrSyncErrors = getSyncErrorsForPrefixes(snapshot, ["ASR Rules"]);
 
   const ruleStateById = new Map((snapshot.asrRules || []).map((r) => [r.ruleId, r]));
 
@@ -165,20 +201,24 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot }) => {
     setExpandedEventIndex(null);
     setEventsError(null);
     if (!selected || !selected.def.hasAdvancedHuntingTelemetry) return;
-    if (eventsByRule[selected.def.id]) return; // already cached this session
+    // Cache key includes timeRange - switching ranges while a drawer is
+    // open must refetch, not silently keep showing the previous range's
+    // (now mislabeled) cached events.
+    const cacheKey = `${selected.def.id}:${timeRange}`;
+    if (eventsByRule[cacheKey]) return; // already cached this session
 
     let cancelled = false;
     setEventsLoading(true);
     fetch(`/api/tenants/${snapshot.tenant.id}/asr-detections`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ruleId: selected.def.id }),
+      body: JSON.stringify({ ruleId: selected.def.id, timeRange }),
     })
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
         if (data.success) {
-          setEventsByRule((prev) => ({ ...prev, [selected.def.id]: data.events || [] }));
+          setEventsByRule((prev) => ({ ...prev, [cacheKey]: data.events || [] }));
         } else {
           setEventsError(data.error || "Detection events unavailable.");
         }
@@ -193,12 +233,58 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot }) => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRuleId]);
+  }, [selectedRuleId, timeRange]);
 
   const handleCopyGuidance = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleOpenDeployDrawer = () => {
+    // Seed every rule from its current live mode where one exists; anything
+    // currently Not Configured defaults to Audit, matching the CA05-style
+    // "never default a fresh deploy straight to enforcement" convention -
+    // the admin has to deliberately pick Block/Warn per rule.
+    const seeded: Record<string, AsrRuleMode> = {};
+    for (const r of rulesWithTier) {
+      seeded[r.def.id] = r.mode === "not_configured" ? "audit" : (r.mode as AsrRuleMode);
+    }
+    setDeployModes(seeded);
+    setDeployAssignmentMode("none");
+    setDeployGroupId("");
+    setDeployResult(null);
+    setDeployDrawerOpen(true);
+  };
+
+  const handleDeploy = async () => {
+    const modes: Record<string, Exclude<AsrRuleMode, "not_configured">> = {};
+    for (const [ruleId, mode] of Object.entries(deployModes)) {
+      if (mode !== "not_configured") modes[ruleId] = mode as Exclude<AsrRuleMode, "not_configured">;
+    }
+    if (Object.keys(modes).length === 0) {
+      setDeployResult({ success: false, message: "Every rule is set to Not Configured - nothing to deploy." });
+      return;
+    }
+
+    setDeploying(true);
+    setDeployResult(null);
+    try {
+      const res = await fetch(`/api/tenants/${snapshot.tenant.id}/endpoint-security/asr-deploy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          modes,
+          assignment: { mode: deployAssignmentMode, groupId: deployGroupId || undefined } as IntuneAssignmentTarget,
+        }),
+      });
+      const data = await res.json();
+      setDeployResult({ success: !!data.success, message: data.success ? data.message : data.error || "Deploy failed." });
+    } catch (err: any) {
+      setDeployResult({ success: false, message: err.message || "Network error while deploying." });
+    } finally {
+      setDeploying(false);
+    }
   };
 
   if (!hasDefenderForEndpoint) {
@@ -252,11 +338,11 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot }) => {
           )}
           {activityCount > 0 && (
             <span
-              title="Detection activity in the last 30 days - not a tier color on purpose, since a Block rule catching something is the system working, not a fault"
+              title={`Detection activity in the selected time range (${TIME_RANGE_LABEL[timeRange]}) - not a tier color on purpose, since a Block rule catching something is the system working, not a fault`}
               className="inline-flex items-center gap-1 text-[9px] font-mono font-semibold px-1.5 py-0.5 bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-400 border border-sky-300 dark:border-sky-800 rounded-sm"
             >
               <Activity size={9} />
-              {activityCount} (30d)
+              {activityCount} ({TIME_RANGE_SHORT_LABEL[timeRange]})
             </span>
           )}
           <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-sm border ${TIER_BADGE_CLASSES[r.tier]}`}>
@@ -270,15 +356,48 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot }) => {
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       {/* Header */}
-      <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm">
-        <div className="flex items-center gap-2">
-          <ShieldHalf size={18} className="text-slate-800 dark:text-slate-200" />
-          <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">Attack Surface Reduction</h2>
+      <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <ShieldHalf size={18} className="text-slate-800 dark:text-slate-200" />
+            <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">Attack Surface Reduction</h2>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            Every Defender ASR rule, colored by current state. Click a rule for its full description and setup guidance.
+          </p>
         </div>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-          Every Defender ASR rule, colored by current state. Click a rule for its full description and setup guidance.
-        </p>
+        {writeEnabled && (
+          <button
+            onClick={handleOpenDeployDrawer}
+            title="Also needs the DeviceManagementConfiguration.ReadWrite.All permission - a missing permission surfaces as an error on Deploy, not here."
+            className="px-3 py-1.5 text-xs font-semibold rounded-sm flex items-center gap-1.5 transition-colors border shrink-0 bg-amber-50 dark:bg-amber-950 text-amber-800 dark:text-amber-400 border-amber-300 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900"
+          >
+            <Rocket size={13} />
+            <span>{snapshot.intune?.clarity365AsrPolicyId ? "Redeploy ASR Rules" : "Deploy ASR Rules"}</span>
+          </button>
+        )}
       </div>
+
+      {!writeEnabled && (
+        <div className="flex items-start gap-2 p-2.5 bg-sky-50 dark:bg-sky-950 border border-sky-300 dark:border-sky-800 rounded-sm text-[11px] text-sky-900 dark:text-sky-300">
+          <Info size={13} className="text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
+          <span>
+            This module is reporting live state only. Turn on Write-Enabled mode in the{" "}
+            {onNavigate ? (
+              <button
+                onClick={() => onNavigate("defender_config")}
+                className="font-semibold underline hover:text-sky-700 dark:hover:text-sky-100"
+              >
+                Defender Config &amp; Onboarding
+              </button>
+            ) : (
+              <span className="font-semibold">Defender Config &amp; Onboarding</span>
+            )}{" "}
+            module (plus the <code className="mx-1 px-1 bg-sky-100 dark:bg-sky-900 rounded font-mono">DeviceManagementConfiguration.ReadWrite.All</code>
+            permission) to deploy ASR rules directly - until then, use each rule's PowerShell/portal guidance below.
+          </span>
+        </div>
+      )}
 
       {/* Tier legend and filter chips */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -308,26 +427,83 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot }) => {
         })}
       </div>
 
-      {asrSyncErrors.length > 0 && (
-        <div className="p-3 bg-rose-50 dark:bg-red-950 border border-rose-300 dark:border-red-800 text-rose-900 dark:text-red-300 text-xs rounded-sm space-y-1.5">
-          <div className="flex items-center gap-2 font-semibold">
-            <AlertTriangle size={14} className="text-rose-600 dark:text-red-400" />
-            <span>ASR configuration sync error - rule states below may be incomplete</span>
-          </div>
-          {asrSyncErrors.map((err, i) => (
-            <div key={i} className="text-[11px] font-mono bg-white/70 dark:bg-slate-900/50 p-1.5 border border-rose-200 dark:border-red-800 rounded-sm">
-              {err}
-            </div>
-          ))}
-        </div>
-      )}
+      <SyncErrorBanner errors={asrSyncErrors} title="ASR configuration sync error - rule states below may be incomplete" />
 
-      {activityError && (
-        <div className="flex items-center gap-2 px-3.5 py-2 bg-slate-50 dark:bg-slate-800/60 border border-[#E2E8F0] dark:border-slate-700 rounded-sm text-[11px] text-slate-500 dark:text-slate-400">
-          <Info size={13} className="shrink-0" />
-          <span>Detection activity unavailable: {activityError}</span>
+      {/* Detection Activity Summary - aggregate across every rule, with the time-range selector that also drives the per-row badges and the rule drawer */}
+      <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
+        <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Detection Activity Summary</h3>
+          <div className="flex items-center gap-1.5">
+            {TIME_RANGE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setTimeRange(opt.value)}
+                className={`px-2.5 py-1 text-[11px] font-mono font-semibold rounded-sm border transition-colors ${
+                  timeRange === opt.value
+                    ? "bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 border-slate-800 dark:border-slate-200"
+                    : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-[#CBD5E1] dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
-      )}
+
+        {activityError ? (
+          <div className="flex items-start gap-2 px-4 py-3 text-[11px] text-slate-500 dark:text-slate-400">
+            <Info size={13} className="shrink-0 mt-0.5" />
+            <span>Detection activity unavailable: {activityError}</span>
+          </div>
+        ) : !activitySummaries ? (
+          <div className="px-4 py-3 text-[11px] text-slate-400 dark:text-slate-500">Loading detection activity...</div>
+        ) : (
+          (() => {
+            const totals = Object.values(activitySummaries).reduce(
+              (acc, s) => {
+                acc.audit += s.auditHitCount;
+                acc.block += s.blockHitCount;
+                acc.warnBypassed += s.warnBypassedCount;
+                return acc;
+              },
+              { audit: 0, block: 0, warnBypassed: 0 }
+            );
+            const total = totals.audit + totals.block + totals.warnBypassed;
+            const activeRuleCount = Object.values(activitySummaries).filter(
+              (s) => s.auditHitCount + s.blockHitCount + s.warnBypassedCount > 0
+            ).length;
+
+            if (total === 0) {
+              return (
+                <div className="px-4 py-3 text-[11px] text-slate-400 dark:text-slate-500 italic">
+                  No ASR detection events recorded in {TIME_RANGE_LABEL[timeRange].toLowerCase()}.
+                </div>
+              );
+            }
+
+            return (
+              <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <div className="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400">Total Events</div>
+                  <div className="text-xl font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100">{total}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400">Blocked</div>
+                  <div className="text-xl font-bold font-mono tabular-nums text-emerald-700 dark:text-emerald-400">{totals.block}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400">Audited</div>
+                  <div className="text-xl font-bold font-mono tabular-nums text-sky-700 dark:text-sky-400">{totals.audit}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-mono uppercase text-slate-500 dark:text-slate-400">Rules With Activity</div>
+                  <div className="text-xl font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100">{activeRuleCount}</div>
+                </div>
+              </div>
+            );
+          })()
+        )}
+      </div>
 
       {/* Standard Protection */}
       <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
@@ -409,13 +585,30 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot }) => {
 
             {selected.def.hasAdvancedHuntingTelemetry && (
               <div>
-                <div className="text-[10px] font-mono uppercase font-semibold text-slate-500 dark:text-slate-400 mb-1">
-                  Detection Activity (Last 30 Days)
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-[10px] font-mono uppercase font-semibold text-slate-500 dark:text-slate-400">
+                    Detection Activity ({TIME_RANGE_LABEL[timeRange]})
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {TIME_RANGE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setTimeRange(opt.value)}
+                        className={`px-1.5 py-0.5 text-[9px] font-mono font-semibold rounded-sm border ${
+                          timeRange === opt.value
+                            ? "bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 border-slate-800 dark:border-slate-200"
+                            : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-[#CBD5E1] dark:border-slate-700"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {(() => {
                   const activity = activitySummaries?.[selected.def.id];
-                  const events = eventsByRule[selected.def.id];
+                  const events = eventsByRule[`${selected.def.id}:${timeRange}`];
 
                   if (!activity && !activityError) {
                     return <div className="text-slate-400 dark:text-slate-500">Loading...</div>;
@@ -519,6 +712,96 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot }) => {
             </div>
           </div>
         )}
+      </Drawer>
+
+      {/* Deploy ASR Rules Drawer (Phase 2 write path) */}
+      <Drawer isOpen={deployDrawerOpen} onClose={() => setDeployDrawerOpen(false)} title="Deploy ASR Rules" width="lg">
+        <div className="space-y-4 text-xs">
+          <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-sm p-2.5 flex items-start gap-2">
+            <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-amber-800 dark:text-amber-300">
+              Creates one Settings Catalog policy covering every rule set below (anything left "Not Configured" is
+              excluded entirely). New rules default to Audit, not Block - review activity for 7-14 days before
+              promoting any rule to Block.
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] font-mono uppercase font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Per-Rule Mode</div>
+            <div className="border border-[#E2E8F0] dark:border-slate-700 rounded-sm divide-y divide-[#E2E8F0] dark:divide-slate-700 max-h-80 overflow-y-auto">
+              {ASR_RULE_DEFINITIONS.map((def) => (
+                <div key={def.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5">
+                  <span className="text-[11px] text-slate-700 dark:text-slate-300 truncate">{def.name}</span>
+                  <select
+                    value={deployModes[def.id] || "not_configured"}
+                    onChange={(e) => setDeployModes((prev) => ({ ...prev, [def.id]: e.target.value as AsrRuleMode }))}
+                    className="px-1.5 py-0.5 text-[10px] font-mono border border-[#CBD5E1] dark:border-slate-600 rounded-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shrink-0"
+                  >
+                    <option value="not_configured">Not Configured</option>
+                    <option value="audit">Audit</option>
+                    {def.supportsWarnMode && <option value="warn">Warn</option>}
+                    <option value="block">Block</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] font-mono uppercase font-semibold text-slate-500 dark:text-slate-400 mb-1.5">Assignment</div>
+            <div className="space-y-1.5">
+              {(
+                [
+                  { value: "none", label: "Do Not Assign (recommended for a first deploy)" },
+                  { value: "allUsers", label: "Assign to All Users" },
+                  { value: "allDevices", label: "Assign to All Devices" },
+                  { value: "allUsersAndDevices", label: "Assign to All Users and Devices" },
+                  { value: "group", label: "A specific group" },
+                ] as const
+              ).map((opt) => (
+                <label key={opt.value} className="flex items-center gap-2 text-[11px] text-slate-700 dark:text-slate-300 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="asr-assignment-mode"
+                    checked={deployAssignmentMode === opt.value}
+                    onChange={() => setDeployAssignmentMode(opt.value)}
+                  />
+                  <span>{opt.label}</span>
+                </label>
+              ))}
+              {deployAssignmentMode === "group" && (
+                <input
+                  type="text"
+                  placeholder="Entra group ID (GUID)"
+                  value={deployGroupId}
+                  onChange={(e) => setDeployGroupId(e.target.value)}
+                  className="ml-6 mt-1 px-2 py-1 text-[11px] font-mono border border-[#CBD5E1] dark:border-slate-600 rounded-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 w-full max-w-xs"
+                />
+              )}
+            </div>
+          </div>
+
+          {deployResult && (
+            <div
+              className={`p-2.5 rounded-sm border text-[11px] ${
+                deployResult.success
+                  ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800"
+                  : "bg-rose-50 dark:bg-red-950 text-rose-800 dark:text-red-300 border-rose-300 dark:border-red-800"
+              }`}
+            >
+              {deployResult.message}
+            </div>
+          )}
+
+          <button
+            onClick={handleDeploy}
+            disabled={deploying}
+            className="w-full px-3 py-2 text-xs font-semibold rounded-sm flex items-center justify-center gap-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white"
+          >
+            {deploying ? <Loader2 size={13} className="animate-spin" /> : <Rocket size={13} />}
+            <span>{deploying ? "Deploying..." : "Deploy"}</span>
+          </button>
+        </div>
       </Drawer>
     </div>
   );

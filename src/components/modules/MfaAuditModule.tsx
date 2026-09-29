@@ -3,6 +3,9 @@ import { TenantSecuritySnapshot, UserMfaProfile, AuthMethodType } from "@/lib/ty
 import { Search, Shield, ShieldCheck, ShieldAlert, ShieldX, AlertTriangle, Ban, Sparkles, Download } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { EmptyStateRow } from "../common/EmptyStateRow";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
+import { resolveUserLastSignIn } from "@/lib/services/fleet-analyzer";
 import {
   classifyMfaRiskTier,
   MFA_RISK_TIER_LABEL,
@@ -88,6 +91,7 @@ const TIER_ORDER: MfaRiskTier[] = ["critical", "red", "orange", "green", "disabl
 
 export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpenRemediation }) => {
   const { mfaAudit } = snapshot;
+  const mfaSyncErrors = getSyncErrorsForPrefixes(snapshot, ["MFA registration details:", "Users:"]);
   const [searchQuery, setSearchQuery] = useState("");
   const [tierFilter, setTierFilter] = useState<MfaRiskTier | "all">("all");
   const [includeDisabled, setIncludeDisabled] = useState(false);
@@ -158,6 +162,8 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
       "PrivilegeLevel",
       "IsLicensed",
       "AssignedLicenses",
+      "LastSignInDate",
+      "DaysInactive",
       "DefaultAuthMethod",
       "RegisteredMethods",
       "MfaEnforcedByPolicy",
@@ -168,12 +174,15 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
       const methodMeta = METHOD_LABELS[user.defaultMethod];
       const isLicensed = isUserLicensed(user.userPrincipalName);
       const licenses = getUserLicenses(user.userPrincipalName);
+      const { lastSignInDateTime, daysInactive } = resolveUserLastSignIn(user, snapshot);
       return [
         user.displayName,
         user.userPrincipalName,
         user.isAdmin ? user.adminRoles?.[0] || "Directory Admin" : user.department || "Standard User",
         isLicensed ? "Yes" : "No",
         licenses.join("; "),
+        lastSignInDateTime ? new Date(lastSignInDateTime).toLocaleDateString() : "No record",
+        `${daysInactive} days`,
         methodMeta.name,
         user.registeredMethods.map((m) => METHOD_LABELS[m]?.name || m).join("; "),
         user.mfaEnforcedByPolicy ? "Yes" : "No",
@@ -208,6 +217,8 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
           <span>Enforce Strong MFA Policy</span>
         </button>
       </div>
+
+      <SyncErrorBanner errors={mfaSyncErrors} title="MFA audit sync error - data below may be stale" />
 
       {/* Tier legend and filter chips */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
@@ -308,6 +319,7 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
               <tr>
                 <th>User / Identity</th>
                 <th>Privilege Level</th>
+                <th>Last Sign-In</th>
                 <th>Default Auth Method</th>
                 <th>Registered Methods</th>
                 <th>MFA Enforced by Policy</th>
@@ -317,7 +329,7 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
             <tbody>
               {filteredUsers.length === 0 ? (
                 <EmptyStateRow
-                  colSpan={6}
+                  colSpan={7}
                   entityLabel="users"
                   isFiltered={searchQuery.trim().length > 0 || tierFilter !== "all" || privilegedOnly}
                 />
@@ -325,6 +337,7 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
                 filteredUsers.map(({ user, tier }) => {
                   const methodMeta = METHOD_LABELS[user.defaultMethod];
                   const TierIcon = TIER_ICON[tier];
+                  const { lastSignInDateTime, daysInactive } = resolveUserLastSignIn(user, snapshot);
 
                   return (
                     <tr key={user.id} className={`transition-colors ${TIER_ROW_CLASSES[tier]}`}>
@@ -342,6 +355,24 @@ export const MfaAuditModule: React.FC<MfaAuditModuleProps> = ({ snapshot, onOpen
                           </span>
                         ) : (
                           <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium">{user.department || "Standard User"}</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap font-mono text-xs">
+                        {lastSignInDateTime ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-2 h-2 rounded-full ${daysInactive > 90 ? "bg-amber-500" : "bg-emerald-500"}`} />
+                            <div>
+                              <div className="text-slate-900 dark:text-slate-100 font-semibold text-[11px]">
+                                {new Date(lastSignInDateTime).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                              </div>
+                              <div className="text-[10px] text-slate-400">{daysInactive === 0 ? "Today" : `${daysInactive} days ago`}</div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 text-slate-400">
+                            <span className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" />
+                            <span className="text-[11px]">{daysInactive > 0 ? `Created ${daysInactive}d ago (No logins)` : "No login records"}</span>
+                          </div>
                         )}
                       </td>
                       <td>

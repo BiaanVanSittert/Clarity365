@@ -5,6 +5,8 @@ import { Modal } from "../common/Modal";
 import { Mail, Users, AlertTriangle, Search, Filter, HardDrive, DollarSign, Download, ShieldCheck, ShieldAlert, Wrench, ExternalLink, Trash2 } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { EmptyStateRow } from "../common/EmptyStateRow";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 
 interface MailboxPermissionsModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -22,6 +24,7 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
   onClearHighlight,
 }) => {
   const { mailboxes, tenant, mailboxAuditingEnabled } = snapshot;
+  const mailboxSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Mailflow:"]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType] = useState<string>("all");
 
@@ -167,6 +170,8 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
           </div>
         )}
       </div>
+
+      <SyncErrorBanner errors={mailboxSyncErrors} title="Exchange Online sync error - data below may be stale" />
 
       {/* Summary Filter Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">

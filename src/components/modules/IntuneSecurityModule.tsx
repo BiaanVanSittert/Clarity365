@@ -5,6 +5,8 @@ import { Drawer } from "../common/Drawer";
 import { HardDrive, ShieldCheck, ShieldAlert, Laptop, Search, Filter, CheckCircle2, XCircle, Download, ChevronRight } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { EmptyStateRow } from "../common/EmptyStateRow";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 
 interface IntuneSecurityModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -43,6 +45,12 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({
   }, [highlightEntityId]);
 
   const devices = intune.devices;
+  const intuneSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Intune devices:", "Intune Endpoint Security policies:", "Intune compliance setting"]);
+
+  // Click-to-filter KPI cards, same convention as Sign-In Logs' status
+  // cards (SignInLogsModule.tsx) - click toggles the filter on, clicking the
+  // same card again clears it back to "all".
+  const [complianceFilter, setComplianceFilter] = useState<"all" | "compliant" | "noncompliant">("all");
 
   const filteredDevices = devices.filter((dev) => {
     const matchesSearch =
@@ -50,12 +58,17 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({
       dev.userPrincipalName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       dev.osVersion.toLowerCase().includes(searchQuery.toLowerCase());
 
-    if (osFilter === "all") return matchesSearch;
-    return matchesSearch && dev.operatingSystem.toLowerCase() === osFilter.toLowerCase();
+    const matchesOs = osFilter === "all" || dev.operatingSystem.toLowerCase() === osFilter.toLowerCase();
+
+    const matchesCompliance =
+      complianceFilter === "all" ||
+      (complianceFilter === "compliant" ? dev.complianceState === "compliant" : dev.complianceState !== "compliant");
+
+    return matchesSearch && matchesOs && matchesCompliance;
   });
 
   const handleExportCSV = () => {
-    const headers = ["DeviceName", "UserPrincipalName", "OperatingSystem", "OsVersion", "Encrypted", "AntivirusStatus", "EdrOnboardingState", "ComplianceState"];
+    const headers = ["DeviceName", "UserPrincipalName", "OperatingSystem", "OsVersion", "Encrypted", "AntivirusStatus", "EdrOnboardingState", "ComplianceState", "NonComplianceReasons"];
     const rows = filteredDevices.map((dev) => [
       dev.deviceName,
       dev.userPrincipalName,
@@ -65,6 +78,7 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({
       dev.antivirusStatus,
       dev.edrOnboardingState,
       dev.complianceState,
+      (dev.nonComplianceReasons || []).map((r) => r.settingName).join("; "),
     ]);
     exportToCsv(csvFilename("IntuneDevices", snapshot.tenant.defaultDomainName), headers, rows);
   };
@@ -102,6 +116,8 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({
         </div>
       </div>
 
+      <SyncErrorBanner errors={intuneSyncErrors} title="Intune sync error - device/policy data below may be stale" />
+
       {/* Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
@@ -110,16 +126,38 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Enrolled in Intune</div>
         </div>
 
-        <div className="p-3 bg-[#ECFDF5] dark:bg-emerald-950 border border-[#10B981] dark:border-emerald-800 rounded-sm">
+        <div
+          onClick={() => setComplianceFilter(complianceFilter === "compliant" ? "all" : "compliant")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setComplianceFilter(complianceFilter === "compliant" ? "all" : "compliant"))}
+          title="Click to filter to only compliant devices"
+          className={`p-3 border rounded-sm cursor-pointer transition-colors ${
+            complianceFilter === "compliant"
+              ? "bg-emerald-100 dark:bg-emerald-950 border-emerald-400 dark:border-emerald-800"
+              : "bg-[#ECFDF5] dark:bg-emerald-950 border-[#10B981] dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900"
+          }`}
+        >
           <div className="text-[10px] uppercase font-mono text-[#065F46] dark:text-emerald-400 font-semibold">Compliant Endpoints</div>
           <div className="text-xl font-bold font-mono text-[#065F46] dark:text-emerald-400 tabular-nums mt-0.5">{intune.compliantDevices}</div>
-          <div className="text-[11px] text-[#065F46] dark:text-emerald-400 mt-0.5">Passes compliance rules</div>
+          <div className="text-[11px] text-[#065F46] dark:text-emerald-400 mt-0.5">Passes compliance rules (Click to filter)</div>
         </div>
 
-        <div className="p-3 bg-[#FEF2F2] dark:bg-red-950 border border-[#EF4444] dark:border-red-800 rounded-sm">
+        <div
+          onClick={() => setComplianceFilter(complianceFilter === "noncompliant" ? "all" : "noncompliant")}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setComplianceFilter(complianceFilter === "noncompliant" ? "all" : "noncompliant"))}
+          title="Click to filter to only non-compliant devices"
+          className={`p-3 border rounded-sm cursor-pointer transition-colors ${
+            complianceFilter === "noncompliant"
+              ? "bg-red-100 dark:bg-red-950 border-red-400 dark:border-red-800"
+              : "bg-[#FEF2F2] dark:bg-red-950 border-[#EF4444] dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900"
+          }`}
+        >
           <div className="text-[10px] uppercase font-mono text-[#991B1B] dark:text-red-400 font-semibold">Non-Compliant Endpoints</div>
           <div className="text-xl font-bold font-mono text-[#991B1B] dark:text-red-400 tabular-nums mt-0.5">{intune.nonCompliantDevices}</div>
-          <div className="text-[11px] text-[#991B1B] dark:text-red-400 mt-0.5">Failing baseline</div>
+          <div className="text-[11px] text-[#991B1B] dark:text-red-400 mt-0.5">Failing baseline (Click to filter)</div>
         </div>
 
         <div className="p-3 bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 rounded-sm">
@@ -143,6 +181,20 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
+          {complianceFilter !== "all" && (
+            <button
+              onClick={() => setComplianceFilter("all")}
+              title="Clear compliance filter"
+              className={`px-2 py-1 text-[11px] font-medium rounded-sm flex items-center gap-1 border transition-colors ${
+                complianceFilter === "compliant"
+                  ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800"
+                  : "bg-red-50 dark:bg-red-950 text-red-800 dark:text-red-400 border-red-300 dark:border-red-800"
+              }`}
+            >
+              <span>{complianceFilter === "compliant" ? "Compliant only" : "Non-Compliant only"}</span>
+              <XCircle size={12} />
+            </button>
+          )}
           <Filter size={14} className="text-slate-500 dark:text-slate-400" />
           <select
             value={osFilter}
@@ -193,7 +245,7 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({
             </thead>
             <tbody>
               {filteredDevices.length === 0 ? (
-                <EmptyStateRow colSpan={8} entityLabel="endpoint devices" isFiltered={searchQuery.trim().length > 0 || osFilter !== "all"} />
+                <EmptyStateRow colSpan={8} entityLabel="endpoint devices" isFiltered={searchQuery.trim().length > 0 || osFilter !== "all" || complianceFilter !== "all"} />
               ) : (
                 filteredDevices.map((dev) => {
                   const isHighlighted =
@@ -255,6 +307,15 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({
                         label={dev.complianceState.toUpperCase()}
                         size="sm"
                       />
+                      {dev.nonComplianceReasons && dev.nonComplianceReasons.length > 0 && (
+                        <div
+                          title={dev.nonComplianceReasons.map((r) => r.settingName).join(", ")}
+                          className="text-[10px] text-red-600 dark:text-red-400 mt-0.5 truncate max-w-[160px] ml-auto"
+                        >
+                          {dev.nonComplianceReasons[0].settingName}
+                          {dev.nonComplianceReasons.length > 1 && ` +${dev.nonComplianceReasons.length - 1} more`}
+                        </div>
+                      )}
                     </td>
                     <td className="text-right">
                       <button
@@ -318,6 +379,29 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({
               {selectedDevice.complianceState === "inGracePeriod" && (
                 <div className="text-[11px] text-amber-800 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 p-1.5 rounded-sm">
                   Grace period expires: {formatDate(selectedDevice.complianceGracePeriodExpirationDateTime)}
+                </div>
+              )}
+              {selectedDevice.complianceState !== "compliant" && (
+                <div>
+                  <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">Non-Compliant Reasons</div>
+                  {selectedDevice.nonComplianceReasons && selectedDevice.nonComplianceReasons.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedDevice.nonComplianceReasons.map((reason, i) => (
+                        <span
+                          key={i}
+                          title={reason.state === "error" ? "Microsoft couldn't evaluate this setting on the device" : reason.state === "conflict" ? "Conflicting policies target this setting" : "Failing this setting"}
+                          className="px-1.5 py-0.5 text-[10px] font-medium bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-sm"
+                        >
+                          {reason.settingName}
+                          {reason.state !== "nonCompliant" && ` (${reason.state})`}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                      No specific setting failures reported by Microsoft for this device - check the compliance policy's own configuration, or sync this tenant if it hasn't been re-synced since this feature was added.
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -1,6 +1,9 @@
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
+import { Readable } from "stream";
 import Database from "better-sqlite3";
+import Papa from "papaparse";
 import {
   Tenant,
   TenantSecuritySnapshot,
@@ -15,13 +18,30 @@ import {
   FleetSearchResultItem,
   AsrRuleActivitySummary,
   AsrDetectionEvent,
+  AsrDetectionTimeRange,
+  UnifiedAuditLogImport,
+  UnifiedAuditLogRecord,
+  UnifiedAuditLogSearchFilters,
+  UnifiedAuditLogSearchResult,
+  UnifiedAuditLogImportProgress,
+  AuditLogFlagsResult,
+  DefenderAvPolicySettings,
+  EdrPolicySettings,
+  BitLockerPolicySettings,
+  IntuneAssignmentTarget,
+  AsrRuleMode,
+  MdeConnectorSettings,
 } from "../types";
+import { mapCsvRowToRecord, getExportCapWarning, RawCsvRow } from "./audit-log-parser";
+import { AUDIT_INVESTIGATION_TEMPLATES } from "../data/audit-investigation-templates";
+import { flagMassDeletionBursts, flagPossibleBec } from "./audit-log-heuristics";
 import {
   computeFleetPosture,
   computeFleetLicenseWaste,
   searchAcrossFleet,
 } from "./fleet-analyzer";
 import { INITIAL_TENANTS, MOCK_TENANT_DATA } from "../data/mock-tenants";
+import { mergeDemoCaPolicies } from "../utils/demo-ca-policy-merge";
 import { createBlankSnapshot } from "../data/default-snapshot";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { encryptSecret, decryptSecret, isEncrypted, SECRET_MASK } from "./crypto";
@@ -31,8 +51,19 @@ import {
   deployConditionalAccessPolicy,
   TenantPermissionReport,
   getGraphAccessToken,
+  invalidateGraphTokenCache,
+  hasLifetimeValidationError,
   fetchAsrDetectionSummaries,
   fetchAsrDetectionEvents,
+  TOTAL_SYNC_STEPS,
+  fetchDefenderAvPolicy as fetchDefenderAvPolicyGraph,
+  deployDefenderAvPolicy,
+  fetchEdrPolicy as fetchEdrPolicyGraph,
+  deployEdrPolicy as deployEdrPolicyGraph,
+  fetchBitLockerPolicy as fetchBitLockerPolicyGraph,
+  deployBitLockerPolicy as deployBitLockerPolicyGraph,
+  deployAsrRulePolicy,
+  updateMdeConnectorSettings as updateMdeConnectorSettingsGraph,
 } from "./graph-client";
 import { graphFetch } from "./graph-fetch";
 
@@ -116,6 +147,59 @@ function validateTablEntryInput(entry: {
   return null;
 }
 
+export interface SyncProgressState {
+  step: string;
+  stepIndex: number;
+  totalSteps: number;
+  startedAt: number;
+}
+
+interface SyncProgressCacheGlobal {
+  clarity365SyncProgress?: Map<string, SyncProgressState>;
+}
+
+// In-memory only, keyed by tenant id - a live sync's step-by-step progress
+// isn't data worth persisting to SQLite, just a transient status the UI
+// polls while a sync is actually running. Same globalThis pattern as
+// graph-client.ts's tokenCache, so a Next.js dev-mode hot-reload doesn't
+// spawn a second map and lose track of an in-flight sync's progress.
+const syncProgressCacheGlobal = globalThis as unknown as SyncProgressCacheGlobal;
+if (!syncProgressCacheGlobal.clarity365SyncProgress) {
+  syncProgressCacheGlobal.clarity365SyncProgress = new Map<string, SyncProgressState>();
+}
+const syncProgressCache = syncProgressCacheGlobal.clarity365SyncProgress;
+
+// Exported so the sync-progress API route can read it without needing a
+// TenantStore instance method for what is, deliberately, not persisted
+// state.
+export function getSyncProgress(tenantId: string): SyncProgressState | undefined {
+  return syncProgressCache.get(tenantId);
+}
+
+interface AuditImportProgressCacheGlobal {
+  clarity365AuditImportProgress?: Map<string, UnifiedAuditLogImportProgress>;
+}
+
+// Same globalThis-cached-Map pattern as syncProgressCache above, for CSV
+// import progress instead of a live Graph sync. Unlike a tenant sync, an
+// import is a genuine streaming parse of a file whose total row count isn't
+// known upfront (no second pass just to count lines first) - so this reports
+// a live rows-processed counter rather than a step index/percentage.
+const auditImportProgressCacheGlobal = globalThis as unknown as AuditImportProgressCacheGlobal;
+if (!auditImportProgressCacheGlobal.clarity365AuditImportProgress) {
+  auditImportProgressCacheGlobal.clarity365AuditImportProgress = new Map<string, UnifiedAuditLogImportProgress>();
+}
+const auditImportProgressCache = auditImportProgressCacheGlobal.clarity365AuditImportProgress;
+
+export function getAuditImportProgress(tenantId: string): UnifiedAuditLogImportProgress | undefined {
+  return auditImportProgressCache.get(tenantId);
+}
+
+interface TenantStoreDbGlobal {
+  clarity365TenantStoreDb?: Database.Database;
+}
+const globalForDb = globalThis as unknown as TenantStoreDbGlobal;
+
 // SQLite-backed store for multi-tenant configurations and snapshots. Each entity is
 // still just a JSON blob (same shape the app already used), but as its own row with
 // real transactional writes instead of a full-file rewrite on every mutation.
@@ -123,12 +207,26 @@ class TenantStore {
   private db: Database.Database;
 
   constructor() {
-    const dataDir = path.join(process.cwd(), "data");
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
+    // Dev-mode only: reuse the already-open SQLite connection across a
+    // Next.js hot-reload instead of opening a second one. This is
+    // deliberately scoped to just the raw connection, not the whole
+    // TenantStore instance (see the exported `tenantStore` below for why
+    // caching the instance itself caused edited methods to silently keep
+    // running pre-edit code until a full server restart).
+    if (process.env.NODE_ENV !== "production" && globalForDb.clarity365TenantStoreDb) {
+      this.db = globalForDb.clarity365TenantStoreDb;
+    } else {
+      const dataDir = path.join(process.cwd(), "data");
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      this.db = new Database(path.join(dataDir, "clarity365.db"));
+      this.db.pragma("journal_mode = WAL");
+      if (process.env.NODE_ENV !== "production") globalForDb.clarity365TenantStoreDb = this.db;
     }
-    this.db = new Database(path.join(dataDir, "clarity365.db"));
-    this.db.pragma("journal_mode = WAL");
+    // initSchema is CREATE TABLE IF NOT EXISTS (idempotent); both migration
+    // methods already check "is this already done?" before acting - safe
+    // and cheap to re-run every time a fresh instance is constructed below.
     this.initSchema();
     this.migrateFromLegacyJsonIfNeeded();
     this.migrateLegacyPlaintextSecrets();
@@ -171,6 +269,40 @@ class TenantStore {
         detail TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log (timestamp DESC);
+      CREATE TABLE IF NOT EXISTS ual_imports (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        uploaded_at TEXT NOT NULL,
+        row_count INTEGER NOT NULL,
+        skipped_row_count INTEGER NOT NULL,
+        earliest_event TEXT,
+        latest_event TEXT,
+        possibly_capped INTEGER NOT NULL DEFAULT 0,
+        export_cap_warning TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_ual_imports_tenant ON ual_imports (tenant_id, uploaded_at DESC);
+      CREATE TABLE IF NOT EXISTS ual_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tenant_id TEXT NOT NULL,
+        import_id TEXT NOT NULL,
+        creation_date TEXT NOT NULL,
+        record_type TEXT,
+        operation TEXT,
+        user_id TEXT,
+        client_ip TEXT,
+        session_id TEXT,
+        client_info TEXT,
+        result_status TEXT,
+        workload TEXT,
+        raw_data TEXT NOT NULL,
+        parse_error INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_ual_records_tenant_session ON ual_records (tenant_id, session_id);
+      CREATE INDEX IF NOT EXISTS idx_ual_records_tenant_user ON ual_records (tenant_id, user_id);
+      CREATE INDEX IF NOT EXISTS idx_ual_records_tenant_operation ON ual_records (tenant_id, operation);
+      CREATE INDEX IF NOT EXISTS idx_ual_records_tenant_date ON ual_records (tenant_id, creation_date);
+      CREATE INDEX IF NOT EXISTS idx_ual_records_import ON ual_records (import_id);
     `);
   }
 
@@ -306,10 +438,18 @@ class TenantStore {
         ? snapshot.incidents
         : (mockSnap?.incidents || []);
 
+    // Same "demo tenants always reflect current mock-tenants.ts" rule as
+    // users/mailboxes/signIns below - the old length-comparison heuristic
+    // (keep whichever side had more devices) looked reasonable but silently
+    // preserved a stale already-persisted demo device list whenever a
+    // mock-tenants.ts edit only changed fields on existing devices (adding
+    // nonComplianceReasons, say) without changing the device count - the
+    // exact same staleness class signIns hit, caught here before it shipped
+    // by remembering that precedent rather than rediscovering it live.
     const devices =
-      snapshot.intune?.devices && snapshot.intune.devices.length >= (mockSnap?.intune?.devices?.length || 0)
-        ? snapshot.intune.devices
-        : (mockSnap?.intune?.devices || snapshot.intune?.devices || []);
+      snapshot.tenant.isDemo && mockSnap?.intune?.devices && mockSnap.intune.devices.length > 0
+        ? mockSnap.intune.devices
+        : (snapshot.intune?.devices || mockSnap?.intune?.devices || []);
 
     const users =
       snapshot.tenant.isDemo && mockSnap?.accountClassification?.users && mockSnap.accountClassification.users.length > 0
@@ -336,7 +476,22 @@ class TenantStore {
     return {
       ...blank,
       ...snapshot,
-      conditionalAccess: { ...blank.conditionalAccess, ...snapshot.conditionalAccess },
+      conditionalAccess: {
+        ...blank.conditionalAccess,
+        ...snapshot.conditionalAccess,
+        // Demo tenants: refresh policy shapes and named locations from
+        // mock-tenants.ts (never re-synced otherwise), merging rather than
+        // replacing policies so local demo deploys survive - see
+        // mergeDemoCaPolicies. Added for Security Simulations Stage 1.
+        ...(snapshot.tenant.isDemo && mockSnap?.conditionalAccess
+          ? {
+              policies: mergeDemoCaPolicies(snapshot.conditionalAccess?.policies || [], mockSnap.conditionalAccess.policies),
+              namedLocations: mockSnap.conditionalAccess.namedLocations ?? snapshot.conditionalAccess?.namedLocations,
+            }
+          : {}),
+      },
+      identitySettings:
+        snapshot.tenant.isDemo && mockSnap?.identitySettings ? mockSnap.identitySettings : snapshot.identitySettings,
       accountClassification: {
         ...blank.accountClassification,
         ...snapshot.accountClassification,
@@ -496,9 +651,56 @@ class TenantStore {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return undefined;
     const existing = this.getSnapshotRow(tenantId);
-    const { snapshot, error } = await fetchLiveTenantSnapshot(tenant, existing, (newToken) =>
-      this.persistExoRefreshToken(tenantId, newToken)
-    );
+    const startedAt = Date.now();
+    syncProgressCache.set(tenantId, { step: "Starting sync...", stepIndex: 0, totalSteps: TOTAL_SYNC_STEPS, startedAt });
+    try {
+      return await this.runSync(tenantId, tenant, existing, source, startedAt);
+    } finally {
+      // Always clear, success or failure, so a stale "in progress" state can
+      // never outlive the sync that created it.
+      syncProgressCache.delete(tenantId);
+    }
+  }
+
+  private async runSync(
+    tenantId: string,
+    tenant: Tenant,
+    existing: TenantSecuritySnapshot | undefined,
+    source: "manual" | "scheduled",
+    startedAt: number
+  ): Promise<SyncResult | undefined> {
+    const runFetch = () =>
+      fetchLiveTenantSnapshot(
+        tenant,
+        existing,
+        (newToken) => this.persistExoRefreshToken(tenantId, newToken),
+        (step, stepIndex, totalSteps) => syncProgressCache.set(tenantId, { step, stepIndex, totalSteps, startedAt })
+      );
+
+    let { snapshot, error } = await runFetch();
+
+    // fetchLiveTenantSnapshot fetches ONE token at the top and reuses it
+    // across ~20 sequential sync sections, so it can't use
+    // withFreshTokenOnLifetimeError's per-call retry itself - see that
+    // function's comment in graph-client.ts for the full live diagnosis of
+    // why a cached token that's still "valid" by our own bookkeeping can be
+    // genuinely rejected by one specific Graph resource mid-sync, while
+    // every other resource keeps accepting it. Detected here, not inside
+    // that function, because it almost always returns a snapshot even on
+    // partial failure - the per-section errors land in
+    // snapshot.syncHealth.errors, not this call's own {error}. Confirmed
+    // safe to retry the whole sync: fetchLiveTenantSnapshot is read-only
+    // (no write calls anywhere in it), and its one side effect - EXO
+    // refresh-token rotation - is self-idempotent by design.
+    if (hasLifetimeValidationError(snapshot?.syncHealth?.errors)) {
+      invalidateGraphTokenCache(tenant.credentials);
+      const retry = await runFetch();
+      if (retry.snapshot) {
+        snapshot = retry.snapshot;
+        error = retry.error;
+      }
+    }
+
     if (snapshot) {
       // Never let a decrypted secret end up persisted in the snapshot's embedded tenant.
       snapshot.tenant = this.encryptTenantSecret(snapshot.tenant);
@@ -553,27 +755,45 @@ class TenantStore {
   public async testPermissions(tenantId: string): Promise<TenantPermissionReport | null> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return null;
+    // Force a fresh access token rather than reusing getGraphAccessToken's
+    // cached one (keyed by tenantId:clientId, good for up to ~55 minutes -
+    // see invalidateGraphTokenCache's own comment). Granting a new API
+    // permission's admin consent in Entra never invalidates tokens already
+    // issued before that grant, only tokens requested after it - so without
+    // this, clicking "Re-Test Permissions" right after granting consent kept
+    // silently re-testing the same stale token and showing the exact same
+    // (now-wrong) result until the cache happened to expire on its own.
+    // Live report: PermissionsModal.tsx's Re-Test button appeared to do
+    // nothing (or "instantly" pass through the write-permission check, which
+    // decodeAppRolesFromToken() now does synchronously from that cached
+    // token instead of a live network probe) until a full page reload
+    // eventually outlasted the cache. This is the one deliberate exception
+    // to reusing the token cache - every other call site still benefits from
+    // it for performance.
+    invalidateGraphTokenCache(tenant.credentials);
     return await testAppRegistrationPermissions(tenant);
   }
 
   // On-demand only (Advanced Hunting) - not part of syncTenant, see
   // graph-client.fetchAsrDetectionSummaries for why.
   public async getAsrDetectionSummaries(
-    tenantId: string
+    tenantId: string,
+    timeRange: AsrDetectionTimeRange = "30d"
   ): Promise<{ summaries?: AsrRuleActivitySummary[]; error?: string } | null> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return null;
     const currentRuleStates = this.getSnapshot(tenantId)?.asrRules || [];
-    return await fetchAsrDetectionSummaries(tenant, currentRuleStates);
+    return await fetchAsrDetectionSummaries(tenant, currentRuleStates, timeRange);
   }
 
   public async getAsrDetectionEvents(
     tenantId: string,
-    ruleId: string
+    ruleId: string,
+    timeRange: AsrDetectionTimeRange = "30d"
   ): Promise<{ events?: AsrDetectionEvent[]; error?: string } | null> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return null;
-    return await fetchAsrDetectionEvents(tenant, ruleId);
+    return await fetchAsrDetectionEvents(tenant, ruleId, timeRange);
   }
 
   public async testExoConnectivity(tenantId: string): Promise<ExoConnectivityResult | null> {
@@ -668,10 +888,10 @@ class TenantStore {
               exclude: [],
             },
             applications: {
-              include: baselineCode === "CA05" ? ["797f3427-79cd-4827-8132-47d473d450e4"] : ["All"],
+              include: baselineCode === "CA05" ? ["797f4846-ba00-4fd7-ba43-dac1f8f63013"] : ["All"],
               exclude: [],
             },
-            clientAppTypes: baselineCode === "CA01" ? ["exchangeActiveSync", "otherClients"] : ["all"],
+            clientAppTypes: baselineCode === "CA01" ? ["exchangeActiveSync", "other"] : ["all"],
             ...(baselineCode === "CA06" ? { signInRiskLevels: ["medium", "high"] } : {}),
             ...(baselineCode === "CA07" ? { userRiskLevels: ["high"] } : {}),
             ...(baselineCode === "CA08" ? { locations: { include: ["All"], exclude: ["AllTrusted"] } } : {}),
@@ -694,6 +914,285 @@ class TenantStore {
       policy: deployResult.policy,
       snapshot: updatedSnap || undefined,
     };
+  }
+
+  // Phase 2 Endpoint Security write path - each of the three methods below
+  // mirrors deployBaselinePolicy's exact shape (decrypt secret -> call the
+  // matching graph-client function -> audit log -> patch snap.intune in
+  // place -> save -> return updated snapshot). Callers (the API routes) are
+  // responsible for checking Tenant.endpointSecurityWriteMode ===
+  // "write_enabled" before calling any of these - these methods don't
+  // re-check it themselves, same convention as deployBaselinePolicy not
+  // re-checking the CA write permission.
+
+  // Read-only, on-demand (not part of the main sync - see plan/vault notes
+  // on why this differs from mdeConnectorSettings/onboardingStates, which
+  // are cheap enough to ride along in every sync). Also refreshes the
+  // stored snapshot's intune.defenderAvPolicy so the module doesn't need to
+  // refetch on every render, just on first mount / after a deploy.
+  public async getDefenderAvPolicy(
+    tenantId: string
+  ): Promise<{ deployedPolicyId?: string; settings: DefenderAvPolicySettings; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { settings: {}, error: "Tenant not found" };
+
+    const result = await fetchDefenderAvPolicyGraph(tenant);
+    if (!result.error) {
+      const snap = this.getSnapshot(tenantId);
+      if (snap) {
+        snap.intune = {
+          ...snap.intune,
+          defenderAvPolicy: { deployedPolicyId: result.deployedPolicyId, settings: result.settings },
+        };
+        this.saveSnapshot(tenantId, snap);
+      }
+    }
+    return result;
+  }
+
+  public async deployDefenderAvPolicy(
+    tenantId: string,
+    settings: DefenderAvPolicySettings,
+    assignment: IntuneAssignmentTarget
+  ): Promise<{ success: boolean; policyId?: string; snapshot?: TenantSecuritySnapshot; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+
+    // If a Clarity365-deployed AV policy already exists (its id was cached
+    // the last time getDefenderAvPolicy or this method ran), update it in
+    // place instead of creating a duplicate - see deployDefenderAvPolicy's
+    // own comment for why this matters.
+    const existingPolicyId = this.getSnapshot(tenantId)?.intune?.defenderAvPolicy?.deployedPolicyId;
+
+    const deployResult = await deployDefenderAvPolicy(tenant, settings, assignment, existingPolicyId);
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "defender_av_deploy",
+      action: existingPolicyId ? "Update Defender Antivirus policy" : "Deploy Defender Antivirus policy",
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: deployResult.success,
+      detail: deployResult.success
+        ? `${existingPolicyId ? "Updated" : "Deployed"} Defender Antivirus policy (assignment: ${assignment.mode}).`
+        : deployResult.error,
+    });
+
+    if (!deployResult.success) {
+      return { success: false, error: deployResult.error };
+    }
+
+    const snap = this.getSnapshot(tenantId);
+    if (snap) {
+      snap.intune = {
+        ...snap.intune,
+        defenderAvPolicy: { deployedPolicyId: deployResult.policyId, settings },
+      };
+      this.saveSnapshot(tenantId, snap);
+    }
+
+    return { success: true, policyId: deployResult.policyId, snapshot: this.getSnapshot(tenantId) || undefined };
+  }
+
+  // Mirrors getDefenderAvPolicy/deployDefenderAvPolicy exactly.
+  public async getEdrPolicy(
+    tenantId: string
+  ): Promise<{ deployedPolicyId?: string; settings: EdrPolicySettings; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { settings: {}, error: "Tenant not found" };
+
+    const result = await fetchEdrPolicyGraph(tenant);
+    if (!result.error) {
+      const snap = this.getSnapshot(tenantId);
+      if (snap) {
+        snap.intune = {
+          ...snap.intune,
+          edrPolicy: { deployedPolicyId: result.deployedPolicyId, settings: result.settings },
+        };
+        this.saveSnapshot(tenantId, snap);
+      }
+    }
+    return result;
+  }
+
+  public async deployEdrPolicy(
+    tenantId: string,
+    settings: EdrPolicySettings,
+    assignment: IntuneAssignmentTarget
+  ): Promise<{ success: boolean; policyId?: string; snapshot?: TenantSecuritySnapshot; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+
+    // If a Clarity365-deployed EDR policy already exists (its id was cached
+    // the last time getEdrPolicy or this method ran), update it in place
+    // instead of creating a duplicate - see deployEdrPolicy's own comment
+    // for why this matters.
+    const existingPolicyId = this.getSnapshot(tenantId)?.intune?.edrPolicy?.deployedPolicyId;
+
+    const deployResult = await deployEdrPolicyGraph(tenant, settings, assignment, existingPolicyId);
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "edr_policy_deploy",
+      action: existingPolicyId ? "Update EDR policy" : "Deploy EDR policy",
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: deployResult.success,
+      detail: deployResult.success
+        ? `${existingPolicyId ? "Updated" : "Deployed"} EDR policy (assignment: ${assignment.mode}).`
+        : deployResult.error,
+    });
+
+    if (!deployResult.success) {
+      return { success: false, error: deployResult.error };
+    }
+
+    const snap = this.getSnapshot(tenantId);
+    if (snap) {
+      snap.intune = {
+        ...snap.intune,
+        edrPolicy: { deployedPolicyId: deployResult.policyId, settings },
+      };
+      this.saveSnapshot(tenantId, snap);
+    }
+
+    return { success: true, policyId: deployResult.policyId, snapshot: this.getSnapshot(tenantId) || undefined };
+  }
+
+  // Mirrors getDefenderAvPolicy/deployDefenderAvPolicy exactly.
+  public async getBitLockerPolicy(
+    tenantId: string
+  ): Promise<{ deployedPolicyId?: string; settings: BitLockerPolicySettings; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { settings: {}, error: "Tenant not found" };
+
+    const result = await fetchBitLockerPolicyGraph(tenant);
+    if (!result.error) {
+      const snap = this.getSnapshot(tenantId);
+      if (snap) {
+        snap.intune = {
+          ...snap.intune,
+          bitLockerPolicy: { deployedPolicyId: result.deployedPolicyId, settings: result.settings },
+        };
+        this.saveSnapshot(tenantId, snap);
+      }
+    }
+    return result;
+  }
+
+  public async deployBitLockerPolicy(
+    tenantId: string,
+    settings: BitLockerPolicySettings,
+    assignment: IntuneAssignmentTarget
+  ): Promise<{ success: boolean; policyId?: string; snapshot?: TenantSecuritySnapshot; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+
+    // If a Clarity365-deployed BitLocker policy already exists (its id was
+    // cached the last time getBitLockerPolicy or this method ran), update
+    // it in place instead of creating a duplicate - see deployEdrPolicy's
+    // comment for why this matters.
+    const existingPolicyId = this.getSnapshot(tenantId)?.intune?.bitLockerPolicy?.deployedPolicyId;
+
+    const deployResult = await deployBitLockerPolicyGraph(tenant, settings, assignment, existingPolicyId);
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "bitlocker_policy_deploy",
+      action: existingPolicyId ? "Update BitLocker policy" : "Deploy BitLocker policy",
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: deployResult.success,
+      detail: deployResult.success
+        ? `${existingPolicyId ? "Updated" : "Deployed"} BitLocker policy (assignment: ${assignment.mode}).`
+        : deployResult.error,
+    });
+
+    if (!deployResult.success) {
+      return { success: false, error: deployResult.error };
+    }
+
+    const snap = this.getSnapshot(tenantId);
+    if (snap) {
+      snap.intune = {
+        ...snap.intune,
+        bitLockerPolicy: { deployedPolicyId: deployResult.policyId, settings },
+      };
+      this.saveSnapshot(tenantId, snap);
+    }
+
+    return { success: true, policyId: deployResult.policyId, snapshot: this.getSnapshot(tenantId) || undefined };
+  }
+
+  public async deployAsrRules(
+    tenantId: string,
+    desiredModes: Record<string, Exclude<AsrRuleMode, "not_configured">>,
+    assignment: IntuneAssignmentTarget
+  ): Promise<{ success: boolean; policyId?: string; snapshot?: TenantSecuritySnapshot; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+
+    // Only update in place if *this app* created the existing policy (see
+    // clarity365AsrPolicyId's own comment) - never inferred from the
+    // general multi-surface ASR read.
+    const existingPolicyId = this.getSnapshot(tenantId)?.intune?.clarity365AsrPolicyId;
+
+    const deployResult = await deployAsrRulePolicy(tenant, desiredModes, assignment, existingPolicyId);
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "asr_rule_deploy",
+      action: `${existingPolicyId ? "Update" : "Deploy"} ASR rules (${Object.keys(desiredModes).length} rule(s))`,
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: deployResult.success,
+      detail: deployResult.success
+        ? `${existingPolicyId ? "Updated" : "Deployed"} ASR rules policy (assignment: ${assignment.mode}).${deployResult.error ? " " + deployResult.error : ""}`
+        : deployResult.error,
+    });
+
+    if (!deployResult.success) {
+      return { success: false, error: deployResult.error };
+    }
+
+    const snap = this.getSnapshot(tenantId);
+    if (snap) {
+      snap.intune = { ...snap.intune, clarity365AsrPolicyId: deployResult.policyId };
+      this.saveSnapshot(tenantId, snap);
+    }
+
+    return { success: true, policyId: deployResult.policyId, snapshot: this.getSnapshot(tenantId) || undefined };
+  }
+
+  public async updateMdeConnectorSettings(
+    tenantId: string,
+    connectorId: string,
+    patch: Partial<MdeConnectorSettings>
+  ): Promise<{ success: boolean; snapshot?: TenantSecuritySnapshot; error?: string }> {
+    const tenant = this.getTenantWithDecryptedSecret(tenantId);
+    if (!tenant) return { success: false, error: "Tenant not found" };
+
+    const result = await updateMdeConnectorSettingsGraph(tenant, connectorId, patch);
+    this.addAuditLogEntry({
+      timestamp: new Date().toISOString(),
+      category: "mde_connector_update",
+      action: `Update MDE connector settings (${Object.keys(patch).join(", ")})`,
+      tenantId: tenant.id,
+      tenantName: tenant.displayName,
+      success: result.success,
+      detail: result.success ? "Updated MDE connector settings - takes effect immediately, tenant-wide." : result.error,
+    });
+
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    const snap = this.getSnapshot(tenantId);
+    if (snap && snap.intune.mdeConnectorSettings) {
+      snap.intune = {
+        ...snap.intune,
+        mdeConnectorSettings: { ...snap.intune.mdeConnectorSettings, ...patch },
+      };
+      this.saveSnapshot(tenantId, snap);
+    }
+
+    return { success: true, snapshot: this.getSnapshot(tenantId) || undefined };
   }
 
   public addTenant(tenantData: Partial<Tenant>): Tenant {
@@ -748,6 +1247,15 @@ class TenantStore {
         ...updates.credentials,
         clientSecret: keepExistingSecret ? existing.credentials.clientSecret : encryptSecret(incomingSecret!),
       };
+
+      // A cached Graph token is keyed by tenantId:clientId, not by secret -
+      // rotating just the secret (the common case, e.g. fixing a bad/expired
+      // one) would otherwise keep serving a token acquired under the OLD
+      // secret until it happened to expire on its own, up to ~55 minutes
+      // later, making a credential fix look like it silently didn't work.
+      // Clear both the old and new key in case tenantId/clientId changed too.
+      invalidateGraphTokenCache(existing.credentials);
+      invalidateGraphTokenCache(mergedCredentials);
     }
 
     const updated: Tenant = {
@@ -1761,9 +2269,437 @@ class TenantStore {
     const snapshots = this.getAllSnapshots();
     return searchAcrossFleet(snapshots, query, category);
   }
+
+  // ---- Audit Log Investigator (ingested Purview unified audit log CSV exports) ----
+
+  private rowToUalImport(r: any): UnifiedAuditLogImport {
+    return {
+      id: r.id,
+      tenantId: r.tenant_id,
+      filename: r.filename,
+      uploadedAt: r.uploaded_at,
+      rowCount: r.row_count,
+      skippedRowCount: r.skipped_row_count,
+      earliestEvent: r.earliest_event ?? undefined,
+      latestEvent: r.latest_event ?? undefined,
+      possiblyCapped: !!r.possibly_capped,
+      exportCapWarning: r.export_cap_warning ?? undefined,
+    };
+  }
+
+  private rowToUalRecord(r: any): UnifiedAuditLogRecord {
+    return {
+      id: r.id,
+      tenantId: r.tenant_id,
+      importId: r.import_id,
+      creationDate: r.creation_date,
+      recordType: r.record_type ?? undefined,
+      operation: r.operation ?? undefined,
+      userId: r.user_id ?? undefined,
+      clientIp: r.client_ip ?? undefined,
+      sessionId: r.session_id ?? undefined,
+      clientInfo: r.client_info ?? undefined,
+      resultStatus: r.result_status ?? undefined,
+      workload: r.workload ?? undefined,
+      rawData: r.raw_data,
+      parseError: !!r.parse_error,
+    };
+  }
+
+  // Marks an import as starting before the (potentially long) streaming
+  // parse begins, so the very first progress poll already sees something
+  // instead of a brief "not in progress" window at the start of a big file.
+  public startAuditImportProgress(tenantId: string, importId: string, filename: string) {
+    auditImportProgressCache.set(tenantId, {
+      importId,
+      filename,
+      rowsProcessed: 0,
+      insertedCount: 0,
+      skippedCount: 0,
+      startedAt: Date.now(),
+      done: false,
+    });
+  }
+
+  public clearAuditImportProgress(tenantId: string) {
+    auditImportProgressCache.delete(tenantId);
+  }
+
+  // Streams a Purview unified audit log CSV export straight from the
+  // upload's own request stream into SQLite, batching inserts so a
+  // 1,000,000-row Audit Premium export never needs its rows materialized
+  // into one JS array. One malformed AuditData row is recorded with
+  // parseError: true (see audit-log-parser.ts), never aborts the import.
+  public async ingestAuditLogCsv(
+    tenantId: string,
+    importId: string,
+    filename: string,
+    fileStream: ReadableStream<Uint8Array>
+  ): Promise<UnifiedAuditLogImport> {
+    const nodeStream = Readable.fromWeb(fileStream as any);
+
+    const insertStmt = this.db.prepare(`
+      INSERT INTO ual_records
+        (tenant_id, import_id, creation_date, record_type, operation, user_id, client_ip, session_id, client_info, result_status, workload, raw_data, parse_error)
+      VALUES
+        (@tenantId, @importId, @creationDate, @recordType, @operation, @userId, @clientIp, @sessionId, @clientInfo, @resultStatus, @workload, @rawData, @parseError)
+    `);
+    const insertBatch = this.db.transaction((rows: any[]) => {
+      for (const row of rows) insertStmt.run(row);
+    });
+
+    const startedAt = Date.now();
+    let rowsProcessed = 0;
+    let insertedCount = 0;
+    let skippedCount = 0;
+    let earliestEvent: string | undefined;
+    let latestEvent: string | undefined;
+    let batch: any[] = [];
+    const BATCH_SIZE = 500;
+
+    const flush = () => {
+      if (batch.length === 0) return;
+      insertBatch(batch);
+      insertedCount += batch.length;
+      batch = [];
+    };
+
+    const reportProgress = () => {
+      auditImportProgressCache.set(tenantId, {
+        importId,
+        filename,
+        rowsProcessed,
+        insertedCount: insertedCount + batch.length,
+        skippedCount,
+        startedAt,
+        done: false,
+      });
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      Papa.parse<RawCsvRow>(nodeStream as any, {
+        header: true,
+        skipEmptyLines: true,
+        step: (results) => {
+          const row = results.data;
+          if (!row || Object.keys(row).length === 0) return;
+          rowsProcessed++;
+
+          if (!row.AuditData && !row.CreationDate) {
+            skippedCount++;
+          } else {
+            const { record } = mapCsvRowToRecord(row, { tenantId, importId });
+            if (!earliestEvent || record.creationDate < earliestEvent) earliestEvent = record.creationDate;
+            if (!latestEvent || record.creationDate > latestEvent) latestEvent = record.creationDate;
+            batch.push({
+              tenantId: record.tenantId,
+              importId: record.importId,
+              creationDate: record.creationDate,
+              recordType: record.recordType ?? null,
+              operation: record.operation ?? null,
+              userId: record.userId ?? null,
+              clientIp: record.clientIp ?? null,
+              sessionId: record.sessionId ?? null,
+              clientInfo: record.clientInfo ?? null,
+              resultStatus: record.resultStatus ?? null,
+              workload: record.workload ?? null,
+              rawData: record.rawData,
+              parseError: record.parseError ? 1 : 0,
+            });
+            if (batch.length >= BATCH_SIZE) flush();
+          }
+
+          if (rowsProcessed % 200 === 0) reportProgress();
+        },
+        complete: () => resolve(),
+        error: (err: Error) => reject(err),
+      });
+    });
+
+    flush();
+
+    const exportCapWarning = getExportCapWarning(rowsProcessed);
+    const importRecord: UnifiedAuditLogImport = {
+      id: importId,
+      tenantId,
+      filename,
+      uploadedAt: new Date().toISOString(),
+      rowCount: insertedCount,
+      skippedRowCount: skippedCount,
+      earliestEvent,
+      latestEvent,
+      possiblyCapped: !!exportCapWarning,
+      exportCapWarning,
+    };
+
+    this.db
+      .prepare(
+        `INSERT INTO ual_imports (id, tenant_id, filename, uploaded_at, row_count, skipped_row_count, earliest_event, latest_event, possibly_capped, export_cap_warning)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        importRecord.id,
+        importRecord.tenantId,
+        importRecord.filename,
+        importRecord.uploadedAt,
+        importRecord.rowCount,
+        importRecord.skippedRowCount,
+        importRecord.earliestEvent ?? null,
+        importRecord.latestEvent ?? null,
+        importRecord.possiblyCapped ? 1 : 0,
+        importRecord.exportCapWarning ?? null
+      );
+
+    return importRecord;
+  }
+
+  public getAuditLogImports(tenantId: string): UnifiedAuditLogImport[] {
+    const rows = this.db
+      .prepare("SELECT * FROM ual_imports WHERE tenant_id = ? ORDER BY uploaded_at DESC")
+      .all(tenantId) as any[];
+    return rows.map((r) => this.rowToUalImport(r));
+  }
+
+  // Removes an import and every record it produced - the only supported way
+  // to undo an upload (e.g. wrong file, wrong tenant) short of a raw DB edit.
+  public deleteAuditLogImport(tenantId: string, importId: string): boolean {
+    const remove = this.db.transaction(() => {
+      const result = this.db
+        .prepare("DELETE FROM ual_imports WHERE tenant_id = ? AND id = ?")
+        .run(tenantId, importId);
+      this.db.prepare("DELETE FROM ual_records WHERE tenant_id = ? AND import_id = ?").run(tenantId, importId);
+      return result.changes > 0;
+    });
+    return remove();
+  }
+
+  public searchAuditLogRecords(tenantId: string, filters: UnifiedAuditLogSearchFilters = {}): UnifiedAuditLogSearchResult {
+    const conditions: string[] = ["tenant_id = ?"];
+    const params: any[] = [tenantId];
+
+    if (filters.importId) {
+      conditions.push("import_id = ?");
+      params.push(filters.importId);
+    }
+    if (filters.operation) {
+      conditions.push("operation = ?");
+      params.push(filters.operation);
+    }
+    if (filters.operations && filters.operations.length > 0) {
+      // Investigation Template filter - "operation is one of N values,"
+      // independent of the single-value dropdown filter above.
+      conditions.push(`operation IN (${filters.operations.map(() => "?").join(", ")})`);
+      params.push(...filters.operations);
+    }
+    if (filters.recordType) {
+      conditions.push("record_type = ?");
+      params.push(filters.recordType);
+    }
+    if (filters.workload) {
+      conditions.push("workload = ?");
+      params.push(filters.workload);
+    }
+    if (filters.userId) {
+      // Partial match, not exact - lets you type "alice" instead of the full
+      // alice@contoso.com UPN. sessionId below stays exact: it's normally
+      // clicked through or typeahead-selected rather than hand-typed.
+      conditions.push("user_id LIKE ?");
+      params.push(`%${filters.userId}%`);
+    }
+    if (filters.sessionId) {
+      conditions.push("session_id = ?");
+      params.push(filters.sessionId);
+    }
+    if (filters.clientInfo) {
+      conditions.push("client_info LIKE ?");
+      params.push(`%${filters.clientInfo}%`);
+    }
+    if (filters.startDate) {
+      conditions.push("creation_date >= ?");
+      params.push(filters.startDate);
+    }
+    if (filters.endDate) {
+      conditions.push("creation_date <= ?");
+      params.push(filters.endDate);
+    }
+    if (filters.search) {
+      conditions.push("(operation LIKE ? OR user_id LIKE ? OR client_ip LIKE ? OR session_id LIKE ? OR client_info LIKE ? OR raw_data LIKE ?)");
+      const like = `%${filters.search}%`;
+      params.push(like, like, like, like, like, like);
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+    const sortDirection = filters.sortDirection === "asc" ? "ASC" : "DESC";
+    const pageSize = Math.min(Math.max(filters.pageSize ?? 50, 1), 500);
+    const page = Math.max(filters.page ?? 1, 1);
+    const offset = (page - 1) * pageSize;
+
+    const { c: total } = this.db.prepare(`SELECT COUNT(*) as c FROM ual_records ${whereClause}`).get(...params) as {
+      c: number;
+    };
+
+    const rows = this.db
+      .prepare(`SELECT * FROM ual_records ${whereClause} ORDER BY creation_date ${sortDirection}, id ${sortDirection} LIMIT ? OFFSET ?`)
+      .all(...params, pageSize, offset) as any[];
+
+    // Facets are scoped to the tenant (and import, if one is selected) but
+    // deliberately NOT to the rest of the active filters - otherwise picking
+    // one Operation would immediately empty out every other Operation option
+    // in its own dropdown.
+    const facetConditions = ["tenant_id = ?"];
+    const facetParams: any[] = [tenantId];
+    if (filters.importId) {
+      facetConditions.push("import_id = ?");
+      facetParams.push(filters.importId);
+    }
+    const facetWhere = `WHERE ${facetConditions.join(" AND ")}`;
+    const distinctValues = (column: string): string[] =>
+      (
+        this.db
+          .prepare(`SELECT DISTINCT ${column} as v FROM ual_records ${facetWhere} AND ${column} IS NOT NULL ORDER BY v LIMIT 500`)
+          .all(...facetParams) as { v: string }[]
+      ).map((r) => r.v);
+
+    return {
+      records: rows.map((r) => this.rowToUalRecord(r)),
+      total,
+      facets: {
+        operations: distinctValues("operation"),
+        recordTypes: distinctValues("record_type"),
+        workloads: distinctValues("workload"),
+      },
+    };
+  }
+
+  // Every record sharing a Session ID, chronological - the direct
+  // implementation of Microsoft's own documented technique (grouping by
+  // SessionId + ClientIPAddress + ClientInfoString) for telling attacker
+  // activity apart from the legitimate user's own activity in one session.
+  public getAuditLogSessionTimeline(tenantId: string, sessionId: string): UnifiedAuditLogRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM ual_records WHERE tenant_id = ? AND session_id = ? ORDER BY creation_date ASC, id ASC")
+      .all(tenantId, sessionId) as any[];
+    return rows.map((r) => this.rowToUalRecord(r));
+  }
+
+  // Lightweight typeahead for the Session ID / User / Client search fields -
+  // capped and prefix-matched so it stays fast even over a million-row import.
+  public getAuditLogTypeahead(tenantId: string, field: "sessionId" | "userId" | "clientInfo", query: string): string[] {
+    const column = field === "sessionId" ? "session_id" : field === "userId" ? "user_id" : "client_info";
+    if (!query || query.length < 2) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT ${column} as v FROM ual_records WHERE tenant_id = ? AND ${column} LIKE ? ORDER BY v LIMIT 20`
+      )
+      .all(tenantId, `%${query}%`) as { v: string }[];
+    return rows.map((r) => r.v).filter(Boolean);
+  }
+
+  // One COUNT(*) per Investigation Template, scoped to the tenant (and
+  // import, if one is selected) - cheap since operation is indexed. Lets
+  // each template button show a real count instead of guessing.
+  public getAuditLogTemplateCounts(tenantId: string, importId?: string): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const template of AUDIT_INVESTIGATION_TEMPLATES) {
+      const conditions = ["tenant_id = ?", `operation IN (${template.operations.map(() => "?").join(", ")})`];
+      const params: any[] = [tenantId, ...template.operations];
+      if (importId) {
+        conditions.push("import_id = ?");
+        params.push(importId);
+      }
+      const { c } = this.db
+        .prepare(`SELECT COUNT(*) as c FROM ual_records WHERE ${conditions.join(" AND ")}`)
+        .get(...params) as { c: number };
+      counts[template.id] = c;
+    }
+    return counts;
+  }
+
+  // Phase 3 heuristic flags - each aggregation is done in SQL (never a raw
+  // per-record JS scan over up to 1,000,000 rows), then handed to the pure,
+  // tested scoring functions in audit-log-heuristics.ts.
+  public getAuditLogFlags(tenantId: string, importId?: string): AuditLogFlagsResult {
+    const scopeConditions = ["tenant_id = ?"];
+    const scopeParams: any[] = [tenantId];
+    if (importId) {
+      scopeConditions.push("import_id = ?");
+      scopeParams.push(importId);
+    }
+    const scopeWhere = scopeConditions.join(" AND ");
+
+    // 1. Session hijack / AiTM - a session touching 2+ distinct client IPs.
+    const sessionRows = this.db
+      .prepare(
+        `SELECT session_id, GROUP_CONCAT(DISTINCT client_ip) as ips_concat, COUNT(DISTINCT client_ip) as ip_count,
+                MIN(creation_date) as first_seen, MAX(creation_date) as last_seen, COUNT(*) as record_count
+         FROM ual_records
+         WHERE ${scopeWhere} AND session_id IS NOT NULL
+         GROUP BY session_id
+         HAVING ip_count >= 2`
+      )
+      .all(...scopeParams) as any[];
+    const sessionHijack = sessionRows.map((r) => ({
+      sessionId: r.session_id,
+      distinctIpCount: r.ip_count,
+      distinctIps: (r.ips_concat || "").split(",").filter(Boolean),
+      recordCount: r.record_count,
+      firstSeen: r.first_seen,
+      lastSeen: r.last_seen,
+    }));
+
+    // 2. Mass deletion - reuses the Mass Deletion template's own operation
+    // list, so the flag and the one-click filter always agree on what
+    // counts as a "delete."
+    const massDeletionOps = AUDIT_INVESTIGATION_TEMPLATES.find((t) => t.id === "mass_deletion")!.operations;
+    const deleteBuckets = this.db
+      .prepare(
+        `SELECT user_id, strftime('%Y-%m-%dT%H', creation_date) as hour_bucket, COUNT(*) as delete_count
+         FROM ual_records
+         WHERE ${scopeWhere} AND user_id IS NOT NULL AND operation IN (${massDeletionOps.map(() => "?").join(", ")})
+         GROUP BY user_id, hour_bucket`
+      )
+      .all(...scopeParams, ...massDeletionOps) as any[];
+    const massDeletion = flagMassDeletionBursts(
+      deleteBuckets.map((r) => ({ userId: r.user_id, hourBucket: r.hour_bucket, deleteCount: r.delete_count }))
+    );
+
+    // 3. Possible BEC - inbox-rule/forwarding changes (the BEC template's
+    // operation list minus the mail-volume operations, which are the
+    // second, independent signal below) joined against MailItemsAccessed
+    // volume in the same hour bucket.
+    const becTemplateOps = AUDIT_INVESTIGATION_TEMPLATES.find((t) => t.id === "bec")!.operations;
+    const mailVolumeOps = ["MailItemsAccessed", "Send", "SendAs", "SendOnBehalf"];
+    const inboxRuleOps = becTemplateOps.filter((op) => !mailVolumeOps.includes(op));
+    const inboxRuleChangeRows = this.db
+      .prepare(
+        `SELECT user_id, strftime('%Y-%m-%dT%H', creation_date) as hour_bucket, COUNT(*) as change_count
+         FROM ual_records
+         WHERE ${scopeWhere} AND user_id IS NOT NULL AND operation IN (${inboxRuleOps.map(() => "?").join(", ")})
+         GROUP BY user_id, hour_bucket`
+      )
+      .all(...scopeParams, ...inboxRuleOps) as any[];
+    const mailAccessRows = this.db
+      .prepare(
+        `SELECT user_id, strftime('%Y-%m-%dT%H', creation_date) as hour_bucket, COUNT(*) as access_count
+         FROM ual_records
+         WHERE ${scopeWhere} AND user_id IS NOT NULL AND operation = 'MailItemsAccessed'
+         GROUP BY user_id, hour_bucket`
+      )
+      .all(...scopeParams) as any[];
+    const possibleBec = flagPossibleBec(
+      inboxRuleChangeRows.map((r) => ({ userId: r.user_id, hourBucket: r.hour_bucket, inboxRuleChangeCount: r.change_count })),
+      mailAccessRows.map((r) => ({ userId: r.user_id, hourBucket: r.hour_bucket, mailItemsAccessedCount: r.access_count }))
+    );
+
+    return { sessionHijack, massDeletion, possibleBec };
+  }
 }
 
-// Global singleton instance
-const globalForTenantStore = globalThis as unknown as { tenantStore: TenantStore };
-export const tenantStore = globalForTenantStore.tenantStore || new TenantStore();
-if (process.env.NODE_ENV !== "production") globalForTenantStore.tenantStore = tenantStore;
+// Always construct fresh - in production this only ever runs once anyway
+// (no hot-reloading), and in dev this is what makes an edit to any method on
+// this class take effect on the very next request instead of needing a full
+// server restart. The constructor above reuses the underlying SQLite
+// connection via its own globalThis cache, so this doesn't open a second
+// database handle or re-run migrations against a fresh one - only the class
+// instance (and therefore its method bodies) is ever rebuilt.
+export const tenantStore = new TenantStore();

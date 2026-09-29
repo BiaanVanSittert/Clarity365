@@ -67,4 +67,20 @@ describe("synthesizeMockActivity", () => {
     const summaries = synthesizeMockActivity([], "seed-1");
     expect(summaries.every((s) => s.auditHitCount === 0 && s.blockHitCount === 0)).toBe(true);
   });
+
+  it("scales activity counts by the selected time range - 7d < 30d < all", () => {
+    const ruleStates = [{ ruleId: RANSOMWARE_ID, mode: "audit" as const }];
+    const sevenDay = synthesizeMockActivity(ruleStates, "tenant-scale", "7d").find((s) => s.ruleId === RANSOMWARE_ID)!;
+    const thirtyDay = synthesizeMockActivity(ruleStates, "tenant-scale", "30d").find((s) => s.ruleId === RANSOMWARE_ID)!;
+    const allTime = synthesizeMockActivity(ruleStates, "tenant-scale", "all").find((s) => s.ruleId === RANSOMWARE_ID)!;
+    expect(sevenDay.auditHitCount).toBeLessThanOrEqual(thirtyDay.auditHitCount);
+    expect(thirtyDay.auditHitCount).toBeLessThanOrEqual(allTime.auditHitCount);
+  });
+
+  it("defaults to the 30-day scale when no time range is given", () => {
+    const ruleStates = [{ ruleId: RANSOMWARE_ID, mode: "audit" as const }];
+    const defaulted = synthesizeMockActivity(ruleStates, "tenant-default").find((s) => s.ruleId === RANSOMWARE_ID)!;
+    const explicit30d = synthesizeMockActivity(ruleStates, "tenant-default", "30d").find((s) => s.ruleId === RANSOMWARE_ID)!;
+    expect(defaulted).toEqual(explicit30d);
+  });
 });

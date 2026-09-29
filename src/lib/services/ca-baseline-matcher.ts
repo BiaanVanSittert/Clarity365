@@ -2,8 +2,11 @@
 // against Clarity365's CA01-CA10 baseline standards by inspecting its actual conditions
 // and grantControls - ensuring policies match required properties before being marked active.
 
-const AZURE_MANAGEMENT_APP_ID = "797f3427-79cd-4827-8132-47d473d450e4";
-const LEGACY_CLIENT_APP_TYPES = new Set(["exchangeActiveSync", "otherClients"]);
+const AZURE_MANAGEMENT_APP_ID = "797f4846-ba00-4fd7-ba43-dac1f8f63013";
+// "other", not "otherClients" - the latter isn't a real Graph
+// conditionalAccessClientApp enum member (see graph-client.ts's CA01 payload
+// comment) and a live tenant's policy would never actually carry it.
+const LEGACY_CLIENT_APP_TYPES = new Set(["exchangeActiveSync", "other"]);
 
 export interface RawGraphCaPolicy {
   name?: string;
@@ -11,7 +14,20 @@ export interface RawGraphCaPolicy {
   baselineCode?: string | null;
   state?: "enabled" | "disabled" | "enabledForReportingButNotEnforced";
   conditions?: {
-    users?: { includeUsers?: string[]; includeRoles?: string[]; include?: string[]; exclude?: string[] };
+    users?: {
+      includeUsers?: string[];
+      includeRoles?: string[];
+      include?: string[];
+      exclude?: string[];
+      // Real, current Graph shape for guest/external-user targeting - confirmed
+      // live against a real CA04 policy. The older plain "GuestsOrExternalUsers"
+      // string inside includeUsers/excludeUsers still gets silently accepted and
+      // auto-upgraded to this on create, but a live GET only ever returns this
+      // structured field, never the string - so a raw policy fetched straight
+      // from Graph needs this checked directly, not just includeUsers.
+      includeGuestsOrExternalUsers?: unknown;
+      excludeGuestsOrExternalUsers?: unknown;
+    };
     applications?: { includeApplications?: string[]; include?: string[]; exclude?: string[] };
     clientAppTypes?: string[];
     locations?: { includeLocations?: string[]; excludeLocations?: string[]; include?: string[]; exclude?: string[] };
@@ -51,6 +67,7 @@ export function targetsAdminRoles(policy: RawGraphCaPolicy): boolean {
 export function targetsGuests(policy: RawGraphCaPolicy): boolean {
   const users = policy.conditions?.users;
   if (!users) return false;
+  if (users.includeGuestsOrExternalUsers) return true;
   if (users.includeUsers?.includes("GuestsOrExternalUsers")) return true;
   if (users.include?.includes("GuestsOrExternalUsers") || users.include?.includes("Guests")) return true;
   return false;
@@ -214,7 +231,7 @@ export function validateCaPolicyCompliance(
     if (!controlsInclude(policy, "block")) missing.push("Grant control 'block'");
     const types = policy.conditions?.clientAppTypes || [];
     if (!types.some((t) => LEGACY_CLIENT_APP_TYPES.has(t))) {
-      missing.push("Client app types 'exchangeActiveSync' / 'otherClients'");
+      missing.push("Client app types 'exchangeActiveSync' / 'other'");
     }
   } else if (codeUpper === "CA02") {
     if (!controlsInclude(policy, "mfa")) missing.push("Grant control 'mfa'");
@@ -226,7 +243,7 @@ export function validateCaPolicyCompliance(
     if (!controlsInclude(policy, "mfa") && !controlsInclude(policy, "block")) missing.push("Grant control 'mfa' or 'block'");
   } else if (codeUpper === "CA05") {
     if (!controlsInclude(policy, "mfa")) missing.push("Grant control 'mfa'");
-    if (!targetsAzureManagement(policy)) missing.push("Application scope 'Microsoft Azure Management' (797f3427-79cd-4827-8132-47d473d450e4)");
+    if (!targetsAzureManagement(policy)) missing.push("Application scope 'Microsoft Azure Management' (797f4846-ba00-4fd7-ba43-dac1f8f63013)");
   } else if (codeUpper === "CA06") {
     if (!controlsInclude(policy, "mfa")) missing.push("Grant control 'mfa'");
     const risks = policy.conditions?.signInRiskLevels || [];

@@ -15,6 +15,7 @@ import {
   Sun,
   Moon,
   Building2,
+  Pencil,
 } from "lucide-react";
 import { StatusPill } from "../common/StatusPill";
 import { useTheme } from "../common/useTheme";
@@ -27,6 +28,7 @@ interface HeaderProps {
   isFleetMode?: boolean;
   onSelectTenant: (tenantId: string) => void;
   onOpenAddTenant: () => void;
+  onOpenEditCredentials: () => void;
   onOpenDeleteTenant: () => void;
   onOpenSettings: () => void;
   onOpenSearch: () => void;
@@ -34,6 +36,7 @@ interface HeaderProps {
   onOpenPermissions: () => void;
   onRefresh: () => void;
   isRefreshing: boolean;
+  syncProgressPercent?: number | null;
   onLogout: () => void;
 }
 
@@ -44,6 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
   isFleetMode = false,
   onSelectTenant,
   onOpenAddTenant,
+  onOpenEditCredentials,
   onOpenDeleteTenant,
   onOpenSettings,
   onOpenSearch,
@@ -51,6 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenPermissions,
   onRefresh,
   isRefreshing,
+  syncProgressPercent,
   onLogout,
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -204,6 +209,19 @@ export const Header: React.FC<HeaderProps> = ({
                     <span>Add New Tenant...</span>
                   </button>
 
+                  {!isFleetMode && activeTenant && !activeTenant.isDemo && (
+                    <button
+                      onClick={() => {
+                        setDropdownOpen(false);
+                        onOpenEditCredentials();
+                      }}
+                      title="Edit App Registration Credentials (rotate a client secret, fix Tenant/Client ID)"
+                      className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700 rounded-sm transition-colors"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                  )}
+
                   {!isFleetMode && activeTenant && (
                     <button
                       onClick={() => {
@@ -230,8 +248,26 @@ export const Header: React.FC<HeaderProps> = ({
               label={getConnectionStatusDisplay(activeTenant.connectionStatus, "header").label}
               size="sm"
             />
-            <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500 tabular-nums">
-              Synced {formatTimestamp(activeTenant.lastSyncTimestamp)}
+            {/* lastSyncTimestamp updates on every sync ATTEMPT, not just a
+                successful one (see fetchLiveTenantSnapshot) - so a tenant
+                whose sync is failing outright still showed a recent-looking
+                "Synced HH:MM" here, undercutting the Degraded pill right
+                next to it. Live report: this is exactly what made a stale
+                CA policy read as current. */}
+            <span
+              className={`text-[11px] font-mono tabular-nums ${
+                activeTenant.connectionStatus === "degraded" || activeTenant.connectionStatus === "error"
+                  ? "text-rose-500 dark:text-red-400 font-semibold"
+                  : "text-slate-400 dark:text-slate-500"
+              }`}
+              title={
+                activeTenant.connectionStatus === "degraded" || activeTenant.connectionStatus === "error"
+                  ? "The last sync attempt failed or was incomplete - some or all data below may be from an earlier, older sync."
+                  : undefined
+              }
+            >
+              {activeTenant.connectionStatus === "degraded" || activeTenant.connectionStatus === "error" ? "Attempted" : "Synced"}{" "}
+              {formatTimestamp(activeTenant.lastSyncTimestamp)}
             </span>
           </div>
         )}
@@ -296,7 +332,9 @@ export const Header: React.FC<HeaderProps> = ({
             className="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-medium rounded-sm transition-colors disabled:opacity-50"
           >
             <RefreshCw size={13} className={isRefreshing ? "animate-spin text-emerald-600 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"} />
-            <span className="hidden lg:inline">{isRefreshing ? "Syncing..." : "Sync Tenant"}</span>
+            <span className="hidden lg:inline">
+              {isRefreshing ? (typeof syncProgressPercent === "number" ? `Syncing... ${syncProgressPercent}%` : "Syncing...") : "Sync Tenant"}
+            </span>
           </button>
         )}
 

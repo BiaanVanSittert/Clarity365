@@ -54,6 +54,24 @@ export interface Tenant {
   connectionStatus: "healthy" | "degraded" | "disconnected" | "error";
   credentials: TenantCredentials;
   isDemo?: boolean;
+  // Deliberate per-tenant opt-in for endpoint-security deploy features
+  // (MDE connector toggles, Defender AV policy, ASR rule deployment) -
+  // defaults to "read_only" wherever undefined (older tenants, mock data)
+  // rather than requiring a migration. See EndpointSecurityWriteMode.
+  endpointSecurityWriteMode?: "read_only" | "write_enabled";
+  // Manual attestation state for the organizational/legal half of the
+  // Compliance Readiness controls (see compliance-evaluator.ts's POPIA/
+  // GDPR/HIPAA control sets - ai-context-vault/Optimization/Compliance
+  // Readiness Checklist Plan.md). Keyed by ControlDefinition.attestationKey.
+  // Set ONLY by a human via the Compliance Matrix UI - never inferred or
+  // auto-set, since nothing in this app can verify a contract was actually
+  // signed or a registration actually filed. Persisted through the existing
+  // generic PUT /api/tenants/{id} route (updateTenant's partial merge does a
+  // SHALLOW merge, so a write must always send the full map, not one key).
+  complianceAttestations?: Record<
+    string,
+    { attested: boolean; attestedAt?: string; attestedBy?: string; note?: string }
+  >;
 }
 
 // Module 1: Conditional Access Policies
@@ -77,16 +95,117 @@ export interface CAPolicyRule {
     // includeRoles preserves Graph's directory-role targeting (conditions.users.includeRoles)
     // distinctly from includeUsers - collapsing the two into `include` loses the signal
     // ca-baseline-matcher.ts's targetsAdminRoles() needs to recognize admin-scoped policies.
-    users: { include: string[]; exclude: string[]; excludeGroupIds?: string[]; includeRoles?: string[] };
-    applications: { include: string[]; exclude: string[] };
+    //
+    // Everything marked "Security Simulations" below was previously dropped
+    // by mapConditionalAccessPolicy() - see ai-context-vault/Optimization/
+    // Security Simulations Plan.md, Stage 1. All optional: snapshots
+    // persisted before these existed simply don't have them (no migration
+    // system - see Optimization Plan's tenth bug-class variant), and
+    // undefined must be read as "not synced yet", never as "not configured".
+    users: {
+      include: string[];
+      exclude: string[];
+      excludeGroupIds?: string[];
+      includeRoles?: string[];
+      // Security Simulations: Graph's includeGroups (only excludeGroups was
+      // kept before, so a group-scoped policy looked like it targeted nobody).
+      includeGroupIds?: string[];
+      excludeRoles?: string[];
+      // guestOrExternalUserTypes, split from Graph's comma-separated string -
+      // which guest kinds the include/exclude "GuestsOrExternalUsers" marker covers.
+      includeGuestTypes?: string[];
+      excludeGuestTypes?: string[];
+    };
+    applications: {
+      include: string[];
+      exclude: string[];
+      // includeUserActions, e.g. "urn:user:registersecurityinfo" / "urn:user:registerdevice"
+      userActions?: string[];
+      // includeAuthenticationContextClassReferences, e.g. ["c1"]
+      authenticationContexts?: string[];
+    };
     clientAppTypes: string[];
     platforms?: { include: string[]; exclude: string[] };
     locations?: { include: string[]; exclude: string[] };
     userRiskLevels?: string[];
     signInRiskLevels?: string[];
+    // authenticationFlows.transferMethods, split: "deviceCodeFlow" / "authenticationTransfer"
+    authenticationFlows?: string[];
+    // Graph returns a comma-separated flags string ("minor,moderate,elevated")
+    insiderRiskLevels?: string[];
+    // Stored as-is and never parsed - the rule is its own expression
+    // language, so anything evaluating it must report "indeterminate".
+    deviceFilter?: { mode: "include" | "exclude"; rule: string };
+    // Workload-identity targeting (conditions.clientApplications)
+    clientApplications?: { includeServicePrincipals: string[]; excludeServicePrincipals: string[] };
+    servicePrincipalRiskLevels?: string[];
   };
+  // grantControls.operator - "OR" means any one listed control satisfies the
+  // policy, "AND" means all of them are required. Undefined on old snapshots.
+  grantOperator?: "AND" | "OR";
+  sessionControls?: CaSessionControls;
   matchesBaseline: boolean;
   recommendation?: string;
+}
+
+// conditionalAccessPolicy.sessionControls. tokenProtection and
+// continuousAccessEvaluation exist only on the beta endpoint (confirmed
+// against Microsoft Learn 2026-09-29: v1.0's conditionalAccessSessionControls
+// has only the other five), so they're filled from a separate best-effort
+// beta read - undefined means that read didn't happen or failed, not "off".
+export interface CaSessionControls {
+  signInFrequency?: {
+    isEnabled: boolean;
+    value?: number;
+    type?: "hours" | "days";
+    frequencyInterval?: "timeBased" | "everyTime";
+    authenticationType?: string;
+  };
+  persistentBrowser?: { isEnabled: boolean; mode?: "always" | "never" };
+  applicationEnforcedRestrictions?: boolean;
+  cloudAppSecurity?: { isEnabled: boolean; type?: string };
+  disableResilienceDefaults?: boolean;
+  // beta: secureSignInSession (token protection)
+  tokenProtection?: boolean;
+  // beta: continuousAccessEvaluation.mode
+  continuousAccessEvaluation?: "disabled" | "strictEnforcement" | "strictLocation";
+}
+
+// identity/conditionalAccess/namedLocations - resolves the location GUIDs a
+// CAPolicyRule references into countries or IP ranges.
+export interface CaNamedLocation {
+  id: string;
+  displayName: string;
+  kind: "country" | "ip";
+  // kind === "country": ISO 3166-1 alpha-2, uppercase (same convention as SignInEvent.location.country)
+  countries?: string[];
+  includeUnknownCountries?: boolean;
+  countryLookupMethod?: "clientIpAddress" | "authenticatorAppGps";
+  // kind === "ip"
+  ipRanges?: string[];
+  isTrusted?: boolean;
+}
+
+// Tenant-wide identity settings the Security Simulations scenarios need that
+// live outside Conditional Access itself. Every field optional - undefined
+// means "not synced", never "off".
+export interface TenantIdentitySettings {
+  // policies/identitySecurityDefaultsEnforcementPolicy.isEnabled - when true,
+  // Conditional Access can't be used at all.
+  securityDefaultsEnabled?: boolean;
+  // policies/authorizationPolicy.defaultUserRolePermissions.permissionGrantPoliciesAssigned
+  userConsentPolicies?: string[];
+  // Derived from userConsentPolicies (ManagePermissionGrantsForSelf.* entries only):
+  // "disabled" (none), "verifiedPublishersLowRisk" (microsoft-user-default-low),
+  // "microsoftRecommended" (microsoft-user-default-recommended),
+  // "allApps" (microsoft-user-default-legacy), "custom" (anything else)
+  userConsentMode?: "disabled" | "verifiedPublishersLowRisk" | "microsoftRecommended" | "allApps" | "custom";
+  // authorizationPolicy.guestUserRoleId, resolved to a readable level
+  guestAccessLevel?: "sameAsMember" | "limited" | "restricted" | "unknown";
+  // authorizationPolicy.allowInvitesFrom
+  guestInviteSetting?: "none" | "adminsAndGuestInviters" | "adminsGuestInvitersAndAllMembers" | "everyone" | "unknown";
+  // policies/adminConsentRequestPolicy.isEnabled
+  adminConsentWorkflowEnabled?: boolean;
 }
 
 export interface CABaselineItem {
@@ -165,18 +284,54 @@ export interface SecureScoreHistoryPoint {
   percentage: number;
 }
 
+// What Clarity365 can actually do about a control, distinct from Microsoft's
+// own userImpact/implementationCost fields: "auto" means this app already has
+// a live Graph write path for it (set via clarity365Action, e.g. a CA baseline
+// code or an Endpoint Security policy key) and can offer a one-click deploy;
+// "guided" means there's a documented fix (actionUrl and/or a PowerShell
+// script) but no in-app write path yet; "manual_only" covers anything that
+// isn't scriptable at all (purchasing a license, an org-wide behavior change).
+export interface SecureScoreControlDeployment {
+  type: "auto" | "guided" | "manual_only";
+  clarity365Action?: string;
+}
+
 export interface SecureScoreControl {
   id: string;
   title: string;
   category: "Identity" | "Device" | "Apps" | "Data" | "Infrastructure";
   scoreCurrent: number;
   scoreMax: number;
-  implementationCost: "Low" | "Moderate" | "High";
-  userImpact: "Low" | "Moderate" | "High";
+  // Live Graph data - see secure-score-mapper.ts's mapSecureScoreControl -
+  // shows "Unknown" for the majority of controls (confirmed live: ~70% of a
+  // real tenant's catalog) and "Medium" as well as "Moderate" for the same
+  // concept depending on the control. Never silently collapse "Unknown" into
+  // a real severity - that misrepresents "Microsoft didn't classify this" as
+  // an actual moderate rating.
+  implementationCost: "Low" | "Moderate" | "High" | "Unknown";
+  userImpact: "Low" | "Moderate" | "High" | "Unknown";
   status: "Completed" | "Partial" | "Unresolved" | "Ignored";
   actionType: "Requirement" | "Configuration" | "Policy";
+  // Tenant-specific "why this matters" text, from the secureScores
+  // controlScores[] entry - distinct from remediationSummary's "how to fix"
+  // steps, which come from the separate secureScoreControlProfiles catalog.
+  description: string;
   remediationSummary: string;
+  // Direct deep link to the exact admin portal blade for this control
+  // (Graph's controlProfile.actionUrl) - real and live, not authored by this
+  // app. Absent for some controls (third-party/AATP-sourced ones especially).
+  actionUrl?: string;
+  // Graph's controlProfile.remediationImpact - the effect on end users of
+  // actually applying the fix (e.g. "users must re-authenticate"), a
+  // different axis from the userImpact severity enum above.
+  remediationImpact?: string;
+  threats?: string[];
+  // Graph's controlScores[].implementationStatus free-text (e.g. "current
+  // status: On") - supplementary to the derived status enum, not a
+  // replacement for it.
+  implementationStatus?: string;
   powershellCommand?: string;
+  deployment: SecureScoreControlDeployment;
 }
 
 export interface TenantSecureScore {
@@ -536,6 +691,70 @@ export interface IntuneDevice {
   jailBroken?: string;
   complianceGracePeriodExpirationDateTime?: string;
   wiFiMacAddress?: string;
+  // Per-setting reasons this device is failing compliance (e.g. "Require
+  // BitLocker", "Require Threat scan" i.e. Defender Antimalware, "Minimum OS
+  // version") - only populated for devices with at least one non-compliant/
+  // error/conflict setting. Sourced from
+  // deviceCompliancePolicySettingStateSummaries, a fleet-wide (not
+  // per-device) Graph resource - see
+  // ai-context-vault/Optimization/Intune Non-Compliance Reasons Plan.md.
+  // Optional/additive - undefined just means "not yet re-synced since this
+  // field was added" or "no specific setting failures reported by
+  // Microsoft," not "compliant."
+  nonComplianceReasons?: DeviceComplianceReason[];
+}
+
+export interface DeviceComplianceReason {
+  settingName: string; // Graph's own human-readable name, e.g. "Require BitLocker"
+  // "unknown"/"compliant"/"remediated"/"notApplicable" rows are deliberately
+  // never turned into a DeviceComplianceReason - they aren't an actionable
+  // finding, so a device with only those has zero reasons, not a confusing
+  // "unknown" chip (see the UI's "no specific reasons reported" fallback).
+  state: "nonCompliant" | "error" | "conflict";
+}
+
+// Microsoft Defender for Endpoint connector settings (the "Defender and MEM
+// Reporting" blade in Intune) - deviceManagement/mobileThreatDefenseConnectors,
+// v1.0 fields plus a handful only exposed in beta (noted per-field below).
+// Verified property-by-property against Microsoft's own Graph API reference
+// before implementation - a few settings from that blade (Android COBO/COPE
+// MTD role grant, EDR auto-connect-package, EDR sample sharing) genuinely
+// aren't exposed via Graph at all and are deliberately not modeled here.
+export interface MdeConnectorSettings {
+  id: string;
+  lastHeartbeatDateTime?: string;
+  partnerState: "unavailable" | "available" | "enabled" | "unresponsive" | "notSetUp" | "error" | "unknownFutureValue";
+  microsoftDefenderForEndpointAttachEnabled: boolean;
+  partnerUnsupportedOsVersionBlocked: boolean;
+  androidEnabled: boolean;
+  androidMobileApplicationManagementEnabled: boolean;
+  androidDeviceBlockedOnMissingPartnerData: boolean;
+  iosEnabled: boolean;
+  iosMobileApplicationManagementEnabled: boolean;
+  iosDeviceBlockedOnMissingPartnerData: boolean;
+  allowPartnerToCollectIOSApplicationMetadata: boolean;
+  allowPartnerToCollectIOSPersonalApplicationMetadata: boolean;
+  // beta-only
+  allowPartnerToCollectIosCertificateMetadata?: boolean;
+  allowPartnerToCollectIosPersonalCertificateMetadata?: boolean;
+  windowsEnabled: boolean;
+  windowsMobileApplicationManagementEnabled?: boolean; // beta-only
+  windowsDeviceBlockedOnMissingPartnerData: boolean;
+  macEnabled?: boolean; // beta-only
+  macDeviceBlockedOnMissingPartnerData?: boolean; // beta-only
+}
+
+// Per-device Microsoft Defender for Endpoint onboarding status -
+// deviceManagement/advancedThreatProtectionOnboardingStateSummary's
+// advancedThreatProtectionOnboardingDeviceSettingStates relationship (beta).
+// This is the real telemetry intune-mapper.ts's own comment says would be
+// needed to replace the compliance-state-derived edrOnboardingState
+// approximation with actual Defender data - see applyRealEdrOnboardingStates.
+export interface AtpOnboardingDeviceState {
+  deviceName: string;
+  userPrincipalName?: string;
+  platformType?: string;
+  state: "unknown" | "notApplicable" | "compliant" | "remediated" | "nonCompliant" | "error" | "conflict" | "notAssigned";
 }
 
 export interface IntunePolicySummary {
@@ -545,6 +764,176 @@ export interface IntunePolicySummary {
   nonCompliantDevices: number;
   totalDevices: number;
   devices: IntuneDevice[];
+  // Undefined until a live sync fetches these (mock/blank snapshots don't
+  // populate them) - both optional for the same reason licenseSkus is.
+  mdeConnectorSettings?: MdeConnectorSettings;
+  onboardingStates?: AtpOnboardingDeviceState[];
+  // Phase 2 write path - the Clarity365-deployed Defender AV Settings
+  // Catalog policy, if any. Populated on-demand (endpoint-security module
+  // fetch), not part of the main sync - see DefenderAvPolicySettings below.
+  defenderAvPolicy?: {
+    deployedPolicyId?: string;
+    settings: DefenderAvPolicySettings;
+  };
+  // Same on-demand, deploy-on-request shape as defenderAvPolicy above.
+  edrPolicy?: {
+    deployedPolicyId?: string;
+    settings: EdrPolicySettings;
+  };
+  // Same on-demand, deploy-on-request shape as defenderAvPolicy above.
+  bitLockerPolicy?: {
+    deployedPolicyId?: string;
+    settings: BitLockerPolicySettings;
+  };
+  // Deliberately NOT the same shape as defenderAvPolicy/edrPolicy above: ASR
+  // rule state (asrRules on TenantSecuritySnapshot) is merged from up to
+  // three independent Intune surfaces, and a tenant can genuinely have
+  // multiple pre-existing Settings Catalog ASR policies that Clarity365
+  // didn't create (another admin's, another tool's). This field tracks only
+  // the id of the one policy *this app itself* created via deployAsrRules,
+  // set the moment that create call succeeds - never inferred from the
+  // general multi-surface sync - so a later "Deploy ASR Rules" click updates
+  // that specific policy in place instead of guessing at (and potentially
+  // overwriting) some other policy it never made.
+  clarity365AsrPolicyId?: string;
+}
+
+// Microsoft Defender Antivirus Settings Catalog policy toggles. Field names,
+// grouping, and the settingDefinitionId map in graph-client.ts's
+// DEFENDER_AV_SETTING_DEFINITION_IDS were all confirmed live against a real
+// tenant's own Settings Catalog category/setting metadata
+// (deviceManagement/configurationCategories + configurationSettings, the
+// same tenant-agnostic catalog the ASR slug-map already reads) - not just
+// Microsoft's docs. That live check caught two wrong IDs this file's own
+// comments had previously asserted with false confidence (allowFullScanOnRemovableDrives,
+// allowUpdatesOnMeteredNetwork) and one field (allowCloudProtection) that
+// was missing entirely - see graph-client.ts for the corrected map.
+export interface DefenderAvPolicySettings {
+  // Real-time protection
+  allowRealtimeMonitoring?: boolean; // "Allow Realtime Monitoring"
+  allowBehaviorMonitoring?: boolean; // "Allow Behavior Monitoring"
+  allowCloudProtection?: boolean; // "Allow Cloud Protection"
+  allowIOAVProtection?: boolean; // "Allow scanning of all downloaded files and attachments"
+  allowScriptScanning?: boolean; // "Allow Script Scanning"
+  allowScanningNetworkFiles?: boolean; // "Allow Scanning Network Files"
+  allowEmailScanning?: boolean; // "Allow Email Scanning"
+  // Scan
+  allowArchiveScanning?: boolean; // "Allow Archive Scanning"
+  allowFullScanOnMappedNetworkDrives?: boolean; // "Allow Full Scan On Mapped Network Drives"
+  allowFullScanOnRemovableDrives?: boolean; // "Allow Full Scan Removable Drive Scanning"
+  enableLowCpuPriority?: boolean; // "Enable Low CPU Priority"
+  disableCatchupFullScan?: boolean; // "Disable Catchup Full Scan"
+  disableCatchupQuickScan?: boolean; // "Disable Catchup Quick Scan"
+  checkForSignaturesBeforeRunningScan?: boolean; // "Check For Signatures Before Running Scan"
+  // Updates
+  allowUpdatesOnMeteredNetwork?: boolean; // "Metered Connection Updates" (no "Allow" prefix - confirmed live)
+  // Exclusions / admin merge
+  disableLocalAdminMerge?: boolean; // "Disable Local Admin Merge"
+  // User experience
+  allowUserUIAccess?: boolean; // "Allow User UI Access"
+}
+
+// Endpoint Detection and Response policy (a real, assignable Settings
+// Catalog policy, category "Microsoft Defender for Endpoint" -
+// device_vendor_msft_windowsadvancedthreatprotection_* setting root,
+// confirmed live the same way as DefenderAvPolicySettings). Deliberately
+// narrower than every EDR profile option Microsoft exposes: "Onboard"/
+// "Offboard" configuration-package-type values require pasting a signed
+// blob file downloaded from the Defender portal, which isn't modeled here -
+// only the "Auto from connector" path (recommended by Microsoft, and the
+// only one that needs no manual file) is exposed as a plain toggle.
+export interface EdrPolicySettings {
+  // "Microsoft Defender for Endpoint client configuration package type" set
+  // to "Auto from connector" when true, left not-configured when false/unset.
+  autoFromConnector?: boolean;
+  // "Sample Sharing": "All" when true, "None" when false, not-configured when unset.
+  sampleSharingAll?: boolean;
+}
+
+// BitLocker Settings Catalog policy toggles (Device/Vendor/MSFT/BitLocker
+// CSP - the direct CSP category Microsoft's Intune "Endpoint Security >
+// Disk encryption > BitLocker" profile uses, confirmed live against a real
+// tenant's own Settings Catalog category/setting metadata, not guessed -
+// distinct from the separate "BitLocker Drive Encryption" Administrative
+// Templates/GPO category, which this app doesn't use, matching the same
+// direct-CSP convention DefenderAvPolicySettings/EdrPolicySettings already
+// use). Deliberately narrower than every BitLocker CSP setting Microsoft
+// exposes: RemovableDrivesExcludedFromEncryption takes a free-form
+// comma-separated hardware-id list, not a simple toggle, and is out of
+// scope for a plain checkbox form (same reasoning EDR uses to exclude
+// Onboard/Offboard).
+export interface BitLockerPolicySettings {
+  // "Require Device Encryption" - the actual on/off switch.
+  requireDeviceEncryption?: boolean;
+  // "Allow Standard User Encryption" - lets Require Device Encryption
+  // succeed even when the currently signed-in user is a standard
+  // (non-admin) user. Per Microsoft's own setting description, this is
+  // functionally paired with allowWarningForOtherDiskEncryption below: it
+  // only takes effect once that setting is also explicitly set to false
+  // (silent encryption) - Graph's schema doesn't enforce this as a hard
+  // dependency, but the setting is a no-op without it.
+  allowStandardUserEncryption?: boolean;
+  // "Allow Warning For Other Disk Encryption" - true (Microsoft's own
+  // default when unset) shows the encryption notification/warning prompt;
+  // false suppresses it and encrypts silently. Must be false for
+  // allowStandardUserEncryption above to actually work - see its comment.
+  allowWarningForOtherDiskEncryption?: boolean;
+  // "Configure Recovery Password Rotation" - a real three-way choice
+  // confirmed live, not a boolean: rotation off, on for Entra ID-joined
+  // devices only (Microsoft's own default when this is left unset), or on
+  // for both Entra ID-joined and hybrid-joined devices.
+  recoveryPasswordRotation?: "off" | "entraIdOnly" | "entraIdAndHybrid";
+}
+
+// Recommended baseline, surfaced by the UI as a one-click "Use Recommended"
+// preset rather than a silent default - never applied without an explicit
+// admin action. Lives here (not graph-client.ts, which is server-only) so
+// the client-side UI can import it directly without pulling in any
+// server-side module. Require Device Encryption is the actual switch; the
+// other three exist specifically to make that succeed cleanly in a real
+// fleet: Allow Standard User Encryption ON + Allow Warning For Other Disk
+// Encryption OFF together enable silent encryption even when the signed-in
+// user isn't a local admin (per Microsoft's own docs, these two are
+// functionally paired - see BitLockerPolicySettings' own comment above),
+// and Recovery Password Rotation ON for both Entra ID and hybrid-joined
+// devices is Microsoft's own stronger-than-default option (their unset
+// default only covers Entra ID-joined devices).
+export const RECOMMENDED_BITLOCKER_POLICY: BitLockerPolicySettings = {
+  requireDeviceEncryption: true,
+  allowStandardUserEncryption: true,
+  allowWarningForOtherDiskEncryption: false,
+  recoveryPasswordRotation: "entraIdAndHybrid",
+};
+
+// Standard Intune assignment-target shapes any Settings Catalog policy
+// accepts, per Microsoft's documented assignments array. "none" = create
+// the policy with an empty assignments call ("Do Not Assign") - it exists
+// but affects nothing until assigned, the deliberate default for a fresh
+// Phase 2 deploy so nothing is ever silently applied fleet-wide.
+export interface IntuneAssignmentTarget {
+  mode: "none" | "allDevices" | "allUsers" | "allUsersAndDevices" | "group";
+  groupId?: string;
+  excludeGroupId?: string;
+}
+
+// Read-only vs write-enabled gate for the endpoint-security deploy features
+// (MDE connector toggles, Defender AV policy, ASR rule deployment) - a
+// deliberate per-tenant choice (see Tenant.endpointSecurityWriteMode), not
+// inferred from whatever Graph permission happens to be granted. Both this
+// AND the actual DeviceManagementConfiguration.ReadWrite.All permission must
+// be satisfied before any Deploy action is offered.
+export type EndpointSecurityWriteMode = "read_only" | "write_enabled";
+
+export interface IntuneCoverageGapUser {
+  userId: string;
+  userPrincipalName: string;
+  displayName: string;
+  department: string;
+}
+
+export interface IntuneCoverageGaps {
+  usersWithoutIntuneDevice: IntuneCoverageGapUser[];
+  devicesWithoutEdr: IntuneDevice[];
 }
 
 // Attack Surface Reduction rule state, per tenant. "warn" behaves like Block
@@ -567,6 +956,16 @@ export interface AsrRuleState {
   // misconfiguration.
   hasConflict?: boolean;
 }
+
+// Selectable lookback window for ASR detection activity (both the per-rule
+// drawer and the module-wide summary). "all" doesn't literally mean
+// unlimited - Advanced Hunting's DeviceEvents table only retains what the
+// tenant's own retention policy keeps (30 days by default, longer if a
+// tenant has configured extended retention) - it requests the longest
+// window Graph will accept and lets Graph naturally return whatever is
+// actually still retained, rather than this app guessing a tenant's real
+// retention setting.
+export type AsrDetectionTimeRange = "7d" | "30d" | "all";
 
 // On-demand only (Advanced Hunting) - never stored on TenantSecuritySnapshot,
 // see asr-detection-mapper.ts and Core Graph Layer notes for why.
@@ -698,7 +1097,11 @@ export interface TenantSecuritySnapshot {
     baselineCoverageScore: number;
     policies: CAPolicyRule[];
     baselineDefinitions: CABaselineItem[];
+    // Undefined until a sync has fetched named locations (Security Simulations Stage 1).
+    namedLocations?: CaNamedLocation[];
   };
+  // Undefined until a sync has fetched them (Security Simulations Stage 1).
+  identitySettings?: TenantIdentitySettings;
   signIns: SignInEvent[];
   mfaAudit: UserMfaProfile[];
   accountClassification: TenantAccountSummary;
@@ -762,7 +1165,12 @@ export interface AuditLogEntry {
     | "exo_write"
     | "incident_containment"
     | "device_isolation"
-    | "device_scan";
+    | "device_scan"
+    | "defender_av_deploy"
+    | "edr_policy_deploy"
+    | "bitlocker_policy_deploy"
+    | "asr_rule_deploy"
+    | "mde_connector_update";
   action: string;
   tenantId?: string;
   tenantName?: string;
@@ -1106,9 +1514,36 @@ export interface ExecutiveQbrReport {
       reason: string;
     }[];
   };
+  // Guidance-only, tier-eligibility view over the DLP/sensitivity-label
+  // recommendation catalog (src/lib/data/data-protection-recommendations.ts)
+  // - not a live posture check, since there is no live DLP sync (see
+  // ai-context-vault/Optimization/DLP & Sensitivity Labels Plan.md). Reuses
+  // the same getTierEligibility() the Fleet Data Protection Visibility
+  // matrix uses, applied to this one tenant.
+  dataProtectionSection: {
+    tenantTier: string;
+    totalRecommendationsCount: number;
+    eligibleRecommendationsCount: number;
+    needsE5Count: number;
+    unconfirmedTierCount: number;
+    eligibleRecommendations: { id: string; title: string; regulations: string[] }[];
+  };
 }
 
-export type ComplianceFramework = "cis_m365_v3" | "nist_csf_v2" | "essential_eight";
+// popia/gdpr_uk_gdpr/hipaa added 2026-09-22 - unlike the three technical
+// frameworks above, these three are hybrid: partly auto-computed from this
+// snapshot, partly manual attestation (see ComplianceControlItem.attestationKey
+// and Tenant.complianceAttestations). See Compliance Readiness Checklist Plan
+// in the vault for why they're deliberately folded into this same type rather
+// than kept as a separate concept - the user asked for it to "live inside the
+// existing Compliance Matrix," so it reuses this exact machinery end to end.
+export type ComplianceFramework =
+  | "cis_m365_v3"
+  | "nist_csf_v2"
+  | "essential_eight"
+  | "popia"
+  | "gdpr_uk_gdpr"
+  | "hipaa";
 
 export interface ComplianceControlItem {
   id: string;
@@ -1123,6 +1558,16 @@ export interface ComplianceControlItem {
   evidence: string;
   remediationGuide: string;
   relatedBaselineCode?: string;
+  // Present only on POPIA/GDPR/HIPAA's organizational/legal items - this is
+  // what tells the UI to render an "Attest" control instead of read-only
+  // evidence, and is the key into Tenant.complianceAttestations. Absent for
+  // every auto-computed control (all of CIS/NIST/Essential Eight, and the
+  // technical half of POPIA/GDPR/HIPAA).
+  attestationKey?: string;
+  // A real citation URL backing this control's regulationRef, where the
+  // content was grounded against a public source rather than asserted from
+  // memory - see the DLP catalog's same non-legal-advice convention.
+  sourceUrl?: string;
 }
 
 export interface TenantComplianceAssessment {
@@ -1154,5 +1599,127 @@ export interface FleetComplianceSummary {
     title: string;
     failingTenantsCount: number;
   }[];
+}
+
+// Audit Log Investigator - ingested Microsoft Purview unified audit log CSV
+// exports, stored/searched independently of AuditLogEntry above (this app's
+// own operator activity log - an unrelated, pre-existing concept that just
+// happens to share the word "audit"). See audit-log-parser.ts.
+export interface UnifiedAuditLogImport {
+  id: string;
+  tenantId: string;
+  filename: string;
+  uploadedAt: string;
+  rowCount: number;
+  skippedRowCount: number;
+  earliestEvent?: string;
+  latestEvent?: string;
+  // True when rowCount lands at or past Purview's own export caps (50,000 for
+  // Audit Standard, 1,000,000 for Audit Premium) - a nudge that the uploaded
+  // window may be an incomplete slice of the real investigation timeframe,
+  // not a claim about which license actually produced this file.
+  possiblyCapped: boolean;
+  exportCapWarning?: string;
+}
+
+export interface UnifiedAuditLogRecord {
+  id: number;
+  tenantId: string;
+  importId: string;
+  creationDate: string;
+  recordType?: string;
+  operation?: string;
+  userId?: string;
+  clientIp?: string;
+  sessionId?: string;
+  clientInfo?: string;
+  resultStatus?: string;
+  workload?: string;
+  // The full source row (CreationDate/UserIds/Operations/RecordType columns
+  // plus the parsed - or, on a malformed row, raw-string - AuditData JSON),
+  // so the detail drawer can show everything even though only a handful of
+  // fields are hoisted into indexed columns above.
+  rawData: string;
+  parseError?: boolean;
+}
+
+export interface UnifiedAuditLogSearchFilters {
+  search?: string;
+  operation?: string;
+  // Distinct from `operation` above (single-value, dropdown-driven) - set by
+  // an Investigation Template's operation list ("is one of N values"). The
+  // UI treats the two as mutually exclusive since combining them has no
+  // sensible meaning, but the store accepts either independently.
+  operations?: string[];
+  recordType?: string;
+  workload?: string;
+  userId?: string;
+  sessionId?: string;
+  clientInfo?: string;
+  startDate?: string;
+  endDate?: string;
+  importId?: string;
+  page?: number;
+  pageSize?: number;
+  sortDirection?: "asc" | "desc";
+}
+
+export interface UnifiedAuditLogSearchResult {
+  records: UnifiedAuditLogRecord[];
+  total: number;
+  facets: {
+    operations: string[];
+    recordTypes: string[];
+    workloads: string[];
+  };
+}
+
+export interface UnifiedAuditLogImportProgress {
+  importId: string;
+  filename: string;
+  rowsProcessed: number;
+  insertedCount: number;
+  skippedCount: number;
+  startedAt: number;
+  done: boolean;
+  error?: string;
+}
+
+// Phase 2 - Investigation Templates (see audit-investigation-templates.ts)
+export interface AuditInvestigationTemplate {
+  id: string;
+  name: string;
+  description: string;
+  operations: string[];
+}
+
+// Phase 3 - Heuristic flags (see audit-log-heuristics.ts). All three are
+// framed in the UI as "worth investigating," never a verdict.
+export interface SessionHijackFlag {
+  sessionId: string;
+  distinctIpCount: number;
+  distinctIps: string[];
+  recordCount: number;
+  firstSeen: string;
+  lastSeen: string;
+}
+
+export interface MassDeletionFlag {
+  userId: string;
+  hourBucket: string;
+  deleteCount: number;
+}
+
+export interface PossibleBecFlag {
+  userId: string;
+  hourBucket: string;
+  inboxRuleChangeCount: number;
+  mailItemsAccessedCount: number;
+}
+
+export interface AuditLogFlagsResult {
+  sessionHijack: SessionHijackFlag[];
+  massDeletion: MassDeletionFlag[];
+  possibleBec: PossibleBecFlag[];
 }
 

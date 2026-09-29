@@ -4,10 +4,13 @@ tags: [ui]
 
 # Modals
 
-Eleven modal/drawer components under `src/components/modals/`. Linked from module notes by header anchor.
+Twelve modal/drawer components under `src/components/modals/`. Linked from module notes by header anchor.
 
 ### AddTenantModal
 Provision a new tenant (live Graph or simulation). → `POST /api/tenants`
+
+### EditTenantCredentialsModal
+Rotate/correct an existing live tenant's Entra app registration credentials (Directory ID, Application ID, Client Secret) - added after a live incident where a client's secret needed rotating and there was no UI for it anywhere (only `AddTenantModal` at creation time). → `PUT /api/tenants/{id}`, which already fully supported this (the `SECRET_MASK`/`keepExistingSecret` convention in `tenant-store.ts`'s `updateTenant()` predates this modal - it was built for `PermissionsModal`'s EXO connect flow) - this modal was purely the missing UI, no backend change needed. Opened from the tenant switcher dropdown in `Header.tsx` (a pencil icon next to the delete icon, live tenants only). Reset-on-open logic is deliberately keyed on `isOpen` alone, not the `tenant` prop - depending on `tenant` would re-fire on the `fetchTenants()` refresh a successful save triggers, wiping the success banner the instant it appeared (caught via live testing, not by inspection).
 
 ### DeleteTenantModal
 Remove a tenant. → `DELETE /api/tenants?id=`

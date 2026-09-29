@@ -1,4 +1,5 @@
-import { TenantSecuritySnapshot, Tenant } from "../types";
+import { TenantSecuritySnapshot, Tenant, CAPolicyRule } from "../types";
+import { DIRECTORY_ROLE_TEMPLATES } from "../utils/directory-role-templates";
 import { CA_BASELINE_STANDARDS } from "./baseline-definitions";
 
 export const INITIAL_TENANTS: Tenant[] = [
@@ -73,6 +74,118 @@ export const INITIAL_TENANTS: Tenant[] = [
   },
 ];
 
+// Woodgrove (zero-trust demo) Conditional Access - see the comment on its
+// conditionalAccess block below. Admin policies target Microsoft's 14
+// privileged role template GUIDs via includeRoles, the live Graph shape.
+const WG_BREAKGLASS = "upn:emergency-wg-breakglass@woodgrovefinancial.com";
+const WG_PRIVILEGED_ROLE_IDS = DIRECTORY_ROLE_TEMPLATES.filter((r) => r.isPrivileged).map((r) => r.templateId);
+const wgAllUsers = { include: ["All"], exclude: [WG_BREAKGLASS] };
+const wgAdmins = { include: [], exclude: [WG_BREAKGLASS], includeRoles: WG_PRIVILEGED_ROLE_IDS };
+const wgAllApps = { include: ["All"], exclude: [] };
+
+const WOODGROVE_BASELINE_OVERRIDES: Record<string, Pick<CAPolicyRule, "grantControls" | "conditions"> & Partial<CAPolicyRule>> = {
+  CA01: { grantControls: ["block"], conditions: { users: wgAllUsers, applications: wgAllApps, clientAppTypes: ["exchangeActiveSync", "other"] } },
+  CA02: { grantControls: ["mfa"], conditions: { users: wgAllUsers, applications: wgAllApps, clientAppTypes: ["all"] } },
+  CA03: {
+    grantControls: ["mfa"],
+    conditions: { users: wgAdmins, applications: wgAllApps, clientAppTypes: ["all"] },
+    sessionControls: { signInFrequency: { isEnabled: true, value: 4, type: "hours", frequencyInterval: "timeBased" }, persistentBrowser: { isEnabled: true, mode: "never" } },
+  },
+  CA04: {
+    grantControls: ["mfa"],
+    conditions: {
+      users: {
+        include: ["GuestsOrExternalUsers"],
+        exclude: [],
+        includeGuestTypes: ["internalGuest", "b2bCollaborationGuest", "b2bCollaborationMember", "b2bDirectConnectUser", "otherExternalUser", "serviceProvider"],
+      },
+      applications: wgAllApps,
+      clientAppTypes: ["all"],
+    },
+  },
+  CA05: { grantControls: ["mfa"], conditions: { users: wgAllUsers, applications: { include: ["797f4846-ba00-4fd7-ba43-dac1f8f63013"], exclude: [] }, clientAppTypes: ["all"] } },
+  CA06: { grantControls: ["mfa"], conditions: { users: wgAllUsers, applications: wgAllApps, clientAppTypes: ["all"], signInRiskLevels: ["medium", "high"] } },
+  CA07: {
+    grantControls: ["mfa", "passwordChange"],
+    grantOperator: "AND",
+    conditions: { users: wgAllUsers, applications: wgAllApps, clientAppTypes: ["all"], userRiskLevels: ["high"] },
+    sessionControls: { signInFrequency: { isEnabled: true, frequencyInterval: "everyTime" } },
+  },
+  CA08: {
+    grantControls: ["block"],
+    conditions: { users: wgAllUsers, applications: wgAllApps, clientAppTypes: ["all"], locations: { include: ["All"], exclude: ["loc-wg-allowed-countries"] } },
+  },
+  CA09: {
+    grantControls: ["compliantDevice", "domainJoinedDevice"],
+    grantOperator: "OR",
+    conditions: { users: wgAllUsers, applications: wgAllApps, clientAppTypes: ["all"], platforms: { include: ["all"], exclude: [] } },
+  },
+  CA10: {
+    grantControls: ["authenticationStrength:Phishing-resistant MFA"],
+    conditions: { users: wgAdmins, applications: wgAllApps, clientAppTypes: ["all"] },
+  },
+};
+
+const WOODGROVE_EXTRA_POLICIES: CAPolicyRule[] = [
+  {
+    id: "ca-wg-block-transfer-flows",
+    name: "Block device code flow and authentication transfer",
+    baselineCode: null,
+    state: "enabled",
+    modifiedDateTime: "2026-07-01T12:00:00Z",
+    createdDateTime: "2025-05-12T09:00:00Z",
+    grantControls: ["block"],
+    conditions: { users: wgAllUsers, applications: wgAllApps, clientAppTypes: ["all"], authenticationFlows: ["deviceCodeFlow", "authenticationTransfer"] },
+    matchesBaseline: false,
+  },
+  {
+    id: "ca-wg-secure-registration",
+    name: "Securing security info registration",
+    baselineCode: null,
+    state: "enabled",
+    modifiedDateTime: "2026-07-01T12:00:00Z",
+    createdDateTime: "2025-05-12T09:00:00Z",
+    grantControls: ["mfa", "compliantDevice"],
+    grantOperator: "OR",
+    conditions: {
+      users: { include: ["All"], exclude: [WG_BREAKGLASS, "GuestsOrExternalUsers"] },
+      applications: { include: [], exclude: [], userActions: ["urn:user:registersecurityinfo"] },
+      clientAppTypes: ["all"],
+      locations: { include: ["All"], exclude: ["loc-wg-hq"] },
+    },
+    matchesBaseline: false,
+  },
+  {
+    id: "ca-wg-token-protection",
+    name: "Require token protection for Windows desktop sessions",
+    baselineCode: null,
+    state: "enabled",
+    modifiedDateTime: "2026-07-01T12:00:00Z",
+    createdDateTime: "2025-11-03T09:00:00Z",
+    grantControls: [],
+    conditions: {
+      users: wgAllUsers,
+      // Exchange Online and SharePoint Online - the two resources token protection supports.
+      applications: { include: ["00000002-0000-0ff1-ce00-000000000000", "00000003-0000-0ff1-ce00-000000000000"], exclude: [] },
+      clientAppTypes: ["mobileAppsAndDesktopClients"],
+      platforms: { include: ["windows"], exclude: [] },
+    },
+    sessionControls: { tokenProtection: true },
+    matchesBaseline: false,
+  },
+  {
+    id: "ca-wg-insider-risk",
+    name: "Block elevated insider risk",
+    baselineCode: null,
+    state: "enabledForReportingButNotEnforced",
+    modifiedDateTime: "2026-08-15T12:00:00Z",
+    createdDateTime: "2026-08-15T12:00:00Z",
+    grantControls: ["block"],
+    conditions: { users: wgAllUsers, applications: wgAllApps, clientAppTypes: ["all"], insiderRiskLevels: ["elevated"] },
+    matchesBaseline: false,
+  },
+];
+
 export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
   "tenant-contoso-corp": {
     tenant: INITIAL_TENANTS[0],
@@ -113,7 +226,9 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Moderate",
           status: "Completed",
           actionType: "Policy",
+          description: "Multi-factor authentication substantially reduces the risk of compromised credentials being used to sign in.",
           remediationSummary: "Enforced via CA02 and CA03 Conditional Access policies.",
+          deployment: { type: "auto", clarity365Action: "CA02" },
         },
         {
           id: "SEC-ID-02",
@@ -125,7 +240,9 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Low",
           status: "Completed",
           actionType: "Policy",
+          description: "Identity Protection's sign-in risk policy blocks or challenges sign-ins Microsoft's own risk detections flag as suspicious.",
           remediationSummary: "Enabled via CA05 baseline policy.",
+          deployment: { type: "auto", clarity365Action: "CA05" },
         },
         {
           id: "SEC-DEV-01",
@@ -137,7 +254,9 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Moderate",
           status: "Completed",
           actionType: "Policy",
+          description: "Restricting access to devices Intune has confirmed meet compliance policy blocks unmanaged/unpatched endpoints from reaching company data.",
           remediationSummary: "Intune compliance evaluated on every token issuance.",
+          deployment: { type: "guided" },
         },
         {
           id: "SEC-EX-01",
@@ -149,8 +268,10 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Low",
           status: "Completed",
           actionType: "Configuration",
+          description: "Attackers who compromise a mailbox often set up silent auto-forwarding rules to exfiltrate mail; blocking this at the tenant level closes that path.",
           remediationSummary: "Outbound anti-spam policy explicitly blocks automatic forwarding.",
           powershellCommand: "Set-HostedOutboundSpamFilterPolicy -Identity Default -AutoForwardingMode Off",
+          deployment: { type: "guided" },
         },
         {
           id: "SEC-DATA-01",
@@ -162,7 +283,9 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Low",
           status: "Partial",
           actionType: "Policy",
+          description: "Data Loss Prevention policies detect and stop sensitive identifiers (e.g. patient/health records) from leaving the organization through email or file sharing.",
           remediationSummary: "DLP policy active in test mode on Exchange; expand to SharePoint & OneDrive.",
+          deployment: { type: "guided" },
         },
         {
           id: "SEC-ID-04",
@@ -174,8 +297,10 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Low",
           status: "Unresolved",
           actionType: "Policy",
+          description: "Phishing-resistant methods (FIDO2/passkey) close the gap that SMS- and app-based MFA still leave open to real-time phishing/adversary-in-the-middle attacks against Azure admin access.",
           remediationSummary: "Deploy CA10 to enforce FIDO2/Passkey on Microsoft Azure Management app.",
           powershellCommand: "New-MgIdentityConditionalAccessPolicy -DisplayName 'CA10: Require Phishing-Resistant MFA for Azure Management' ...",
+          deployment: { type: "auto", clarity365Action: "CA10" },
         },
       ],
     },
@@ -211,7 +336,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           conditions: {
             users: { include: ["All"], exclude: [] },
             applications: { include: ["All"], exclude: [] },
-            clientAppTypes: ["exchangeActiveSync", "otherClients"],
+            clientAppTypes: ["exchangeActiveSync", "other"],
           },
           matchesBaseline: true,
         },
@@ -258,7 +383,7 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           grantControls: ["mfa"],
           conditions: {
             users: { include: ["All"], exclude: [] },
-            applications: { include: ["797f3427-79cd-4827-8132-47d473d450e4"], exclude: [] },
+            applications: { include: ["797f4846-ba00-4fd7-ba43-dac1f8f63013"], exclude: [] },
             clientAppTypes: ["all"],
           },
           matchesBaseline: true,
@@ -342,13 +467,33 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           grantControls: ["authenticationStrength:PhishingResistantMFA"],
           conditions: {
             users: { include: ["AllAdmins"], exclude: [] },
-            applications: { include: ["797f3427-79cd-4827-8132-47d473d450e4"], exclude: [] },
+            applications: { include: ["797f4846-ba00-4fd7-ba43-dac1f8f63013"], exclude: [] },
             clientAppTypes: ["all"],
           },
           matchesBaseline: true,
           recommendation: "Currently in Report-Only mode. Switch state to 'Enabled' after confirming admin FIDO2 keys.",
         },
       ],
+      // Ids match the "loc:" markers this tenant's CA08 policy already references.
+      namedLocations: [
+        {
+          id: "loc:BlockedOFACCountries",
+          displayName: "Blocked OFAC countries",
+          kind: "country",
+          countries: ["RU", "KP", "IR", "CU", "SY", "BY"],
+          includeUnknownCountries: true,
+          countryLookupMethod: "clientIpAddress",
+        },
+        { id: "loc:ContosoHQ", displayName: "Contoso HQ (Boston)", kind: "ip", ipRanges: ["203.0.113.0/24"], isTrusted: true },
+      ],
+    },
+    identitySettings: {
+      securityDefaultsEnabled: false,
+      userConsentPolicies: ["ManagePermissionGrantsForSelf.microsoft-user-default-low"],
+      userConsentMode: "verifiedPublishersLowRisk",
+      guestAccessLevel: "limited",
+      guestInviteSetting: "everyone",
+      adminConsentWorkflowEnabled: false,
     },
     signIns: [
       {
@@ -1076,6 +1221,11 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           antivirusStatus: "outOfDate",
           edrOnboardingState: "canBeOnboarded",
           lastSyncDateTime: "2026-08-18T14:10:00Z",
+          nonComplianceReasons: [
+            { settingName: "Require BitLocker", state: "nonCompliant" },
+            { settingName: "Microsoft Defender Antimalware", state: "nonCompliant" },
+            { settingName: "Minimum OS version", state: "nonCompliant" },
+          ],
         },
         {
           id: "dev-04",
@@ -1088,6 +1238,16 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           antivirusStatus: "disabled",
           edrOnboardingState: "onboarded",
           lastSyncDateTime: "2026-08-20T21:15:00Z",
+          nonComplianceReasons: [
+            { settingName: "Microsoft Defender Antimalware", state: "nonCompliant" },
+            { settingName: "Minimum password length", state: "nonCompliant" },
+            // Graph reports this as "error" rather than a definitive
+            // nonCompliant on some devices - the platform genuinely
+            // couldn't read TPM state to evaluate the setting, a real,
+            // distinct outcome worth demo data showing, not just
+            // nonCompliant everywhere.
+            { settingName: "TPM not enabled", state: "error" },
+          ],
         },
         {
           id: "dev-05",
@@ -1441,7 +1601,9 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Moderate",
           status: "Partial",
           actionType: "Policy",
+          description: "Multi-factor authentication substantially reduces the risk of compromised credentials being used to sign in.",
           remediationSummary: "MFA enabled for admins; 38% of clinical staff still using SMS or exempt.",
+          deployment: { type: "auto", clarity365Action: "CA02" },
         },
         {
           id: "SEC-NH-02",
@@ -1453,8 +1615,10 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Low",
           status: "Unresolved",
           actionType: "Policy",
+          description: "Legacy authentication protocols (POP3/IMAP/older Exchange ActiveSync) can't enforce MFA at all, making them a favorite target for password-spray attacks.",
           remediationSummary: "CA01 is missing! Legacy POP3/IMAP accounts detected on lab equipment.",
           powershellCommand: "New-MgIdentityConditionalAccessPolicy -DisplayName 'CA01: Block Legacy Authentication Protocols' ...",
+          deployment: { type: "auto", clarity365Action: "CA01" },
         },
         {
           id: "SEC-NH-03",
@@ -1466,7 +1630,9 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Low",
           status: "Completed",
           actionType: "Configuration",
+          description: "Full-disk encryption protects data at rest if a laptop is lost or stolen, and is a common compliance requirement for healthcare data.",
           remediationSummary: "Intune configuration profile mandates XTS-AES 256-bit encryption.",
+          deployment: { type: "auto", clarity365Action: "bitlocker_policy" },
         },
       ],
     },
@@ -1524,6 +1690,17 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           matchesBaseline: true,
         },
       ],
+      namedLocations: [
+        { id: "loc-nw-clinics", displayName: "Northwind clinic network", kind: "ip", ipRanges: ["192.0.2.0/24"], isTrusted: true },
+      ],
+    },
+    identitySettings: {
+      securityDefaultsEnabled: false,
+      userConsentPolicies: ["ManagePermissionGrantsForSelf.microsoft-user-default-legacy"],
+      userConsentMode: "allApps",
+      guestAccessLevel: "sameAsMember",
+      guestInviteSetting: "everyone",
+      adminConsentWorkflowEnabled: false,
     },
     signIns: [
       {
@@ -1908,7 +2085,9 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Low",
           status: "Partial",
           actionType: "Policy",
+          description: "Administrative roles are the highest-value target in the tenant; requiring MFA for every admin sign-in closes the most consequential gap first.",
           remediationSummary: "2 Exchange Admins currently bypass MFA policy via legacy whitelist.",
+          deployment: { type: "auto", clarity365Action: "CA03" },
         },
         {
           id: "SEC-FAB-02",
@@ -1920,8 +2099,10 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Low",
           status: "Unresolved",
           actionType: "Configuration",
+          description: "Attackers who compromise a mailbox often set up silent auto-forwarding rules to exfiltrate mail; blocking this at the tenant level closes that path.",
           remediationSummary: "Multiple active transport rules forward freight invoices to external emails.",
           powershellCommand: "Set-HostedOutboundSpamFilterPolicy -Identity Default -AutoForwardingMode Off",
+          deployment: { type: "guided" },
         },
       ],
     },
@@ -1946,6 +2127,15 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           recommendation: "Non-standard policy naming. Migrate to CA03 baseline standard.",
         },
       ],
+      namedLocations: [],
+    },
+    identitySettings: {
+      securityDefaultsEnabled: false,
+      userConsentPolicies: ["ManagePermissionGrantsForSelf.microsoft-user-default-legacy"],
+      userConsentMode: "allApps",
+      guestAccessLevel: "limited",
+      guestInviteSetting: "adminsGuestInvitersAndAllMembers",
+      adminConsentWorkflowEnabled: false,
     },
     signIns: [
       {
@@ -2212,8 +2402,10 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Low",
           status: "Completed",
           actionType: "Policy",
+          description: "Phishing-resistant methods (FIDO2/passkey) close the gap that SMS- and app-based MFA still leave open to real-time phishing/adversary-in-the-middle attacks against privileged role activations.",
           remediationSummary: "Enforced with FIDO2 / YubiKeys on all PIM role activations.",
           powershellCommand: "# Verified compliant via Conditional Access Policy CA03",
+          deployment: { type: "auto", clarity365Action: "CA03" },
         },
         {
           id: "SEC-WG-02",
@@ -2225,29 +2417,57 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
           userImpact: "Low",
           status: "Completed",
           actionType: "Policy",
+          description: "Legacy authentication protocols (POP3/IMAP/older Exchange ActiveSync) can't enforce MFA at all, making them a favorite target for password-spray attacks.",
           remediationSummary: "CA01 enabled globally.",
+          deployment: { type: "auto", clarity365Action: "CA01" },
         },
       ],
     },
     conditionalAccess: {
       baselineCoverageScore: 100,
       baselineDefinitions: CA_BASELINE_STANDARDS,
-      policies: CA_BASELINE_STANDARDS.map((std, idx) => ({
-        id: `ca-wg-${std.code.toLowerCase()}`,
-        name: `${std.code}: ${std.name}`,
-        baselineCode: std.code,
-        baselineTitle: std.name,
-        state: "enabled" as const,
-        modifiedDateTime: "2026-07-01T12:00:00Z",
-        createdDateTime: "2024-02-01T12:00:00Z",
-        grantControls: idx === 9 ? ["authenticationStrength:PhishingResistantMFA"] : ["mfa"],
-        conditions: {
-          users: { include: ["All"], exclude: ["upn:emergency-wg-breakglass@woodgrovefinancial.com"] },
-          applications: { include: ["All"], exclude: [] },
-          clientAppTypes: ["all"],
+      // Previously every CA01-CA10 policy here was generated as the same
+      // "MFA for all users" shape, so 8 of 10 failed validateCaPolicyCompliance
+      // despite this being the "100% coverage" zero-trust demo. Each baseline
+      // now has its real shape (see WOODGROVE_BASELINE_OVERRIDES), plus four
+      // extra non-baseline policies the Security Simulations engine needs a
+      // demo of (device-code block, security-info registration, token
+      // protection, insider risk). Live Graph shapes are used where the
+      // codebase supports them (role template GUIDs, grantOperator,
+      // sessionControls) so both identifier dialects appear in demo data.
+      policies: [
+        ...CA_BASELINE_STANDARDS.map((std) => ({
+          id: `ca-wg-${std.code.toLowerCase()}`,
+          name: `${std.code}: ${std.name}`,
+          baselineCode: std.code,
+          baselineTitle: std.name,
+          state: "enabled" as const,
+          modifiedDateTime: "2026-07-01T12:00:00Z",
+          createdDateTime: "2024-02-01T12:00:00Z",
+          matchesBaseline: true,
+          ...WOODGROVE_BASELINE_OVERRIDES[std.code],
+        })),
+        ...WOODGROVE_EXTRA_POLICIES,
+      ],
+      namedLocations: [
+        { id: "loc-wg-hq", displayName: "Woodgrove HQ & branch egress", kind: "ip", ipRanges: ["12.180.99.0/24", "198.51.100.0/24"], isTrusted: true },
+        {
+          id: "loc-wg-allowed-countries",
+          displayName: "Woodgrove operating countries",
+          kind: "country",
+          countries: ["US", "GB", "IE", "DE", "CA"],
+          includeUnknownCountries: false,
+          countryLookupMethod: "clientIpAddress",
         },
-        matchesBaseline: true,
-      })),
+      ],
+    },
+    identitySettings: {
+      securityDefaultsEnabled: false,
+      userConsentPolicies: [],
+      userConsentMode: "disabled",
+      guestAccessLevel: "restricted",
+      guestInviteSetting: "adminsAndGuestInviters",
+      adminConsentWorkflowEnabled: true,
     },
     signIns: [
       {

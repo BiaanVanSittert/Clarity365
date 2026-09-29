@@ -9,6 +9,7 @@ import {
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { validateCaPolicyCompliance } from "./ca-baseline-matcher";
 import { findLicensedGlobalAdmins } from "./admin-hygiene-matcher";
+import { hasEntraP2Capability } from "../utils/entra-p2";
 
 /**
  * The standard default MSP Golden Baseline Template.
@@ -49,22 +50,15 @@ export const DRIFT_SEVERITY_WEIGHTS: Record<TenantDriftFinding["severity"], numb
 };
 
 /**
- * Checks if a tenant snapshot has Entra ID P2 capability
+ * Checks if a tenant snapshot has Entra ID P2 capability. Kept as a named
+ * export here since compliance-evaluator.ts and FleetBaselineRolloutModule.tsx
+ * already import it by this name - the actual logic now lives in the one
+ * shared entra-p2.ts, not duplicated here (this used to have its own inline
+ * copy that never matched a live tenant's real capability data - see
+ * entra-p2.ts for why).
  */
 export function tenantHasEntraP2(snapshot: TenantSecuritySnapshot): boolean {
-  return Boolean(
-    snapshot.capabilities?.some(
-      (c) =>
-        c.licensed &&
-        (c.id === "cap-entra-p2" ||
-          c.name.toLowerCase().includes("entra id p2") ||
-          c.name.toLowerCase().includes("azure ad premium p2") ||
-          c.name.toLowerCase().includes("identity protection"))
-    ) ||
-    snapshot.tenant.tier === "M365_E5" ||
-    (snapshot.tenant.tier as string) === "Microsoft 365 E5" ||
-    (snapshot.tenant.tier as string) === "EMS_E5"
-  );
+  return hasEntraP2Capability(snapshot);
 }
 
 /**
@@ -462,10 +456,10 @@ export function realignFindingLocally(
             exclude: [],
           },
           applications: {
-            include: code === "CA05" ? ["797f3427-79cd-4827-8132-47d473d450e4"] : ["All"],
+            include: code === "CA05" ? ["797f4846-ba00-4fd7-ba43-dac1f8f63013"] : ["All"],
             exclude: [],
           },
-          clientAppTypes: code === "CA01" ? ["exchangeActiveSync", "otherClients"] : ["all"],
+          clientAppTypes: code === "CA01" ? ["exchangeActiveSync", "other"] : ["all"],
           ...(code === "CA06" ? { signInRiskLevels: ["medium", "high"] } : {}),
           ...(code === "CA07" ? { userRiskLevels: ["high"] } : {}),
           ...(code === "CA08" ? { locations: { include: ["All"], exclude: ["AllTrusted"] } } : {}),

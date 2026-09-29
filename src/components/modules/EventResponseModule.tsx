@@ -11,6 +11,8 @@ import { Drawer } from "../common/Drawer";
 import { CompromisedAccountModal } from "../modals/CompromisedAccountModal";
 import { DeviceIsolationModal } from "../modals/DeviceIsolationModal";
 import { EmptyStateRow } from "../common/EmptyStateRow";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 import { Pagination } from "../common/Pagination";
 import {
   Flame,
@@ -74,6 +76,8 @@ export const EventResponseModule: React.FC<EventResponseModuleProps> = ({
   onClearHighlight,
   onSelectTenant,
 }) => {
+  const incidentSyncErrors = !isFleetMode && snapshot ? getSyncErrorsForPrefixes(snapshot, ["Security Incidents:"]) : [];
+
   const incidents: CrossTenantIncidentItem[] = useMemo(() => {
     if (isFleetMode) {
       return fleetIncidents;
@@ -325,6 +329,8 @@ ${selectedIncident.recommendedActions.map((a, i) => `${i + 1}. ${a}`).join("\n")
           </button>
         </div>
       </div>
+
+      <SyncErrorBanner errors={incidentSyncErrors} title="Security incidents sync error - data below may be stale" />
 
       {/* KPI Cards (Clickable Filters) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

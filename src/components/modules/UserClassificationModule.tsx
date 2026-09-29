@@ -4,7 +4,10 @@ import { StatusPill } from "../common/StatusPill";
 import { Users, AlertTriangle, ShieldCheck, ShieldAlert, Shield, UserX, Search, Filter, Terminal, CheckCircle2, Download } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { EmptyStateRow } from "../common/EmptyStateRow";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 import { findLicensedGlobalAdmins, getPrivilegedAccountUpns } from "@/lib/services/admin-hygiene-matcher";
+import { resolveUserLastSignIn } from "@/lib/services/fleet-analyzer";
 
 interface UserClassificationModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -20,6 +23,7 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
   onClearHighlight,
 }) => {
   const { accountClassification } = snapshot;
+  const userClassificationSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Users:"]);
   const [activeTab, setActiveTab] = useState<"licensed" | "unlicensed_active" | "disabled" | "all" | "licensed_admin_risk">("all");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -51,18 +55,23 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
   });
 
   const handleExportCSV = () => {
-    const headers = ["DisplayName", "UserPrincipalName", "Classification", "Licenses", "AccountEnabled", "Department", "RiskFlag", "IsPrivilegedAdmin", "LicensedAdminRisk"];
-    const rows = filteredUsers.map((user) => [
-      user.displayName,
-      user.userPrincipalName,
-      user.classification,
-      user.licenses.join(", "),
-      user.accountEnabled ? "Yes" : "No",
-      user.department,
-      user.riskFlag || "",
-      privilegedUpnsLower.has(user.userPrincipalName.toLowerCase()) ? "Yes" : "No",
-      licensedGlobalAdminUpnsLower.has(user.userPrincipalName.toLowerCase()) ? "Yes" : "No",
-    ]);
+    const headers = ["DisplayName", "UserPrincipalName", "Classification", "Licenses", "AccountEnabled", "LastSignInDate", "DaysInactive", "Department", "RiskFlag", "IsPrivilegedAdmin", "LicensedAdminRisk"];
+    const rows = filteredUsers.map((user) => {
+      const { lastSignInDateTime, daysInactive } = resolveUserLastSignIn(user, snapshot);
+      return [
+        user.displayName,
+        user.userPrincipalName,
+        user.classification,
+        user.licenses.join(", "),
+        user.accountEnabled ? "Yes" : "No",
+        lastSignInDateTime ? new Date(lastSignInDateTime).toLocaleDateString() : "No record",
+        `${daysInactive} days`,
+        user.department,
+        user.riskFlag || "",
+        privilegedUpnsLower.has(user.userPrincipalName.toLowerCase()) ? "Yes" : "No",
+        licensedGlobalAdminUpnsLower.has(user.userPrincipalName.toLowerCase()) ? "Yes" : "No",
+      ];
+    });
     exportToCsv(csvFilename("UserClassification", snapshot.tenant.defaultDomainName), headers, rows);
   };
 
@@ -97,6 +106,8 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
           <span>Remediate Orphaned Accounts</span>
         </button>
       </div>
+
+      <SyncErrorBanner errors={userClassificationSyncErrors} title="User sync error - data below may be stale" />
 
       {/* 4 Count Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -258,13 +269,14 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
                 <th>Classification Tier</th>
                 <th>Assigned Licenses</th>
                 <th>Account Status</th>
+                <th>Last Sign-In</th>
                 <th>Department</th>
                 <th className="w-36 text-right">Risk Assessment</th>
               </tr>
             </thead>
             <tbody>
               {filteredUsers.length === 0 ? (
-                <EmptyStateRow colSpan={6} entityLabel="accounts" isFiltered={searchQuery.trim().length > 0 || activeTab !== "all"} />
+                <EmptyStateRow colSpan={7} entityLabel="accounts" isFiltered={searchQuery.trim().length > 0 || activeTab !== "all"} />
               ) : (
                 filteredUsers.map((user) => {
                   const isHighlighted =
@@ -272,6 +284,7 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
                     (highlightEntityId === user.id ||
                       highlightEntityId?.toLowerCase() === user.userPrincipalName.toLowerCase() ||
                       highlightEntityId?.toLowerCase() === user.displayName.toLowerCase());
+                  const { lastSignInDateTime, daysInactive } = resolveUserLastSignIn(user, snapshot);
 
                   return (
                     <tr
@@ -330,6 +343,24 @@ export const UserClassificationModule: React.FC<UserClassificationModuleProps> =
                       <span className={`text-xs font-medium ${user.accountEnabled ? "text-emerald-700 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"}`}>
                         {user.accountEnabled ? "Sign-In Allowed" : "Blocked"}
                       </span>
+                    </td>
+                    <td className="whitespace-nowrap font-mono text-xs">
+                      {lastSignInDateTime ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className={`w-2 h-2 rounded-full ${daysInactive > 90 ? "bg-amber-500" : "bg-emerald-500"}`} />
+                          <div>
+                            <div className="text-slate-900 dark:text-slate-100 font-semibold text-[11px]">
+                              {new Date(lastSignInDateTime).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                            </div>
+                            <div className="text-[10px] text-slate-400">{daysInactive === 0 ? "Today" : `${daysInactive} days ago`}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-slate-400">
+                          <span className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" />
+                          <span className="text-[11px]">{daysInactive > 0 ? `Created ${daysInactive}d ago (No logins)` : "No login records"}</span>
+                        </div>
+                      )}
                     </td>
                     <td className="text-xs text-slate-600 dark:text-slate-400">{user.department}</td>
                     <td className="text-right">

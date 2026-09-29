@@ -18,11 +18,17 @@ import {
   UserCheck,
   CreditCard,
   PackageOpen,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { getLicenseSkuDisplayName } from "@/lib/utils/license-sku-names";
+import { getLicenseSkuCostInfo } from "@/lib/utils/license-sku-costs";
+import { getDisabledLicenseSkus, setLicenseSkuDisabled } from "@/lib/utils/license-cost-preferences";
 import { useTheme } from "../common/useTheme";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 
 const LicenseUtilizationTooltip: React.FC<any> = ({ active, payload, label }) => {
   if (!active || !payload || payload.length === 0) return null;
@@ -54,12 +60,47 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const { isDark } = useTheme();
+  const licenseSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Tenant Licenses:", "Tenant Licenses (SubscribedSkus):", "Users:"]);
+
+  // License SKUs the admin has manually excluded from this page's waste
+  // calc/chart/table - a per-tenant, per-browser display preference (see
+  // license-cost-preferences.ts), independent of the automatic per-SKU cost
+  // table's own free/paid classification.
+  const [disabledSkus, setDisabledSkus] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setDisabledSkus(getDisabledLicenseSkus(snapshot.tenant.id));
+  }, [snapshot.tenant.id]);
+
+  const toggleSkuDisabled = (skuPartNumber: string) => {
+    const updated = setLicenseSkuDisabled(snapshot.tenant.id, skuPartNumber, !disabledSkus.has(skuPartNumber));
+    setDisabledSkus(new Set(updated));
+  };
 
   const wasteAnalysis = useMemo(() => {
     return calculateTenantMonthlyWaste(snapshot);
   }, [snapshot]);
 
-  const { monthlyWasteUsd, items } = wasteAnalysis;
+  // Everything below derives from this already-filtered set, so a disabled
+  // SKU disappears from the KPI counts, the waste totals, the chart, and the
+  // items table all at once, consistently.
+  const items = useMemo(
+    () => wasteAnalysis.items.filter((it) => !it.licenseSku || !disabledSkus.has(it.licenseSku)),
+    [wasteAnalysis.items, disabledSkus]
+  );
+
+  const monthlyWasteUsd = useMemo(
+    () =>
+      items
+        .filter(
+          (i) =>
+            i.category === "licensed_shared_mailbox" ||
+            i.category === "inactive_licensed_user" ||
+            i.category === "disabled_licensed_user" ||
+            i.category === "unassigned_license_sku"
+        )
+        .reduce((sum, item) => sum + item.estimatedMonthlyCostUsd, 0),
+    [items]
+  );
   const annualWasteUsd = monthlyWasteUsd * 12;
 
   const allLicensedUsers = useMemo(
@@ -81,16 +122,27 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
   const unassignedSkuItems = useMemo(() => items.filter((i) => i.category === "unassigned_license_sku"), [items]);
   const unassignedSkuWasteUsd = unassignedSkuItems.reduce((sum, i) => sum + i.estimatedMonthlyCostUsd, 0);
 
+  // Every SKU the tenant has, regardless of the disabled-SKU preference -
+  // this is what the toggle list itself is built from, so a disabled SKU
+  // stays visible (as "disabled") rather than disappearing from the one
+  // place you'd go to re-enable it.
+  const allSkusRankedByQuantity = useMemo(
+    () => (snapshot.licenseSkus || []).slice().sort((a, b) => b.enabledUnits - a.enabledUnits),
+    [snapshot.licenseSkus]
+  );
+
   const licenseSkuChartData = useMemo(
     () =>
-      (snapshot.licenseSkus || []).map((sku) => ({
-        name: getLicenseSkuDisplayName(sku.skuPartNumber),
-        skuPartNumber: sku.skuPartNumber,
-        Used: sku.consumedUnits,
-        Unassigned: sku.availableUnits,
-        Total: sku.enabledUnits,
-      })),
-    [snapshot.licenseSkus]
+      allSkusRankedByQuantity
+        .filter((sku) => !disabledSkus.has(sku.skuPartNumber))
+        .map((sku) => ({
+          name: getLicenseSkuDisplayName(sku.skuPartNumber),
+          skuPartNumber: sku.skuPartNumber,
+          Used: sku.consumedUnits,
+          Unassigned: sku.availableUnits,
+          Total: sku.enabledUnits,
+        })),
+    [allSkusRankedByQuantity, disabledSkus]
   );
 
   const filteredItems = useMemo(() => {
@@ -211,6 +263,8 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
           </button>
         </div>
       </div>
+
+      <SyncErrorBanner errors={licenseSyncErrors} title="Tenant license sync error - data below may be stale" />
 
       {/* KPI Cards (Clickable Category Filters) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
@@ -353,27 +407,65 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
             License Utilization by SKU
           </h3>
-          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">Used vs. Unassigned Seats (bar height = Total)</span>
+          <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">Used vs. Unassigned Seats (bar height = Total, ranked highest to lowest)</span>
         </div>
 
-        {licenseSkuChartData.length === 0 ? (
+        {allSkusRankedByQuantity.length === 0 ? (
           <div className="h-40 flex items-center justify-center text-xs text-slate-500 dark:text-slate-400">
             No license SKU data yet - sync this tenant to pull live data.
           </div>
         ) : (
           <>
-            {/* Licenses in this tenant */}
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {licenseSkuChartData.map((sku) => (
-                <span
-                  key={sku.skuPartNumber}
-                  className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm border border-[#CBD5E1] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-900/50 text-slate-600 dark:text-slate-300"
-                >
-                  {sku.name} <span className="text-slate-400">&times;{sku.Total.toLocaleString()}</span>
-                </span>
-              ))}
+            {/* Manage Licenses - click a chip to exclude/include it from the
+                chart below, the waste totals, and the items table. Every
+                SKU is listed here regardless of its current toggle state,
+                so a disabled one stays reachable to re-enable. */}
+            <div className="mb-3">
+              <div className="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">
+                Manage Licenses - click to exclude/include from waste calc & chart
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {allSkusRankedByQuantity.map((sku) => {
+                  const isDisabled = disabledSkus.has(sku.skuPartNumber);
+                  const costInfo = getLicenseSkuCostInfo(sku.skuPartNumber);
+                  return (
+                    <button
+                      key={sku.skuPartNumber}
+                      onClick={() => toggleSkuDisabled(sku.skuPartNumber)}
+                      title={
+                        isDisabled
+                          ? "Excluded from this page - click to re-enable"
+                          : costInfo.costBasis === "likely-free-by-name"
+                          ? "Not a recognized SKU, but its name (trial/dev/preview/viral) strongly suggests it's a $0 Microsoft-granted entitlement, not a real purchase. Click to exclude it, or verify and leave it included."
+                          : "Click to exclude this SKU from the chart, waste calc, and items table"
+                      }
+                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm border flex items-center gap-1 transition-colors ${
+                        isDisabled
+                          ? "border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 opacity-60"
+                          : "border-[#CBD5E1] dark:border-slate-700 bg-[#F8FAFC] dark:bg-slate-900/50 text-slate-600 dark:text-slate-300 hover:border-slate-400 dark:hover:border-slate-500"
+                      }`}
+                    >
+                      {isDisabled ? <EyeOff size={10} /> : <Eye size={10} />}
+                      <span className={isDisabled ? "line-through" : ""}>{getLicenseSkuDisplayName(sku.skuPartNumber)}</span>
+                      <span className="text-slate-400">&times;{sku.enabledUnits.toLocaleString()}</span>
+                      {costInfo.costBasis === "confirmed-free" ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Free</span>
+                      ) : costInfo.costBasis === "likely-free-by-name" ? (
+                        <span className="text-amber-600 dark:text-amber-400 font-semibold">Likely Free?</span>
+                      ) : (
+                        <span className="text-slate-400">${costInfo.monthlyCostUsd}/mo</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
+            {licenseSkuChartData.length === 0 ? (
+              <div className="h-40 flex items-center justify-center text-xs text-slate-500 dark:text-slate-400">
+                All licenses are currently excluded - re-enable one above to see it here.
+              </div>
+            ) : (
             <div className="overflow-x-auto">
               <div className="h-56" style={{ minWidth: Math.max(360, licenseSkuChartData.length * 140) }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -392,6 +484,7 @@ export const TenantLicenseOptimizationModule: React.FC<TenantLicenseOptimization
                 </ResponsiveContainer>
               </div>
             </div>
+            )}
           </>
         )}
       </div>

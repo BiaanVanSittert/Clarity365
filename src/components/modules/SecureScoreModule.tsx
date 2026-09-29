@@ -2,6 +2,12 @@ import React, { useState } from "react";
 import { TenantSecuritySnapshot, SecureScoreControl } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { EmptyStateRow } from "../common/EmptyStateRow";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
+import { hasEntraP2Capability } from "@/lib/utils/entra-p2";
+import { CA_BASELINE_STANDARDS, CABaselinePolicyDefinition } from "@/lib/data/baseline-definitions";
+import { DeployCaPolicyModal } from "../modals/DeployCaPolicyModal";
+import { SecureScoreControlDrawer } from "../modals/SecureScoreControlDrawer";
 import {
   ShieldAlert,
   ShieldCheck,
@@ -13,6 +19,9 @@ import {
   Layers,
   Search,
   Download,
+  Zap,
+  Compass,
+  AlertTriangle,
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
@@ -20,41 +29,94 @@ import { useTheme } from "../common/useTheme";
 
 interface SecureScoreModuleProps {
   snapshot: TenantSecuritySnapshot;
-  onOpenRemediation: (findingType?: string) => void;
+  onRefresh?: () => void;
+  onNavigate?: (view: string) => void;
+}
+
+const DEPLOYMENT_BADGE: Record<SecureScoreControl["deployment"]["type"], { label: string; className: string; icon: React.ReactNode }> = {
+  auto: {
+    label: "Auto",
+    className: "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
+    icon: <Zap size={10} />,
+  },
+  guided: {
+    label: "Guided",
+    className: "bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800",
+    icon: <Compass size={10} />,
+  },
+  manual_only: {
+    label: "Manual",
+    className: "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-600",
+    icon: <AlertTriangle size={10} />,
+  },
+};
+
+// Backfills fields added to SecureScoreControl after this tenant's snapshot
+// was last synced. TenantSecuritySnapshot is persisted to disk as-is with no
+// migration step - a tenant that hasn't re-synced since this field was added
+// will otherwise crash the whole module on ctrl.deployment.type. A fresh sync
+// repopulates the real value; this is just a safe placeholder until then.
+function withLegacyDefaults(control: SecureScoreControl): SecureScoreControl {
+  return {
+    ...control,
+    description: control.description ?? "No description available for this control.",
+    deployment: control.deployment ?? { type: "manual_only" },
+  };
 }
 
 export const SecureScoreModule: React.FC<SecureScoreModuleProps> = ({
   snapshot,
-  onOpenRemediation,
+  onRefresh,
+  onNavigate,
 }) => {
   const { secureScore, tenant } = snapshot;
+  const controls = secureScore.controls.map(withLegacyDefaults);
+  const secureScoreSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Secure Score:", "Secure Score control profiles:"]);
   const { isDark } = useTheme();
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedControl, setSelectedControl] = useState<SecureScoreControl | null>(null);
+  const [deployModalPolicy, setDeployModalPolicy] = useState<CABaselinePolicyDefinition | null>(null);
+  const hasEntraP2 = hasEntraP2Capability(snapshot);
 
   const categories = ["all", "Identity", "Device", "Apps", "Data", "Infrastructure"];
 
-  const filteredControls = secureScore.controls.filter((ctrl) => {
+  const filteredControls = controls.filter((ctrl) => {
     const matchesCategory = selectedCategory === "all" || ctrl.category === selectedCategory;
     const matchesSearch =
       ctrl.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      ctrl.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       ctrl.remediationSummary.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
 
   const handleExportCSV = () => {
-    const headers = ["ControlId", "Title", "Category", "ScoreCurrent", "ScoreMax", "UserImpact", "Status"];
+    const headers = ["ControlId", "Title", "Description", "Category", "ScoreCurrent", "ScoreMax", "UserImpact", "ImplementationCost", "Status", "Deployment"];
     const rows = filteredControls.map((ctrl) => [
       ctrl.id,
       ctrl.title,
+      ctrl.description,
       ctrl.category,
       ctrl.scoreCurrent,
       ctrl.scoreMax,
       ctrl.userImpact,
+      ctrl.implementationCost,
       ctrl.status,
+      ctrl.deployment.type,
     ]);
     exportToCsv(csvFilename("SecureScore", tenant.defaultDomainName), headers, rows);
   };
+
+  // "Generate Remediation Script" used to call onOpenRemediation("all"), which
+  // runs remediation-generator.ts - a generator with zero awareness of
+  // individual Secure Score controls (it only covers CA/forwarding/MFA/
+  // orphaned-accounts/SharePoint-sharing/unprotected-admins). Clicking it here
+  // produced plans unrelated to anything in this table. Point it at the
+  // highest-impact unresolved control's own drawer instead, which now has the
+  // real per-control guidance this module is actually about.
+  const topPriorityControl = [...controls]
+    .filter((c) => c.status !== "Completed" && c.status !== "Ignored")
+    .sort((a, b) => (b.scoreMax - b.scoreCurrent) - (a.scoreMax - a.scoreCurrent))[0];
 
   const chartData = secureScore.history.map((h) => ({
     date: h.date,
@@ -87,14 +149,18 @@ export const SecureScoreModule: React.FC<SecureScoreModuleProps> = ({
             </div>
           </div>
           <button
-            onClick={() => onOpenRemediation("all")}
-            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm flex items-center gap-1.5 transition-colors shadow-sm"
+            onClick={() => topPriorityControl && setSelectedControl(topPriorityControl)}
+            disabled={!topPriorityControl}
+            title={topPriorityControl ? `Highest-impact open control: ${topPriorityControl.title}` : "No open controls - everything is Completed or Ignored"}
+            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Terminal size={14} className="text-emerald-400" />
-            <span>Generate Remediation Script</span>
+            <span>Fix Top Priority Action</span>
           </button>
         </div>
       </div>
+
+      <SyncErrorBanner errors={secureScoreSyncErrors} title="Secure Score sync error - data below may be stale" />
 
       {/* Metric Cards & Historical Timeline Graph */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -213,18 +279,25 @@ export const SecureScoreModule: React.FC<SecureScoreModuleProps> = ({
                 <th className="w-24">Points Attained</th>
                 <th className="w-28">User Impact</th>
                 <th className="w-28">Status</th>
+                <th className="w-24">Deploy</th>
               </tr>
             </thead>
             <tbody>
               {filteredControls.length === 0 ? (
-                <EmptyStateRow colSpan={6} entityLabel="controls" isFiltered={searchQuery.trim().length > 0} />
+                <EmptyStateRow colSpan={7} entityLabel="controls" isFiltered={searchQuery.trim().length > 0} />
               ) : (
-              filteredControls.map((ctrl) => (
-                <tr key={ctrl.id}>
+              filteredControls.map((ctrl) => {
+                const badge = DEPLOYMENT_BADGE[ctrl.deployment.type];
+                return (
+                <tr
+                  key={ctrl.id}
+                  onClick={() => setSelectedControl(ctrl)}
+                  className="cursor-pointer hover:bg-[#F8FAFC] dark:hover:bg-slate-900/50 transition-colors"
+                >
                   <td className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100">{ctrl.id}</td>
                   <td>
                     <div className="font-semibold text-xs text-slate-900 dark:text-slate-100">{ctrl.title}</div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{ctrl.remediationSummary}</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{ctrl.description}</div>
                   </td>
                   <td>
                     <span className="font-mono text-xs text-slate-700 dark:text-slate-300">{ctrl.category}</span>
@@ -246,13 +319,52 @@ export const SecureScoreModule: React.FC<SecureScoreModuleProps> = ({
                       size="sm"
                     />
                   </td>
+                  <td>
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold border rounded-sm ${badge.className}`}>
+                      {badge.icon}
+                      {badge.label}
+                    </span>
+                  </td>
                 </tr>
-              ))
+                );
+              })
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      <SecureScoreControlDrawer
+        isOpen={!!selectedControl}
+        onClose={() => setSelectedControl(null)}
+        control={selectedControl}
+        onRequestCaDeploy={(baselineCode) => {
+          const baseline = CA_BASELINE_STANDARDS.find((b) => b.code === baselineCode);
+          if (baseline) {
+            setSelectedControl(null);
+            setDeployModalPolicy(baseline);
+          }
+        }}
+        onNavigateToEndpointSecurity={
+          onNavigate
+            ? () => {
+                setSelectedControl(null);
+                onNavigate("intune");
+              }
+            : undefined
+        }
+      />
+
+      <DeployCaPolicyModal
+        isOpen={!!deployModalPolicy}
+        onClose={() => setDeployModalPolicy(null)}
+        policy={deployModalPolicy}
+        tenantId={tenant.id}
+        tenantName={tenant.displayName}
+        tenantDomain={tenant.defaultDomainName}
+        hasEntraP2={hasEntraP2}
+        onPolicyDeployed={onRefresh}
+      />
     </div>
   );
 };

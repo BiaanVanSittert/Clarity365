@@ -202,10 +202,10 @@ export async function executeBulkCaDeployment(
               exclude: [],
             },
             applications: {
-              include: code === "CA05" ? ["797f3427-79cd-4827-8132-47d473d450e4"] : ["All"],
+              include: code === "CA05" ? ["797f4846-ba00-4fd7-ba43-dac1f8f63013"] : ["All"],
               exclude: [],
             },
-            clientAppTypes: code === "CA01" ? ["exchangeActiveSync", "otherClients"] : ["all"],
+            clientAppTypes: code === "CA01" ? ["exchangeActiveSync", "other"] : ["all"],
             ...(code === "CA06" ? { signInRiskLevels: ["medium", "high"] } : {}),
             ...(code === "CA07" ? { userRiskLevels: ["high"] } : {}),
             ...(code === "CA08" ? { locations: { include: ["All"], exclude: ["AllTrusted"] } } : {}),

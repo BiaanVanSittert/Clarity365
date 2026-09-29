@@ -16,6 +16,7 @@ import { evaluateMailflowBaseline } from "./mailflow-baseline-matcher";
 import { evaluateGroupsBaseline } from "./groups-baseline-matcher";
 import { evaluateSharePointBaseline } from "./sharepoint-baseline-matcher";
 import { getCountryDisplayName } from "../utils/sign-in-country";
+import { getLicenseSkuMonthlyCost } from "../utils/license-sku-costs";
 
 // Estimated standard commercial Microsoft 365 licensing cost per seat per month (USD)
 export const LICENSE_TIER_MONTHLY_COST: Record<TenantLicenseType, number> = {
@@ -150,6 +151,11 @@ export function calculateTenantMonthlyWaste(snapshot: TenantSecuritySnapshot): {
   for (const user of allUsers) {
     const { lastSignInDateTime, daysInactive, isDormant } = resolveUserLastSignIn(user, snapshot);
     const assignedSku = user.licenses?.[0] || snapshot.tenant.tier;
+    // Real per-SKU cost, not the tenant's flat premium-tier rate - a user
+    // whose only assigned license is a $0 SKU (e.g. a self-service
+    // TEAMS_EXPLORATORY grant, or a free Office 365 A1 student license)
+    // must not be costed as if they held the tenant's paid tier.
+    const assignedSkuCost = getLicenseSkuMonthlyCost(assignedSku);
 
     // 2. Disabled Account holding Paid Licenses -> Pure Waste
     if ((!user.accountEnabled || user.classification === "disabled") && user.licenses && user.licenses.length > 0) {
@@ -159,12 +165,12 @@ export function calculateTenantMonthlyWaste(snapshot: TenantSecuritySnapshot): {
         tenantName: snapshot.tenant.displayName,
         category: "disabled_licensed_user",
         title: `Disabled Account Holding Paid License: ${user.displayName}`,
-        description: `Disabled account '${user.userPrincipalName}' still has paid license (${user.licenses.join(", ")}) assigned ($${tierCost}/mo). Licenses on departed/disabled users should be unassigned.`,
+        description: `Disabled account '${user.userPrincipalName}' still has license (${user.licenses.join(", ")}) assigned ($${assignedSkuCost.toFixed(2)}/mo). Licenses on departed/disabled users should be unassigned.`,
         impactedIdentity: user.userPrincipalName,
         displayName: user.displayName,
         department: user.department,
         licenseSku: assignedSku,
-        estimatedMonthlyCostUsd: tierCost,
+        estimatedMonthlyCostUsd: assignedSkuCost,
         lastSignInDateTime,
         daysInactive,
         accountState: "disabled",
@@ -183,12 +189,12 @@ export function calculateTenantMonthlyWaste(snapshot: TenantSecuritySnapshot): {
           tenantName: snapshot.tenant.displayName,
           category: "inactive_licensed_user",
           title: `Dormant Licensed Account: ${user.displayName}`,
-          description: `User '${user.userPrincipalName}' has a paid license (${user.licenses?.join(", ") || snapshot.tenant.tier}) but has not signed in for ${daysInactive} days (>90d threshold).`,
+          description: `User '${user.userPrincipalName}' has a license (${user.licenses?.join(", ") || snapshot.tenant.tier}) but has not signed in for ${daysInactive} days (>90d threshold).`,
           impactedIdentity: user.userPrincipalName,
           displayName: user.displayName,
           department: user.department,
           licenseSku: assignedSku,
-          estimatedMonthlyCostUsd: tierCost,
+          estimatedMonthlyCostUsd: assignedSkuCost,
           lastSignInDateTime,
           daysInactive,
           accountState: "dormant",
@@ -202,12 +208,12 @@ export function calculateTenantMonthlyWaste(snapshot: TenantSecuritySnapshot): {
           tenantName: snapshot.tenant.displayName,
           category: "active_licensed_user",
           title: `Active Licensed User: ${user.displayName}`,
-          description: `User '${user.userPrincipalName}' has active paid license (${user.licenses?.join(", ") || snapshot.tenant.tier}). Last sign-in: ${daysInactive === 0 ? "today" : `${daysInactive} days ago`}.`,
+          description: `User '${user.userPrincipalName}' has active license (${user.licenses?.join(", ") || snapshot.tenant.tier}). Last sign-in: ${daysInactive === 0 ? "today" : `${daysInactive} days ago`}.`,
           impactedIdentity: user.userPrincipalName,
           displayName: user.displayName,
           department: user.department,
           licenseSku: assignedSku,
-          estimatedMonthlyCostUsd: tierCost,
+          estimatedMonthlyCostUsd: assignedSkuCost,
           lastSignInDateTime,
           daysInactive,
           accountState: "active",
@@ -240,22 +246,32 @@ export function calculateTenantMonthlyWaste(snapshot: TenantSecuritySnapshot): {
     }
   }
 
-  // 5. Unassigned License SKUs (paid seats purchased but assigned to no one)
+  // 5. Unassigned License SKUs (paid seats purchased but assigned to no one).
+  // Costed per-SKU, not at the tenant's flat premium-tier rate - this is
+  // the line that used to turn e.g. 1,000,000 unassigned free-tier
+  // STANDARDWOFFPACK_STUDENT seats into a six-figure "waste" number.
   for (const sku of snapshot.licenseSkus || []) {
     if (sku.availableUnits > 0) {
+      const skuMonthlyCost = getLicenseSkuMonthlyCost(sku.skuPartNumber);
       items.push({
         id: `waste-unassigned-sku-${snapshot.tenant.id}-${sku.skuId}`,
         tenantId: snapshot.tenant.id,
         tenantName: snapshot.tenant.displayName,
         category: "unassigned_license_sku",
-        title: `${sku.availableUnits} Unassigned ${sku.skuPartNumber} License${sku.availableUnits === 1 ? "" : "s"}`,
-        description: `${sku.consumedUnits} of ${sku.enabledUnits} purchased ${sku.skuPartNumber} seats are assigned. ${sku.availableUnits} paid seat${sku.availableUnits === 1 ? " is" : "s are"} available and unassigned.`,
+        title: `${sku.availableUnits.toLocaleString()} Unassigned ${sku.skuPartNumber} License${sku.availableUnits === 1 ? "" : "s"}`,
+        description:
+          skuMonthlyCost > 0
+            ? `${sku.consumedUnits.toLocaleString()} of ${sku.enabledUnits.toLocaleString()} purchased ${sku.skuPartNumber} seats are assigned. ${sku.availableUnits.toLocaleString()} paid seat${sku.availableUnits === 1 ? " is" : "s are"} available and unassigned.`
+            : `${sku.consumedUnits.toLocaleString()} of ${sku.enabledUnits.toLocaleString()} ${sku.skuPartNumber} seats are assigned. This is a no-cost SKU (self-service trial or a Microsoft-granted free entitlement) - the ${sku.availableUnits.toLocaleString()} unassigned seats carry no waste cost.`,
         impactedIdentity: sku.skuPartNumber,
         displayName: sku.skuPartNumber,
         licenseSku: sku.skuPartNumber,
-        estimatedMonthlyCostUsd: tierCost * sku.availableUnits,
+        estimatedMonthlyCostUsd: skuMonthlyCost * sku.availableUnits,
         accountState: undefined,
-        remediationAction: "Assign these seats to pending users, or reduce the subscription quantity at next renewal.",
+        remediationAction:
+          skuMonthlyCost > 0
+            ? "Assign these seats to pending users, or reduce the subscription quantity at next renewal."
+            : "No action needed - this SKU has no cost impact.",
         remediationModule: "license_optimizer",
       });
     }

@@ -5,6 +5,8 @@ import { Drawer } from "../common/Drawer";
 import { Modal } from "../common/Modal";
 import { Pagination } from "../common/Pagination";
 import { CountryFlag } from "../common/CountryFlag";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import {
   markSignInLogsReviewed,
@@ -121,6 +123,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
   onClearHighlight,
 }) => {
   const { signIns, tenant } = snapshot;
+  const signInSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Sign-in logs:"]);
 
   // Search and general filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -505,6 +508,8 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
           )}
         </div>
       </div>
+
+      <SyncErrorBanner errors={signInSyncErrors} title="Sign-in log sync error - entries below may be stale" />
 
       {/* Time Range & Timestamp Filtering Bar */}
       <div className="bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 p-3 rounded-sm space-y-3 shadow-2xs">

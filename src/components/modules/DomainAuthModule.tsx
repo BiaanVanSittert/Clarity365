@@ -1,6 +1,8 @@
 import React from "react";
 import { TenantSecuritySnapshot, DomainAuthCheck } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 import { Fingerprint, ExternalLink, Mail, AlertTriangle } from "lucide-react";
 
 interface DomainAuthModuleProps {
@@ -32,7 +34,7 @@ const CheckCell: React.FC<{ check: DomainAuthCheck }> = ({ check }) => (
 export const DomainAuthModule: React.FC<DomainAuthModuleProps> = ({ snapshot, onOpenPermissions }) => {
   const { domainAuth, tenant } = snapshot;
   const exoConnected = !!tenant.credentials.exoRefreshToken;
-  const domainAuthSyncErrors = (snapshot.syncHealth?.errors || []).filter((e) => e.startsWith("Domain Auth:"));
+  const domainAuthSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Domain Auth:"]);
 
   const fullyPassingCount = domainAuth.filter((d) => d.dkim.status === "pass" && d.spf.status === "pass" && d.dmarc.status === "pass").length;
 
@@ -86,19 +88,7 @@ export const DomainAuthModule: React.FC<DomainAuthModuleProps> = ({ snapshot, on
           </div>
         ) : (
           <>
-            {domainAuthSyncErrors.length > 0 && (
-              <div className="m-3 p-3 bg-rose-50 dark:bg-red-950 border border-rose-300 dark:border-red-800 text-rose-900 dark:text-red-300 text-xs rounded-sm space-y-1.5">
-                <div className="flex items-center gap-2 font-semibold">
-                  <AlertTriangle size={14} className="text-rose-600 dark:text-red-400" />
-                  <span>Sync error</span>
-                </div>
-                {domainAuthSyncErrors.map((err, i) => (
-                  <div key={i} className="text-[11px] font-mono bg-white/70 dark:bg-slate-900/50 p-1.5 border border-rose-200 dark:border-red-800 rounded-sm">
-                    {err}
-                  </div>
-                ))}
-              </div>
-            )}
+            <SyncErrorBanner errors={domainAuthSyncErrors} title="Sync error" className="m-3" />
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse table-dense">
                 <thead>

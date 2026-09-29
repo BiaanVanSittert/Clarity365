@@ -18,6 +18,7 @@ import {
   Users,
   CheckCircle2,
   Sparkles,
+  ShieldEllipsis,
 } from "lucide-react";
 import { exportToCsv } from "@/lib/utils/csv";
 
@@ -74,6 +75,7 @@ export const ExecutiveReportingModule: React.FC<ExecutiveReportingModuleProps> =
       ["Threats & Hygiene", "External Forwarding Rules Blocked", `${currentReport.threatsAndHygieneSection.externalForwardingRulesBlocked}`, "Auto-forwarding killswitch"],
       ["Threats & Hygiene", "Unmanaged Devices", `${currentReport.threatsAndHygieneSection.unmanagedDevicesCount}`, "Endpoints"],
       ["Threats & Hygiene", "Anonymous SharePoint Links", `${currentReport.threatsAndHygieneSection.anonymousSharePointLinksCount}`, "External file shares"],
+      ["Data Protection", "DLP/Label Recommendations Available", `${currentReport.dataProtectionSection.eligibleRecommendationsCount}/${currentReport.dataProtectionSection.totalRecommendationsCount}`, `Licence: ${currentReport.dataProtectionSection.tenantTier} - guidance only, not deployed`],
     ];
 
     exportToCsv(`Executive_Summary_${currentReport.tenant.defaultDomain}_${selectedPeriod.replace(/\s+/g, "_")}.csv`, headers, rows);
@@ -179,7 +181,7 @@ export const ExecutiveReportingModule: React.FC<ExecutiveReportingModuleProps> =
       </div>
 
       {/* Executive Scorecard Matrix */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <div className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-sm shadow-2xs">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Overall Posture</span>
@@ -230,6 +232,18 @@ export const ExecutiveReportingModule: React.FC<ExecutiveReportingModuleProps> =
           <p className="text-[11px] text-slate-500 mt-1">
             ${costOptimizationSection.totalEstimatedAnnualWaste.toLocaleString()} annual recoverable spend
           </p>
+        </div>
+
+        <div className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-sm shadow-2xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Data Protection</span>
+            <ShieldEllipsis size={14} className="text-indigo-500" />
+          </div>
+          <div className="text-3xl font-black text-indigo-700 dark:text-indigo-400 mt-2">
+            {currentReport.dataProtectionSection.eligibleRecommendationsCount}
+            <span className="text-base font-normal text-slate-400">/{currentReport.dataProtectionSection.totalRecommendationsCount}</span>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1">DLP/label recommendations available on this licence</p>
         </div>
       </div>
 

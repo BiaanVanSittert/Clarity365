@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Modal } from "../common/Modal";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 import { evaluateMailflowBaseline } from "@/lib/services/mailflow-baseline-matcher";
 import { MAILFLOW_BASELINE_STANDARDS } from "@/lib/data/mailflow-baseline-definitions";
 import { GitBranch, AlertTriangle, Wrench, ExternalLink, Mail } from "lucide-react";
@@ -21,7 +23,7 @@ export const MailflowRulesModule: React.FC<MailflowRulesModuleProps> = ({
 
   const exoConnected = !!tenant.credentials.exoRefreshToken;
   const exoWriteEnabled = !!tenant.credentials.exoWriteEnabled;
-  const mailflowSyncErrors = (snapshot.syncHealth?.errors || []).filter((e) => e.startsWith("Mailflow:"));
+  const mailflowSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Mailflow:"]);
 
   const { results, coveragePercent } = evaluateMailflowBaseline({
     transportRules: mailflowTransportRules,
@@ -200,19 +202,7 @@ export const MailflowRulesModule: React.FC<MailflowRulesModuleProps> = ({
           </div>
         ) : (
           <>
-            {mailflowSyncErrors.length > 0 && (
-              <div className="m-3 p-3 bg-rose-50 dark:bg-red-950 border border-rose-300 dark:border-red-800 text-rose-900 dark:text-red-300 text-xs rounded-sm space-y-1.5">
-                <div className="flex items-center gap-2 font-semibold">
-                  <AlertTriangle size={14} className="text-rose-600 dark:text-red-400" />
-                  <span>Exchange Online sync error</span>
-                </div>
-                {mailflowSyncErrors.map((err, i) => (
-                  <div key={i} className="text-[11px] font-mono bg-white/70 dark:bg-slate-900/50 p-1.5 border border-rose-200 dark:border-red-800 rounded-sm">
-                    {err}
-                  </div>
-                ))}
-              </div>
-            )}
+            <SyncErrorBanner errors={mailflowSyncErrors} title="Exchange Online sync error" className="m-3" />
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse table-dense">
                 <thead>

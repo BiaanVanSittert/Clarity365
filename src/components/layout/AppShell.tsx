@@ -11,6 +11,7 @@ import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 import { SkeletonLoader } from "../common/SkeletonLoader";
 import { AddTenantModal } from "../modals/AddTenantModal";
+import { EditTenantCredentialsModal } from "../modals/EditTenantCredentialsModal";
 import { DeleteTenantModal } from "../modals/DeleteTenantModal";
 import { SettingsModal } from "../modals/SettingsModal";
 import { PermissionsModal } from "../modals/PermissionsModal";
@@ -44,12 +45,16 @@ const MdoPoliciesModule = lazy(() => import("../modules/MdoPoliciesModule").then
 const AppRegistrationsModule = lazy(() => import("../modules/AppRegistrationsModule").then(m => ({ default: m.AppRegistrationsModule })));
 const IntuneSecurityModule = lazy(() => import("../modules/IntuneSecurityModule").then(m => ({ default: m.IntuneSecurityModule })));
 const AsrRulesModule = lazy(() => import("../modules/AsrRulesModule").then(m => ({ default: m.AsrRulesModule })));
+const DefenderConfigurationModule = lazy(() => import("../modules/DefenderConfigurationModule").then(m => ({ default: m.DefenderConfigurationModule })));
 const GroupsManagementModule = lazy(() => import("../modules/GroupsManagementModule").then(m => ({ default: m.GroupsManagementModule })));
 const SharePointStorageModule = lazy(() => import("../modules/SharePointStorageModule").then(m => ({ default: m.SharePointStorageModule })));
 const McpPlaygroundModule = lazy(() => import("../modules/McpPlaygroundModule").then(m => ({ default: m.McpPlaygroundModule })));
 const AuditLogModule = lazy(() => import("../modules/AuditLogModule").then(m => ({ default: m.AuditLogModule })));
 const ExecutiveReportingModule = lazy(() => import("../modules/ExecutiveReportingModule").then(m => ({ default: m.ExecutiveReportingModule })));
 const ComplianceMatrixModule = lazy(() => import("../modules/ComplianceMatrixModule").then(m => ({ default: m.ComplianceMatrixModule })));
+const DataProtectionModule = lazy(() => import("../modules/DataProtectionModule").then(m => ({ default: m.DataProtectionModule })));
+const FleetDataProtectionModule = lazy(() => import("../modules/FleetDataProtectionModule").then(m => ({ default: m.FleetDataProtectionModule })));
+const AuditLogInvestigatorModule = lazy(() => import("../modules/AuditLogInvestigatorModule").then(m => ({ default: m.AuditLogInvestigatorModule })));
 
 export const AppShell: React.FC = () => {
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -91,6 +96,7 @@ export const AppShell: React.FC = () => {
 
   // Modals state
   const [isAddTenantOpen, setIsAddTenantOpen] = useState(false);
+  const [isEditCredentialsOpen, setIsEditCredentialsOpen] = useState(false);
   const [isDeleteTenantOpen, setIsDeleteTenantOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPermissionsOpen, setIsPermissionsOpen] = useState(false);
@@ -103,6 +109,21 @@ export const AppShell: React.FC = () => {
     message: string;
     type: "info" | "success" | "warning" | "error";
   } | null>(null);
+
+  // Live step/percent while a single-tenant sync is in flight - polled from
+  // the backend (same setInterval pattern PermissionsModal.tsx already uses
+  // for the EXO device-code flow), since the sync itself is one long
+  // blocking POST with no other way to see it's actually progressing.
+  const [syncProgress, setSyncProgress] = useState<{ step: string; percent: number } | null>(null);
+  const syncProgressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopSyncProgressPolling = () => {
+    if (syncProgressTimerRef.current) {
+      clearInterval(syncProgressTimerRef.current);
+      syncProgressTimerRef.current = null;
+    }
+    setSyncProgress(null);
+  };
 
   // Remediation Drawer
   const [isRemediationOpen, setIsRemediationOpen] = useState(false);
@@ -225,7 +246,19 @@ export const AppShell: React.FC = () => {
       type: "info",
     });
 
+    const pollSyncProgress = async () => {
+      try {
+        const res = await fetch(`/api/tenants/${activeTenantId}/sync-progress`);
+        const data = await res.json();
+        setSyncProgress(data.inProgress ? { step: data.step, percent: data.percent } : null);
+      } catch {
+        // A failed poll shouldn't interrupt the sync itself - just skip this tick.
+      }
+    };
+
     try {
+      syncProgressTimerRef.current = setInterval(pollSyncProgress, 750);
+      pollSyncProgress();
       const res = await fetch(`/api/tenants/${activeTenantId}/sync`, { method: "POST" });
       const data = await res.json();
 
@@ -265,6 +298,7 @@ export const AppShell: React.FC = () => {
         type: "error",
       });
     } finally {
+      stopSyncProgressPolling();
       setIsRefreshing(false);
       if (toastDismissTimerRef.current) {
         clearTimeout(toastDismissTimerRef.current);
@@ -351,6 +385,7 @@ export const AppShell: React.FC = () => {
         isFleetMode={isFleetMode}
         onSelectTenant={handleSelectTenant}
         onOpenAddTenant={() => setIsAddTenantOpen(true)}
+        onOpenEditCredentials={() => setIsEditCredentialsOpen(true)}
         onOpenDeleteTenant={() => setIsDeleteTenantOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenSearch={() => setIsSearchOpen(true)}
@@ -358,6 +393,7 @@ export const AppShell: React.FC = () => {
         onOpenPermissions={() => setIsPermissionsOpen(true)}
         onRefresh={handleForceSync}
         isRefreshing={isRefreshing}
+        syncProgressPercent={syncProgress?.percent}
         onLogout={handleLogout}
       />
 
@@ -374,14 +410,26 @@ export const AppShell: React.FC = () => {
               : "bg-rose-50 dark:bg-rose-950 text-rose-900 dark:text-rose-300 border-rose-300 dark:border-rose-800"
           }`}
         >
-          <div className="flex items-center gap-2 font-medium">
-            {syncToast.type === "info" && <RefreshCw size={13} className="animate-spin text-emerald-400" />}
-            {syncToast.type === "success" && <CheckCircle size={14} className="text-emerald-600 dark:text-emerald-400" />}
-            {syncToast.type === "warning" && <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400" />}
-            {syncToast.type === "error" && <AlertTriangle size={14} className="text-rose-600 dark:text-red-400" />}
-            <span>{syncToast.message}</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 font-medium">
+              {syncToast.type === "info" && <RefreshCw size={13} className="animate-spin text-emerald-400 shrink-0" />}
+              {syncToast.type === "success" && <CheckCircle size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0" />}
+              {syncToast.type === "warning" && <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 shrink-0" />}
+              {syncToast.type === "error" && <AlertTriangle size={14} className="text-rose-600 dark:text-red-400 shrink-0" />}
+              <span className="truncate">
+                {syncToast.type === "info" && syncProgress ? `${syncProgress.step} (${syncProgress.percent}%)` : syncToast.message}
+              </span>
+            </div>
+            {syncToast.type === "info" && syncProgress && (
+              <div className="mt-1.5 h-1 w-full max-w-xs bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-400 rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${syncProgress.percent}%` }}
+                />
+              </div>
+            )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setSyncToast(null)}
               className="px-2 py-0.5 text-[11px] font-medium border border-current rounded-sm opacity-80 hover:opacity-100 transition-opacity"
@@ -489,8 +537,25 @@ export const AppShell: React.FC = () => {
                   tenants={tenants}
                   snapshots={allSnapshots}
                   onSelectTenant={handleSelectTenant}
+                  onRefresh={fetchFleetData}
                 />
               )}
+            </ErrorBoundary>
+
+            {/* Fleet Data Protection Visibility - read-only ONLY, no action of any
+                kind on this screen touches more than one tenant. See the
+                "No cross-tenant actions, ever" rule in the DLP plan notes. */}
+            <ErrorBoundary moduleName="Fleet Data Protection Visibility" key="eb-fleet-data-protection">
+              {activeView === "fleet_data_protection" && (
+                <FleetDataProtectionModule tenants={tenants} onSelectTenant={handleSelectTenant} />
+              )}
+            </ErrorBoundary>
+
+            {/* Data Protection (DLP & sensitivity labels): a static guidance
+                catalog, not a live posture module - no snapshot dependency,
+                see the component's own header comment. */}
+            <ErrorBoundary moduleName="Data Protection" key={`eb-data-protection-${activeTenantId}`}>
+              {activeView === "data_protection" && <DataProtectionModule tenant={activeTenant} />}
             </ErrorBoundary>
 
             {/* Individual Tenant Views */}
@@ -564,10 +629,18 @@ export const AppShell: React.FC = () => {
               {activeView === "sec_score" && snapshot && (
                 <SecureScoreModule
                   snapshot={snapshot}
-                  onOpenRemediation={handleOpenRemediation}
+                  onRefresh={handleForceSync}
+                  onNavigate={(view) => setActiveView(view)}
                 />
               )}
               {activeView === "sec_score" && !snapshot && <SkeletonLoader />}
+            </ErrorBoundary>
+
+            <ErrorBoundary moduleName="Audit Log Investigator" key={`eb-audit-investigator-${activeTenantId}`}>
+              {activeView === "audit_investigator" && snapshot && (
+                <AuditLogInvestigatorModule snapshot={snapshot} />
+              )}
+              {activeView === "audit_investigator" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="MFA Audit" key={`eb-mfa-${activeTenantId}`}>
@@ -674,8 +747,15 @@ export const AppShell: React.FC = () => {
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Attack Surface Reduction" key={`eb-asr-${activeTenantId}`}>
-              {activeView === "asr_rules" && snapshot && <AsrRulesModule snapshot={snapshot} />}
+              {activeView === "asr_rules" && snapshot && (
+                <AsrRulesModule snapshot={snapshot} onNavigate={(view) => setActiveView(view)} />
+              )}
               {activeView === "asr_rules" && !snapshot && <SkeletonLoader />}
+            </ErrorBoundary>
+
+            <ErrorBoundary moduleName="Defender Configuration & Onboarding" key={`eb-defender-config-${activeTenantId}`}>
+              {activeView === "defender_config" && snapshot && <DefenderConfigurationModule snapshot={snapshot} />}
+              {activeView === "defender_config" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Groups Management" key={`eb-groups-${activeTenantId}`}>
@@ -721,6 +801,13 @@ export const AppShell: React.FC = () => {
         isOpen={isAddTenantOpen}
         onClose={() => setIsAddTenantOpen(false)}
         onTenantAdded={() => fetchTenants()}
+      />
+
+      <EditTenantCredentialsModal
+        isOpen={isEditCredentialsOpen}
+        onClose={() => setIsEditCredentialsOpen(false)}
+        tenant={activeTenant}
+        onUpdated={() => fetchTenants()}
       />
 
       <DeleteTenantModal

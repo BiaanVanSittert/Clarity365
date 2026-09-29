@@ -287,6 +287,11 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
               - <strong>optional, write access.</strong> Only grant this if you want Clarity365 to auto-deploy CA
               baseline policies directly from the app. Without it, the read-only permissions above still give full
               CA policy audit/reporting, and Clarity365 generates a PowerShell script you can run manually instead.
+              One baseline, CA05, also needs <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded font-mono">Application.Read.All</code> granted
+              alongside this - it references a specific application (Microsoft Azure Management) by ID rather than
+              &quot;All&quot;, and Graph needs to read that application object to create a policy referencing it. If
+              a CA05 deploy specifically fails while every other baseline works, that&apos;s why - the deploy attempt
+              itself will say so and tell you what to grant.
             </p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               <code className="bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-400 border border-amber-400 dark:border-amber-800 px-1 py-0.5 rounded font-mono font-semibold">
@@ -296,6 +301,16 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
               detail) - a separately-consented permission that typically also needs a Defender for Endpoint P2 (or
               equivalent Business Premium) license. Without it, ASR rule configuration reporting (Block/Audit/Warn/Not
               Configured per rule) still works fully.
+            </p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              <code className="bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-400 border border-amber-400 dark:border-amber-800 px-1 py-0.5 rounded font-mono font-semibold">
+                DeviceManagementConfiguration.ReadWrite.All
+              </code>{" "}
+              - <strong>optional, write access.</strong> Only needed for Endpoint Security&apos;s write-enabled deploy
+              actions (MDE connector setting changes, Defender Antivirus policy deployment, ASR rule deployment) - also
+              gated by a separate per-tenant toggle in the Defender Config module itself, so granting this alone
+              doesn&apos;t enable anything by itself. Without it, DeviceManagementConfiguration.Read.All above still
+              gives full read-only reporting for all three.
             </p>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               Defender for Office 365 policy sync (MDO Policies) needs a separate one-time Exchange Online sign-in, not a

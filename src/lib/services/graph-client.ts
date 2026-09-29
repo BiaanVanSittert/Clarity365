@@ -1,11 +1,12 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability, TenantLicenseSku, SecurityIncidentItem, AsrRuleMode, AsrRuleState, AsrRuleActivitySummary, AsrDetectionEvent } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability, TenantLicenseSku, SecurityIncidentItem, AsrRuleMode, AsrRuleState, AsrRuleActivitySummary, AsrDetectionEvent, MdeConnectorSettings, AtpOnboardingDeviceState, DefenderAvPolicySettings, IntuneAssignmentTarget, AsrDetectionTimeRange, EdrPolicySettings, BitLockerPolicySettings, DeviceComplianceReason, CaNamedLocation, CaSessionControls, TenantIdentitySettings } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { classifyPolicyBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
 import { createBlankSnapshot } from "../data/default-snapshot";
 import { classifyUserAuthMethods } from "./mfa-classifier";
-import { mapManagedDeviceToIntuneDevice } from "./intune-mapper";
+import { mapManagedDeviceToIntuneDevice, mapMdeConnectorSettings, mapAtpOnboardingDeviceState, applyRealEdrOnboardingStates, mapDeviceComplianceSettingStateRow, applyDeviceComplianceReasons } from "./intune-mapper";
 import { mapSecureScoreControl, buildSecureScoreHistory, computeScoreDelta, extractIndustryBenchmark } from "./secure-score-mapper";
+import { buildCompanyBrandingControl } from "./company-branding-analyzer";
 import { fetchMdoPoliciesAndTabl, fetchMailflowData, fetchAcceptedDomainsAndDkim } from "./exo-client";
 import { mapMdoAlert } from "./mdo-alert-mapper";
 import { checkSpfRecord, checkDmarcRecord } from "./domain-dns-checker";
@@ -18,6 +19,7 @@ import {
 import { mapSharePointSite, mapTenantSharingSettings } from "./sharepoint-mapper";
 import { mapAppRegistration } from "./app-registration-mapper";
 import { mapSubscribedSkusToCapabilities } from "./capabilities-mapper";
+import { mapCaPolicyExtendedFields, mapCaBetaSessionExtras, applyCaBetaSessionExtras, mapNamedLocation, mapTenantIdentitySettings } from "./ca-environment-mapper";
 import { mapSecurityIncident, synthesizeIncidentsFromMdoAlerts } from "./incident-mapper";
 import { graphFetch } from "./graph-fetch";
 import { ASR_RULE_DEFINITIONS } from "../data/asr-rule-definitions";
@@ -30,6 +32,7 @@ import {
   mapNamedPropertyValuesToSignals,
   mergeAsrRuleStates,
 } from "./asr-configuration-mapper";
+import { applyLicenseAwareStatus, PERMISSION_LICENSE_REQUIREMENT } from "./permission-license-check";
 
 
 
@@ -83,7 +86,14 @@ export interface PermissionTestResult {
   // needs this set explicitly.
   method?: "GET" | "POST";
   body?: string;
-  status: "granted" | "missing" | "untested";
+  // "unlicensed" means the Graph call failed for a reason this app can
+  // positively attribute to a missing license SKU (cross-checked against the
+  // tenant's actual capabilities, not guessed from Graph's error text - see
+  // permission-license-check.ts) rather than a missing/unconsented API
+  // permission. Distinct from "missing" specifically so the UI never tells
+  // an admin to go grant a permission in Azure AD when doing so would fix
+  // nothing - the tenant needs to buy a license instead.
+  status: "granted" | "missing" | "unlicensed" | "untested";
   statusCode?: number;
   errorMessage?: string;
   requiredFor: string;
@@ -100,6 +110,12 @@ export interface PermissionTestResult {
   // separately-consented, separately-licensed permission Advanced Hunting
   // needs (declining ThreatHunting.Read.All).
   optional?: boolean;
+  // Set (alongside status: "unlicensed") by applyLicenseAwareStatus() at test
+  // time - never configured up front like `optional`, since whether a given
+  // tenant is actually licensed for something is only known after the SKU
+  // cross-check runs. Also excluded from the pass/fail rollup, for the same
+  // reason: a licensing gap isn't a consent mistake the admin needs to fix.
+  unlicensed?: boolean;
 }
 
 export interface TenantPermissionReport {
@@ -108,6 +124,108 @@ export interface TenantPermissionReport {
   testedAt: string;
   overallStatus: "all_granted" | "partial" | "failed";
   permissions: PermissionTestResult[];
+}
+
+// Invalidates any cached Graph access token for this tenantId:clientId pair.
+// Must be called whenever a tenant's stored credentials change - the cache
+// key is keyed only by tenantId:clientId, not by the secret itself, so
+// rotating just the clientSecret (the common case) would otherwise keep
+// serving a token acquired under the OLD secret until it naturally expired
+// on its own schedule, up to ~55 minutes later. Found live: after fixing a
+// bad Axiomatic client secret via EditTenantCredentialsModal, every Graph
+// call kept failing with the exact same error as before the fix - the
+// tenant record had the new secret, but getGraphAccessToken() had no way to
+// know its cached token was now stale for a reason other than time.
+export function invalidateGraphTokenCache(credentials: { tenantId?: string; clientId?: string }): void {
+  if (!credentials.tenantId || !credentials.clientId) return;
+  tokenCache.delete(`${credentials.tenantId}:${credentials.clientId}`);
+}
+
+// Decodes the `roles` claim (granted application permissions) out of a Graph
+// access token's JWT payload, without verifying the signature - the token
+// already came from a trusted Microsoft token endpoint response, this just
+// reads a claim already inside it. App-only (client-credentials) tokens list
+// every app role Entra actually granted here, regardless of which endpoint
+// the token is later used against - the only side-effect-free, reliable way
+// to answer "is this permission granted," for two live-found reasons a
+// per-permission GET/POST probe cannot:
+//   1. A probe can pass on a WEAKER permission than the one being tested,
+//      whenever Graph's own least-privilege table lists both a .Read.All and
+//      a .ReadWrite.All variant as sufficient for that call (e.g. GET
+//      deviceManagement/intents accepts either) - found live on a tenant
+//      whose Permissions modal showed DeviceManagementConfiguration.
+//      ReadWrite.All as "Granted" purely because Read.All was granted, while
+//      the actual policy-create call failed with "Application is not
+//      authorized to perform this operation."
+//   2. A probe can FAIL on a genuinely granted permission when the specific
+//      Graph resource provider it hits has its own backend quirk unrelated
+//      to consent - found live where AuditLog.Read.All and Reports.Read.All
+//      consistently returned a 401 "Lifetime validation failed, the token is
+//      expired" for a token that was, by construction, issued milliseconds
+//      earlier in the same run and worked fine for Policy.Read.All/
+//      User.Read.All in that identical run - decoding that same token's
+//      roles claim directly confirmed both permissions were genuinely
+//      granted the whole time.
+// Returns null (never an empty array) when the token can't be parsed, so
+// callers can fall back to a live probe instead of misreporting "missing."
+export function decodeAppRolesFromToken(token: string): string[] | null {
+  try {
+    const payloadSegment = token.split(".")[1];
+    if (!payloadSegment) return null;
+    const base64 = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const json = Buffer.from(padded, "base64").toString("utf-8");
+    const payload = JSON.parse(json);
+    return Array.isArray(payload.roles) ? payload.roles : [];
+  } catch {
+    return null;
+  }
+}
+
+// Some rows in permissionsToTest below list two alternative Graph
+// permissions Microsoft accepts for the same call (e.g. "Reports.Read.All /
+// UserAuthenticationMethod.Read.All") rather than one canonical role string
+// - granted if EITHER alternative is present in the token's roles claim.
+export function isPermissionGrantedByRoles(permissionField: string, grantedRoles: string[]): boolean {
+  return permissionField.split("/").some((candidate) => grantedRoles.includes(candidate.trim()));
+}
+
+// Survived graphFetch()'s own short retry (see its comment) and still
+// carries this exact signature - real-world Microsoft behavior is that some
+// Graph resource providers (the Reports/AuditLog family, and Endpoint
+// Security's configurationPolicies, confirmed live on both) can reject an
+// otherwise-valid, correctly-timed token for several minutes at a stretch,
+// well past what a couple of in-request retries can wait for - most often
+// right after a recent app registration change (new permission consented,
+// secret rotated) or a tenant's first-ever use of that specific resource,
+// but not always attributable to either. Reworded generically (not "go
+// grant a permission" or "go redeploy") since this same error class is
+// surfaced from several unrelated call sites now (the permission self-test,
+// and the AV/EDR/ASR policy read and deploy paths) - the one thing true in
+// every case is that retrying the same action again shortly is the right
+// move, not assuming whatever the action was trying to do is actually wrong.
+const LIFETIME_VALIDATION_ERROR_PATTERN = /lifetime validation failed/i;
+
+export function describeTransientTokenLifetimeError(rawMessage: string): string {
+  if (!LIFETIME_VALIDATION_ERROR_PATTERN.test(rawMessage)) return rawMessage;
+  return `${rawMessage} - this specific error is usually Microsoft's own backend rejecting an otherwise-valid token for this one resource, not a real problem with your permissions or credentials. Wait a few minutes and try the same action again before assuming something is actually wrong.`;
+}
+
+// Pure decision logic for fetchLiveTenantSnapshot's own retry-with-fresh-
+// token gap (see withFreshTokenOnLifetimeError's comment for the underlying
+// bug this is the same fix for). That function fetches ONE token at the top
+// and reuses it across ~20 sequential sync sections instead of one token
+// per call, so it can't use withFreshTokenOnLifetimeError itself - if the
+// token goes bad on section 3, sections 4-20 would still run with the same
+// bad token in the same pass. Extracted as its own pure, tested predicate
+// because tenant-store.ts's runSync() (the actual retry orchestration: call
+// fetchLiveTenantSnapshot, check this, invalidateGraphTokenCache, call it
+// again) can't itself be safely unit tested - the tenant store singleton
+// always opens the real production data/clarity365.db, with no test-mode
+// override, so no test in this codebase imports it directly. This is the
+// one piece of that decision worth getting definitively right in a test.
+export function hasLifetimeValidationError(errors: string[] | undefined): boolean {
+  return !!errors?.some((e) => LIFETIME_VALIDATION_ERROR_PATTERN.test(e));
 }
 
 export async function getGraphAccessToken(credentials: Tenant["credentials"]): Promise<{ token?: string; error?: string }> {
@@ -157,16 +275,76 @@ export async function getGraphAccessToken(credentials: Tenant["credentials"]): P
   }
 }
 
+// Retries an entire Graph operation with a genuinely fresh token when its
+// first attempt fails with the "Lifetime validation failed" signature.
+//
+// Confirmed live (Coetzee Architects, 2026-09-17): this is NOT the brief
+// network blip graphFetch's own short retry (see its comment) can absorb.
+// A live diagnostic - a standalone script that decrypted this tenant's real
+// credentials and called Microsoft Graph directly, bypassing Clarity365
+// entirely - succeeded immediately against the identical endpoint at the
+// exact moment Clarity365's own code was failing with this error. Tracing
+// it further showed the token our cache was serving (well within its own
+// bookkeeping's ~55-minute validity window) was being genuinely rejected by
+// Microsoft's Intune Settings Catalog resource provider specifically
+// (deviceManagement/configurationPolicies) over real network round-trips
+// (fresh request-ids from Microsoft on every attempt - not a local caching
+// artifact), while that exact same token kept working fine for every other
+// Graph resource. Forcing a real fresh token (invalidateGraphTokenCache +
+// getGraphAccessToken again) and retrying resolved it immediately.
+//
+// So: Microsoft can silently invalidate a specific already-issued app-only
+// token for this one resource provider well before its nominal expiry, and
+// our own token cache has no way to detect that on its own - it just trusts
+// its expiry clock and keeps serving the same dead token. Retrying the same
+// request with the same token (what every caller did before this) can
+// never recover from that; only a forced fresh token can. Bounded to one
+// retry - if a genuinely fresh token still hits this, something else is
+// wrong and repeating indefinitely would only mask it.
+async function withFreshTokenOnLifetimeError<T extends { error?: string }>(
+  credentials: Tenant["credentials"],
+  operation: (token: string) => Promise<T>
+): Promise<T> {
+  const { token, error } = await getGraphAccessToken(credentials);
+  if (error || !token) {
+    return { error: `Authentication Error: ${error}` } as T;
+  }
+
+  const result = await operation(token);
+  if (result.error && LIFETIME_VALIDATION_ERROR_PATTERN.test(result.error)) {
+    invalidateGraphTokenCache(credentials);
+    const fresh = await getGraphAccessToken(credentials);
+    if (fresh.error || !fresh.token) {
+      return result; // couldn't get a fresh token either - surface the original error
+    }
+    return operation(fresh.token);
+  }
+  return result;
+}
+
 export async function testAppRegistrationPermissions(tenant: Tenant): Promise<TenantPermissionReport> {
   // Ordered read-only first, optional last (write-capable last of all) -
-  // ThreatHunting.Read.All and Policy.ReadWrite.ConditionalAccess are the
-  // only two optional permissions this app ever requests: every other
-  // permission below already gives Clarity365 full audit/reporting coverage
-  // without either of them (including generating a copy-pasteable PowerShell
-  // script for CA baseline gaps in place of the write permission). Granting
-  // ThreatHunting.Read.All additionally enables ASR rule detection-activity
-  // reporting; granting the CA write permission additionally enables in-app
-  // one-click auto-deployment - neither is required for the app to work.
+  // ThreatHunting.Read.All, Policy.ReadWrite.ConditionalAccess, and
+  // DeviceManagementConfiguration.ReadWrite.All are the only three optional
+  // permissions this app ever requests: every other permission below
+  // already gives Clarity365 full audit/reporting coverage without any of
+  // them (including generating a copy-pasteable PowerShell/portal script in
+  // place of each write permission). Granting ThreatHunting.Read.All
+  // additionally enables ASR rule detection-activity reporting; granting
+  // the CA write permission additionally enables in-app one-click CA
+  // auto-deployment; granting the Endpoint Security write permission
+  // additionally enables MDE connector/Defender AV/ASR rule deployment (see
+  // deployDefenderAvPolicy/deployAsrRulePolicy/updateMdeConnectorSettings
+  // below) - none of the three is required for the app to work.
+  //
+  // Deliberately NOT a separate checked permission here: CA05 also needs
+  // Application.Read.All (it references a specific application - Microsoft
+  // Azure Management - by ID rather than "All", and Graph needs to resolve
+  // that object to create the policy). That's a one-baseline-out-of-ten
+  // edge case, not worth its own row/explanation in every tenant's
+  // permissions report - deployConditionalAccessPolicy() surfaces it as an
+  // actionable error message at the moment a CA05 deploy actually needs it
+  // instead, which is also the more useful moment to learn about it.
   const permissionsToTest: Omit<PermissionTestResult, "status">[] = [
     {
       permission: "Policy.Read.All",
@@ -267,10 +445,18 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       permission: "ThreatHunting.Read.All",
       scope: "Application",
       description:
-        "Optional - read live Microsoft Defender for Endpoint Advanced Hunting telemetry (the DeviceEvents table) to show ASR rule detection activity (30-day hit counts and event detail). A materially more restrictive, separately-consented permission than anything else Clarity365 requests, and typically also needs a Defender for Endpoint P2 (or equivalent Business Premium) license on top of the Graph permission itself. Without it, ASR rule configuration reporting (which rule is Block/Audit/Warn/Not Configured) still works fully - only the event-count badges and event list are unavailable.",
+        "Optional - read live Microsoft Defender for Endpoint Advanced Hunting telemetry (the DeviceEvents table) to show ASR rule detection activity (30-day hit counts and event detail). A materially more restrictive, separately-consented permission than anything else Clarity365 requests. The actual detection-activity query additionally needs a Defender for Endpoint P1/P2 (or equivalent) license for the DeviceEvents table specifically - Defender for Business tenants may have this permission granted yet still see 'table not found' on that one query, which is a license/table-availability gap, not a missing-permission one; without either, ASR rule configuration reporting (which rule is Block/Audit/Warn/Not Configured) still works fully - only the event-count badges and event list are unavailable.",
       endpoint: "https://graph.microsoft.com/v1.0/security/runHuntingQuery",
       method: "POST",
-      body: JSON.stringify({ Query: "DeviceEvents | where Timestamp > ago(1d) | take 1", Timespan: "P1D" }),
+      // Deliberately NOT a DeviceEvents query (unlike the real detection
+      // queries below) - a live bug report showed a tenant with
+      // ThreatHunting.Read.All genuinely granted still failing this
+      // self-test, because DeviceEvents itself doesn't resolve on that
+      // tenant's Defender plan (a 400 "table not found", not a 401/403).
+      // This probe is a table-independent Kusto literal (`print`, no `from`
+      // clause) so the self-test result reflects ONLY whether the
+      // permission itself is granted, never a downstream license/table gap.
+      body: JSON.stringify({ Query: "print ClarityPermissionProbe = 1", Timespan: "P1D" }),
       requiredFor: "Optional: ASR Rules detection activity (event counts and event detail)",
       optional: true,
     },
@@ -278,9 +464,19 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       permission: "Policy.ReadWrite.ConditionalAccess",
       scope: "Application",
       description:
-        "Optional - only needed to auto-deploy CA baseline policies directly from Clarity365. Without it, Policy.Read.All above still gives full audit/reporting coverage, and Clarity365 generates a PowerShell script you can run manually instead.",
+        "Optional - only needed to auto-deploy CA baseline policies directly from Clarity365. Without it, Policy.Read.All above still gives full audit/reporting coverage, and Clarity365 generates a PowerShell script you can run manually instead. One baseline, CA05, also needs Application.Read.All granted alongside this (it references a specific application by ID rather than \"All\") - if a CA05 deploy specifically fails while every other baseline works, that's why; the deploy attempt itself will say so.",
       endpoint: "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
       requiredFor: "Optional: Direct In-App CA Auto-Deployment & Baseline Remediation",
+      isWriteAccess: true,
+      optional: true,
+    },
+    {
+      permission: "DeviceManagementConfiguration.ReadWrite.All",
+      scope: "Application",
+      description:
+        "Optional - only needed for Endpoint Security's write-enabled deploy actions (MDE connector setting changes, Defender Antivirus policy deployment, ASR rule deployment). Also gated by a separate per-tenant toggle in the Defender Config module itself (endpointSecurityWriteMode) - both must be turned on before any Deploy button appears. Without it, DeviceManagementConfiguration.Read.All above still gives full read-only reporting, and every deploy screen offers a copy-pasteable PowerShell/portal equivalent instead.",
+      endpoint: "https://graph.microsoft.com/beta/deviceManagement/intents?$top=1",
+      requiredFor: "Optional: Endpoint Security write-enabled deployment (MDE connector, Defender AV policy, ASR rules)",
       isWriteAccess: true,
       optional: true,
     },
@@ -311,12 +507,50 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
     };
   }
 
-  const results: PermissionTestResult[] = [];
-  let allPassed = true;
+  let results: PermissionTestResult[] = [];
+
+  // Decoded once per test run and reused below for every permission with no
+  // genuine license dependency (see decodeAppRolesFromToken's comment for
+  // the two distinct live bugs this replaces a live probe for). The handful
+  // of permissions in PERMISSION_LICENSE_REQUIREMENT still need a real Graph
+  // call - the roles claim alone can't distinguish "not granted" from
+  // "granted but the tenant lacks the underlying license," and that
+  // distinction is exactly what applyLicenseAwareStatus (below) exists to
+  // surface correctly rather than sending an admin to grant a permission
+  // that's already fine.
+  const grantedAppRoles = decodeAppRolesFromToken(token);
 
   for (const perm of permissionsToTest) {
+    const hasLicenseDependency = !!PERMISSION_LICENSE_REQUIREMENT[perm.permission];
+    if (grantedAppRoles !== null && !hasLicenseDependency) {
+      const granted = isPermissionGrantedByRoles(perm.permission, grantedAppRoles);
+      results.push({
+        ...perm,
+        status: granted ? "granted" : "missing",
+        statusCode: granted ? 200 : 403,
+        errorMessage: granted
+          ? undefined
+          : `${perm.permission} is not present in this app registration's granted application permissions. Checked directly against the access token's roles claim (not a live endpoint probe, which can either pass on a weaker variant alone or fail on an unrelated backend quirk) - grant it with admin consent in Microsoft Entra admin center.`,
+      });
+      continue;
+    }
+
     try {
-      const res = await graphFetch(perm.endpoint, {
+      // Up to one retry, only for the specific "brand new token rejected by
+      // this particular Graph resource provider" transient signature - found
+      // live right after testPermissions() started forcing a fresh token on
+      // every Re-Test click (see invalidateGraphTokenCache call site in
+      // tenant-store.ts): AuditLog.Read.All and Reports.Read.All consistently
+      // failed with a 401 "Lifetime validation failed, the token is expired"
+      // on a token that was, by construction, issued milliseconds earlier in
+      // this same run - while Policy.Read.All/User.Read.All succeeded with
+      // that identical token in the same loop. A genuinely expired or
+      // missing-scope token fails every call, not two specific ones, so this
+      // is Microsoft's own backend propagation lag for those resource
+      // providers specifically, not a real permission problem - retrying
+      // once after a short pause resolves it without masking an actual
+      // missing-permission 403/401 (which never carries this exact message).
+      let res = await graphFetch(perm.endpoint, {
         method: perm.method || "GET",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -324,6 +558,20 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
         },
         body: perm.body,
       });
+      let errJson: any = res.ok ? null : await res.json().catch(() => ({}));
+
+      if (!res.ok && res.status === 401 && /lifetime validation failed/i.test(errJson?.error?.message || "")) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        res = await graphFetch(perm.endpoint, {
+          method: perm.method || "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(perm.body ? { "Content-Type": "application/json" } : {}),
+          },
+          body: perm.body,
+        });
+        errJson = res.ok ? null : await res.json().catch(() => ({}));
+      }
 
       if (res.ok) {
         results.push({
@@ -332,17 +580,15 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
           statusCode: res.status,
         });
       } else {
-        if (!perm.optional) allPassed = false;
-        const errJson = await res.json().catch(() => ({}));
+        const rawMessage = errJson?.error?.message || `Access denied (${res.status} ${res.statusText})`;
         results.push({
           ...perm,
           status: "missing",
           statusCode: res.status,
-          errorMessage: errJson?.error?.message || `Access denied (${res.status} ${res.statusText})`,
+          errorMessage: describeTransientTokenLifetimeError(rawMessage),
         });
       }
     } catch (e: any) {
-      if (!perm.optional) allPassed = false;
       results.push({
         ...perm,
         status: "missing",
@@ -351,15 +597,41 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
     }
   }
 
-  // Optional permissions (currently just Policy.ReadWrite.ConditionalAccess) are
-  // excluded from this rollup entirely - declining an optional write permission
-  // is a valid, deliberate choice (read-only/reporting mode), not a problem.
-  const requiredResults = results.filter((r) => !r.optional);
+  // Cross-check every "missing" result against what the tenant is actually
+  // licensed for, so a real licensing gap (e.g. no Intune, no Defender for
+  // Endpoint P2) never reads as "go grant this permission in Azure AD" -
+  // that advice would do nothing, since the license is the actual blocker.
+  // Best-effort: if this call itself fails (e.g. Organization.Read.All
+  // wasn't granted either), licensing-aware messaging is simply skipped for
+  // this run, falling back to today's plain "missing" behavior - never a
+  // hard failure of the whole permissions check.
+  try {
+    // No $top/$filter here - subscribedSkus doesn't support them (Microsoft's
+    // own known-issues doc: unsupported query params on this endpoint "might
+    // not return the expected results"), same reason the existing sync-time
+    // call below (~line 1682) already omits them.
+    const skusResult = await fetchAllPages<any>("https://graph.microsoft.com/v1.0/subscribedSkus", {
+      Authorization: `Bearer ${token}`,
+    });
+    const capabilities = mapSubscribedSkusToCapabilities(skusResult.items);
+    results = results.map((r) => applyLicenseAwareStatus(r, capabilities));
+  } catch (e: any) {
+    console.error("[Graph Client] Could not cross-check license capabilities for permissions report:", e);
+  }
+
+  // Optional permissions (currently ThreatHunting.Read.All,
+  // Policy.ReadWrite.ConditionalAccess, and
+  // DeviceManagementConfiguration.ReadWrite.All) and unlicensed ones are
+  // both excluded from this rollup - declining an
+  // optional permission is a deliberate choice, and a licensing gap isn't a
+  // consent mistake the admin needs to go fix, so neither should read as
+  // "you did something wrong."
+  const requiredResults = results.filter((r) => !r.optional && !r.unlicensed);
   return {
     tenantId: tenant.id,
     tenantName: tenant.displayName,
     testedAt: new Date().toISOString(),
-    overallStatus: allPassed
+    overallStatus: requiredResults.every((r) => r.status === "granted")
       ? "all_granted"
       : requiredResults.some((r) => r.status === "granted")
       ? "partial"
@@ -377,7 +649,13 @@ export function buildGraphCaPolicyPayload(code: string, domain: string) {
         conditions: {
           users: { includeUsers: ["All"], excludeUsers: [] },
           applications: { includeApplications: ["All"] },
-          clientAppTypes: ["exchangeActiveSync", "otherClients"],
+          // "other" (not "otherClients") is the real Graph enum member -
+          // "otherClients" isn't a valid conditionalAccessClientApp value at
+          // all, and Graph rejects the whole policy object with error 1007
+          // ("does not match the schema of ConditionalAccessPolicy type")
+          // rather than just ignoring the bad array entry. Confirmed live
+          // against Ashton John's Private School before this fix.
+          clientAppTypes: ["exchangeActiveSync", "other"],
         },
         grantControls: { operator: "OR", builtInControls: ["block"] },
       };
@@ -431,7 +709,7 @@ export function buildGraphCaPolicyPayload(code: string, domain: string) {
         state: "enabledForReportingButNotEnforced",
         conditions: {
           users: { includeUsers: ["All"], excludeUsers: [] },
-          applications: { includeApplications: ["797f3427-79cd-4827-8132-47d473d450e4"] },
+          applications: { includeApplications: ["797f4846-ba00-4fd7-ba43-dac1f8f63013"] },
           clientAppTypes: ["all"],
         },
         grantControls: { operator: "OR", builtInControls: ["mfa"] },
@@ -556,10 +834,54 @@ export async function deployConditionalAccessPolicy(
 
     const data = await res.json();
     if (!res.ok) {
-      return {
-        success: false,
-        error: data?.error?.message || `Failed to create policy in Microsoft Graph (HTTP ${res.status}: ${res.statusText})`,
-      };
+      const rawMessage = data?.error?.message || `Failed to create policy in Microsoft Graph (HTTP ${res.status}: ${res.statusText})`;
+
+      // CA05 references a specific application by fixed appId rather than
+      // "All": 797f4846-ba00-4fd7-ba43-dac1f8f63013, "Microsoft Azure
+      // Management" (shown as "Azure Resource Manager" in some Entra portal
+      // surfaces; legacy docs also call it "Windows Azure Service
+      // Management API" - all the same first-party, Microsoft-owned app).
+      // Unlike a custom/registered app, this one's service principal is
+      // provisioned by default in every tenant, so "ServicePrincipalNotFound"
+      // below should be rare - if it ever fires, this app's own
+      // Policy.ReadWrite.ConditionalAccess grant is not enough to fix it;
+      // it needs a Global Administrator to run, once, in Microsoft Graph
+      // PowerShell:
+      //   Connect-MgGraph -Scopes "Application.ReadWrite.All"
+      //   New-MgServicePrincipal -AppId "797f4846-ba00-4fd7-ba43-dac1f8f63013"
+      // Deliberately NOT something Clarity365's own app registration should
+      // request just for this, so this is surfaced as a one-time manual
+      // script instead of an auto-fix, the same convention as every other
+      // PowerShell-script fallback in this app.
+      //
+      // (An earlier version of this baseline incorrectly targeted appId
+      // 797f3427-79cd-4827-8132-47d473d450e4, which does not correspond to a
+      // real Microsoft Azure Management service principal in any tenant and
+      // reliably produced ServicePrincipalNotFound - confirmed by the user
+      // directly and corrected to the real, documented app ID above.)
+      if (baselineCode === "CA05") {
+        if (rawMessage.includes("ServicePrincipalNotFound")) {
+          return {
+            success: false,
+            error: `${rawMessage} - The "Microsoft Azure Management" enterprise application doesn't exist in this tenant's directory yet (unusual - it's provisioned by default in most tenants). Signing in to Azure or using the Entra Conditional Access app picker will NOT fix this - neither actually provisions it. The reliable fix: as a Global Administrator, run this once in Microsoft Graph PowerShell - Connect-MgGraph -Scopes "Application.ReadWrite.All" then New-MgServicePrincipal -AppId "797f4846-ba00-4fd7-ba43-dac1f8f63013" - then retry this deploy.`,
+          };
+        }
+        // The other CA05-specific gotcha: unlike every other baseline (which
+        // targets "All" applications), CA05 references a specific
+        // application by ID, which additionally requires Application.Read.All
+        // (not just Policy.ReadWrite.ConditionalAccess) so Graph can resolve
+        // that application object. Not proactively checked in the
+        // Permissions report (see testAppRegistrationPermissions) - this is
+        // the one place it's actually surfaced.
+        if (res.status === 403 || /insufficient privileges|authorization_requestdenied/i.test(rawMessage)) {
+          return {
+            success: false,
+            error: `${rawMessage} - CA05 references a specific application (Microsoft Azure Management) by ID rather than "All", which needs the Application.Read.All Graph permission (with admin consent) in addition to Policy.ReadWrite.ConditionalAccess. Grant Application.Read.All in Microsoft Entra admin center, then retry - every other baseline is unaffected.`,
+          };
+        }
+      }
+
+      return { success: false, error: rawMessage };
     }
 
     return { success: true, policy: data };
@@ -568,25 +890,98 @@ export async function deployConditionalAccessPolicy(
   }
 }
 
+// Maps the UI's time-range selector to both the KQL `ago()` window and the
+// runHuntingQuery request's own Timespan (ISO 8601 duration) - the two must
+// agree, since Timespan caps how far back Graph will even look regardless
+// of what the KQL says. "all" requests a generous 180-day window (longer
+// than any default retention) and lets Graph return whatever the tenant's
+// own retention policy actually kept, rather than this app guessing it.
+const ASR_TIME_RANGE_TO_KQL_DAYS: Record<AsrDetectionTimeRange, number> = {
+  "7d": 7,
+  "30d": 30,
+  all: 180,
+};
+const ASR_TIME_RANGE_TO_TIMESPAN: Record<AsrDetectionTimeRange, string> = {
+  "7d": "P7D",
+  "30d": "P30D",
+  all: "P180D",
+};
+
+// Pure - turns Graph's raw runHuntingQuery error into an actionable message,
+// or returns the raw message unchanged when neither known pattern matches.
+// Kept separate from runHuntingQuery itself so both branches are unit
+// testable without a live Graph call (see graph-client.test.ts) - this is
+// exactly the kind of branching logic that caused a live false-negative bug
+// (see below) when it lived inline and untested.
+export function classifyAdvancedHuntingError(rawMessage: string, status: number): string {
+  // Case 1: the permission itself is missing. Graph's raw 403 for this
+  // endpoint dumps every OTHER permission the app registration holds
+  // alongside the one it's missing ("Missing application roles. API
+  // required roles: ThreatHunting.Read.All, application roles: <15
+  // unrelated permissions>") - accurate but unreadable, and easy to mistake
+  // for "the app is broken" rather than "this one optional permission was
+  // never granted." Rewritten into an actionable message the same way
+  // CA05's deploy errors are, since a live user report showed this raw dump
+  // reads as a bug, not an expected, ungranted-optional-permission outcome.
+  if (status === 403 && /missing application roles/i.test(rawMessage) && rawMessage.includes("ThreatHunting.Read.All")) {
+    return 'ASR detection activity needs the optional "ThreatHunting.Read.All" Graph permission, which has not been granted to this app registration - plus a Microsoft Defender for Endpoint P1/P2 (or equivalent Microsoft 365 E5 / Business Premium) license on this tenant. Grant ThreatHunting.Read.All with admin consent in Microsoft Entra admin center > App registrations > API permissions, then retry. Every other ASR Rules feature (rule configuration state - Block/Audit/Warn/Not Configured) already works fully without it.';
+  }
+
+  // Case 2: the permission is granted, but this specific table isn't
+  // resolving for this tenant's call. CORRECTION to this branch's original
+  // theory: it initially assumed this always means "Defender for Business
+  // instead of Defender for Endpoint P1/P2, which categorically lacks this
+  // table" - a live user directly disproved that for their own tenant (they
+  // can see ASR detections for the same data in the Defender portal's own
+  // Reports > Attack Surface Reduction Rules > Detections page, which a
+  // Defender-for-Business-lacks-the-table explanation can't account for).
+  // The message below is now deliberately non-committal about the cause -
+  // see the "Lifetime validation failed" case right below for what turned
+  // out to be the actual root cause on that tenant, a Graph-side issue at
+  // this specific endpoint that has nothing to do with table availability.
+  const tableNotFoundMatch = rawMessage.match(/Failed to resolve table or column expression named '([^']+)'/i);
+  if (tableNotFoundMatch) {
+    return `ASR detection activity needs the "${tableNotFoundMatch[1]}" Advanced Hunting table, which this tenant's call to Microsoft Graph couldn't resolve - the ThreatHunting.Read.All permission itself is fine. If you can see this table's data in security.microsoft.com's own Advanced Hunting or Reports pages, this is a Graph API-side issue on this specific tenant, not a real licensing gap - retry later, and if it persists, check whether this app's service principal has been separately granted access under Microsoft Defender's own app-access/role settings (distinct from the Entra permission grant). Every other ASR Rules feature (rule configuration state - Block/Audit/Warn/Not Configured) already works fully without this.`;
+  }
+
+  // Case 3: "Lifetime validation failed, the token is expired" - confirmed
+  // via a live diagnostic NOT to be Clarity365's own token caching (a token
+  // fetched and used within the same second was still rejected this way).
+  // Observed alongside a permission that had JUST been granted - Graph's
+  // core authorization check for ThreatHunting.Read.All was passing (the
+  // error had changed from the Case 1 "missing application roles" 403 to
+  // this different error), but something downstream in this specific
+  // endpoint's own validation still rejected the token. Leading
+  // hypothesis, not yet confirmed: newly granted permissions can take time
+  // to propagate to the Defender/XDR backend behind this endpoint,
+  // separately from Entra's own instant admin-consent UI update.
+  if (status === 401 && /lifetime validation failed/i.test(rawMessage)) {
+    return `ASR detection activity failed with "${rawMessage}" - this was confirmed NOT to be a Clarity365 caching issue (even a freshly-issued token was rejected the same way). If ThreatHunting.Read.All was granted recently, this can be a backend propagation delay - Microsoft's Defender/XDR services can take time to recognize a newly consented permission even though Entra shows it granted immediately. Wait a while and retry; if it persists after a day, check whether this app's service principal also needs access granted under Microsoft Defender's own app-access/role settings, separate from the Entra permission grant.`;
+  }
+
+  return rawMessage;
+}
+
 // Shared by both ASR detection functions below. Graph's runHuntingQuery
 // (v1.0, not beta) returns { schema, results }, with result row keys
 // camelCased regardless of how the KQL `project`/`summarize` columns were
 // capitalized - e.g. a `project ActionType` column comes back as
 // `row.actionType`, not `row.ActionType`.
-async function runHuntingQuery(token: string, query: string): Promise<{ rows?: any[]; error?: string }> {
+async function runHuntingQuery(token: string, query: string, timespan: string): Promise<{ rows?: any[]; error?: string }> {
   try {
     const res = await graphFetch(
       "https://graph.microsoft.com/v1.0/security/runHuntingQuery",
       {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ Query: query, Timespan: "P30D" }),
+        body: JSON.stringify({ Query: query, Timespan: timespan }),
       },
       { retryOnNetworkError: false }
     );
     const data = await res.json();
     if (!res.ok) {
-      return { error: data?.error?.message || `Advanced Hunting query failed (HTTP ${res.status}: ${res.statusText})` };
+      const rawMessage = data?.error?.message || `Advanced Hunting query failed (HTTP ${res.status}: ${res.statusText})`;
+      return { error: classifyAdvancedHuntingError(rawMessage, res.status) };
     }
     return { rows: data.results || [] };
   } catch (err: any) {
@@ -603,10 +998,11 @@ async function runHuntingQuery(token: string, query: string): Promise<{ rows?: a
  */
 export async function fetchAsrDetectionSummaries(
   tenant: Tenant,
-  currentRuleStates: { ruleId: string; mode: AsrRuleMode }[]
+  currentRuleStates: { ruleId: string; mode: AsrRuleMode }[],
+  timeRange: AsrDetectionTimeRange = "30d"
 ): Promise<{ summaries?: AsrRuleActivitySummary[]; error?: string }> {
   if (tenant.credentials.authMode === "mock") {
-    return { summaries: synthesizeMockActivity(currentRuleStates, tenant.id) };
+    return { summaries: synthesizeMockActivity(currentRuleStates, tenant.id, timeRange) };
   }
 
   const { token, error } = await getGraphAccessToken(tenant.credentials);
@@ -614,9 +1010,11 @@ export async function fetchAsrDetectionSummaries(
     return { error: `Authentication Error: ${error}` };
   }
 
+  const days = ASR_TIME_RANGE_TO_KQL_DAYS[timeRange];
   const { rows, error: queryError } = await runHuntingQuery(
     token,
-    `DeviceEvents | where Timestamp > ago(30d) | where ActionType startswith "Asr" | summarize Count=count() by ActionType`
+    `DeviceEvents | where Timestamp > ago(${days}d) | where ActionType startswith "Asr" | summarize Count=count() by ActionType`,
+    ASR_TIME_RANGE_TO_TIMESPAN[timeRange]
   );
   if (queryError) return { error: queryError };
 
@@ -628,12 +1026,14 @@ export async function fetchAsrDetectionSummaries(
 }
 
 /**
- * Recent raw detection events for one specific rule (last 30 days, capped at
- * 50), fetched only when that rule's drawer is actually opened.
+ * Recent raw detection events for one specific rule (capped at 50 within
+ * the selected time range), fetched only when that rule's drawer is
+ * actually opened.
  */
 export async function fetchAsrDetectionEvents(
   tenant: Tenant,
-  ruleId: string
+  ruleId: string,
+  timeRange: AsrDetectionTimeRange = "30d"
 ): Promise<{ events?: AsrDetectionEvent[]; error?: string }> {
   const def = ASR_RULE_DEFINITIONS.find((d) => d.id === ruleId);
   if (!def || !def.hasAdvancedHuntingTelemetry) {
@@ -642,12 +1042,14 @@ export async function fetchAsrDetectionEvents(
 
   if (tenant.credentials.authMode === "mock") {
     const now = Date.now();
+    const days = ASR_TIME_RANGE_TO_KQL_DAYS[timeRange];
     const sampleFiles = ["invoice_2026.xlsm", "update_installer.exe", "quarterly_report.docm", "setup.ps1"];
-    const count = Math.abs(
-      def.advancedHuntingActionTypes.reduce((acc, t) => acc + t.length, 0) + tenant.id.length
-    ) % 6;
+    const count = Math.min(
+      50,
+      Math.abs(def.advancedHuntingActionTypes.reduce((acc, t) => acc + t.length, 0) + tenant.id.length) % 6 * Math.max(1, Math.round(days / 30))
+    );
     const events: AsrDetectionEvent[] = Array.from({ length: count }, (_, i) => ({
-      timestamp: new Date(now - i * 6 * 60 * 60 * 1000).toISOString(),
+      timestamp: new Date(now - i * ((days * 24) / Math.max(count, 1)) * 60 * 60 * 1000).toISOString(),
       deviceName: `DEMO-WKS-${(i % 4) + 1}`,
       actionType: def.advancedHuntingActionTypes[i % def.advancedHuntingActionTypes.length],
       fileName: sampleFiles[i % sampleFiles.length],
@@ -661,10 +1063,12 @@ export async function fetchAsrDetectionEvents(
     return { error: `Authentication Error: ${error}` };
   }
 
+  const days = ASR_TIME_RANGE_TO_KQL_DAYS[timeRange];
   const actionTypesList = def.advancedHuntingActionTypes.map((t) => `"${t}"`).join(", ");
   const { rows, error: queryError } = await runHuntingQuery(
     token,
-    `DeviceEvents | where Timestamp > ago(30d) | where ActionType in (${actionTypesList}) | project Timestamp, DeviceName, ActionType, FileName, FolderPath, InitiatingProcessFileName, InitiatingProcessCommandLine, AdditionalFields | order by Timestamp desc | take 50`
+    `DeviceEvents | where Timestamp > ago(${days}d) | where ActionType in (${actionTypesList}) | project Timestamp, DeviceName, ActionType, FileName, FolderPath, InitiatingProcessFileName, InitiatingProcessCommandLine, AdditionalFields | order by Timestamp desc | take 50`,
+    ASR_TIME_RANGE_TO_TIMESPAN[timeRange]
   );
   if (queryError) return { error: queryError };
 
@@ -777,6 +1181,915 @@ function flattenSettingsCatalogSelectedIds(settings: any[]): string[] {
   return ids;
 }
 
+// ==========================================
+// Phase 2: Endpoint Security write path (MDE connector settings, Defender AV
+// policy, ASR rule deployment) - gated in the UI/API layer behind BOTH
+// Tenant.endpointSecurityWriteMode === "write_enabled" AND the
+// DeviceManagementConfiguration.ReadWrite.All permission (see
+// testAppRegistrationPermissions above). None of the functions below
+// enforce either gate themselves - same convention as
+// deployConditionalAccessPolicy, which doesn't re-check
+// Policy.ReadWrite.ConditionalAccess before calling Graph either.
+// ==========================================
+
+const ANTIVIRUS_TEMPLATE_FAMILY = "endpointSecurityAntivirus";
+
+// settingDefinitionId strings for the Defender Antivirus toggles, confirmed
+// live against a real tenant's own Settings Catalog metadata
+// (deviceManagement/configurationCategories -> "Microsoft Defender
+// for Endpoint"/"Defender"/"Microsoft Defender Antivirus" categories, then
+// configurationSettings filtered by each categoryId) - not just Microsoft's
+// docs or an assumed naming pattern. That live check caught two ids this
+// map previously had wrong from pattern-guessing alone:
+//   - allowFullScanOnRemovableDrives: guessed "...allowfullscanonremovabledrivescanning"
+//     (with "on") - the real id has no "on": "...allowfullscanremovabledrivescanning".
+//   - allowUpdatesOnMeteredNetwork: guessed "...policy_config_defender_allowupdatesonmeterednetworkconnections" -
+//     doesn't exist under that root at all. The real setting lives under a
+//     completely different CSP node, same as disableLocalAdminMerge below:
+//     "device_vendor_msft_defender_configuration_meteredconnectionupdates".
+// disableLocalAdminMerge was flagged "unconfirmed" before this live check -
+// it's now confirmed correct as originally written.
+const DEFENDER_AV_SETTING_DEFINITION_IDS: Record<keyof DefenderAvPolicySettings, string> = {
+  allowRealtimeMonitoring: "device_vendor_msft_policy_config_defender_allowrealtimemonitoring",
+  allowBehaviorMonitoring: "device_vendor_msft_policy_config_defender_allowbehaviormonitoring",
+  allowCloudProtection: "device_vendor_msft_policy_config_defender_allowcloudprotection",
+  allowIOAVProtection: "device_vendor_msft_policy_config_defender_allowioavprotection",
+  allowScriptScanning: "device_vendor_msft_policy_config_defender_allowscriptscanning",
+  allowScanningNetworkFiles: "device_vendor_msft_policy_config_defender_allowscanningnetworkfiles",
+  allowEmailScanning: "device_vendor_msft_policy_config_defender_allowemailscanning",
+  allowArchiveScanning: "device_vendor_msft_policy_config_defender_allowarchivescanning",
+  allowFullScanOnMappedNetworkDrives: "device_vendor_msft_policy_config_defender_allowfullscanonmappednetworkdrives",
+  allowFullScanOnRemovableDrives: "device_vendor_msft_policy_config_defender_allowfullscanremovabledrivescanning",
+  enableLowCpuPriority: "device_vendor_msft_policy_config_defender_enablelowcpupriority",
+  disableCatchupFullScan: "device_vendor_msft_policy_config_defender_disablecatchupfullscan",
+  disableCatchupQuickScan: "device_vendor_msft_policy_config_defender_disablecatchupquickscan",
+  checkForSignaturesBeforeRunningScan: "device_vendor_msft_policy_config_defender_checkforsignaturesbeforerunningscan",
+  allowUpdatesOnMeteredNetwork: "device_vendor_msft_defender_configuration_meteredconnectionupdates",
+  disableLocalAdminMerge: "device_vendor_msft_defender_configuration_disablelocaladminmerge",
+  allowUserUIAccess: "device_vendor_msft_policy_config_defender_allowuseruiaccess",
+};
+
+// Pure - builds the Settings Catalog "settings" array for only the fields
+// the caller actually set (undefined fields are skipped, never defaulted),
+// so a partial config never resets unrelated settings to some value. Every
+// Defender boolean is a choice setting whose selected value is the
+// settingDefinitionId with a "_1" (true) or "_0" (false) suffix - confirmed
+// against a real deployed example for allowarchivescanning; this is a
+// different suffix convention from ASR's _block/_audit/_warn, which is
+// specific to ASR's multi-value (not boolean) choice.
+export function buildDefenderAvSettingsPayload(
+  desired: DefenderAvPolicySettings
+): { settingInstance: any }[] {
+  const settings: { settingInstance: any }[] = [];
+
+  for (const key of Object.keys(desired) as (keyof DefenderAvPolicySettings)[]) {
+    const value = desired[key];
+    if (value === undefined) continue;
+    const settingDefinitionId = DEFENDER_AV_SETTING_DEFINITION_IDS[key];
+    if (!settingDefinitionId) continue;
+
+    settings.push({
+      settingInstance: {
+        "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+        settingDefinitionId,
+        choiceSettingValue: {
+          "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingValue",
+          value: `${settingDefinitionId}_${value ? "1" : "0"}`,
+          children: [],
+        },
+      },
+    });
+  }
+
+  return settings;
+}
+
+// Pure - the standard Intune assignment-target OData shapes every Settings
+// Catalog policy's /assign action accepts. "none" -> an empty assignments
+// array ("Do Not Assign" - the policy exists but affects nothing), the
+// deliberate default for a fresh Phase 2 deploy so nothing is ever silently
+// applied fleet-wide on first use.
+export function buildIntuneAssignmentTarget(target: IntuneAssignmentTarget): { assignments: any[] } {
+  if (target.mode === "none") return { assignments: [] };
+
+  if (target.mode === "allDevices") {
+    return { assignments: [{ target: { "@odata.type": "#microsoft.graph.allDevicesAssignmentTarget" } }] };
+  }
+  if (target.mode === "allUsers") {
+    return { assignments: [{ target: { "@odata.type": "#microsoft.graph.allLicensedUsersAssignmentTarget" } }] };
+  }
+  if (target.mode === "allUsersAndDevices") {
+    return {
+      assignments: [
+        { target: { "@odata.type": "#microsoft.graph.allLicensedUsersAssignmentTarget" } },
+        { target: { "@odata.type": "#microsoft.graph.allDevicesAssignmentTarget" } },
+      ],
+    };
+  }
+
+  // "group"
+  const assignments: any[] = [];
+  if (target.groupId) {
+    assignments.push({
+      target: { "@odata.type": "#microsoft.graph.groupAssignmentTarget", groupId: target.groupId },
+    });
+  }
+  if (target.excludeGroupId) {
+    assignments.push({
+      target: { "@odata.type": "#microsoft.graph.exclusionGroupAssignmentTarget", groupId: target.excludeGroupId },
+    });
+  }
+  return { assignments };
+}
+
+// Pure - Intune's Settings Catalog backend (deviceManagement/configurationPolicies,
+// the "DeviceConfigV2" service behind Endpoint Security policies) often
+// returns its OWN raw error body as the literal STRING VALUE of Graph's
+// standard `error.message` field, instead of a clean human sentence - and
+// that nesting can be TWO levels deep, not one, confirmed live against two
+// different real failures:
+//   1. A validation error (dependent settings) - one level:
+//      {"_version":3,"Message":"<the actually useful text>", ...}
+//   2. An access-denied error (this tenant has no Intune license) - two
+//      levels, the outer one Graph's own OData error shape wrapping the
+//      SAME ConfigV2 blob as its own `.Message` string:
+//      {"ErrorCode":"Forbidden","Message":"{\"_version\":3,\"Message\":\"An error has occurred - ...\",...}","Target":null,...}
+// This unwraps `.Message` repeatedly (bounded depth, so a malformed or
+// adversarial value can't loop forever) as long as the extracted value
+// itself still looks like JSON, stopping at the first non-JSON string -
+// which is the actual human-readable text in either case. Falls back to
+// the original text completely unchanged whenever nothing unwraps, so
+// nothing is ever hidden.
+export function cleanIntuneConfigV2Error(rawMessage: string): string {
+  let current = rawMessage;
+  for (let depth = 0; depth < 5; depth++) {
+    const trimmed = current.trim();
+    if (!trimmed.startsWith("{")) break;
+    let parsed: any;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      break; // Not valid JSON - `current` is the final human text.
+    }
+    if (typeof parsed?.Message !== "string" || parsed.Message.length === 0) break;
+    current = parsed.Message;
+  }
+
+  // The ConfigV2 proxy's own "An error has occurred" is real but useless on
+  // its own - confirmed live on a tenant with no Microsoft Intune license,
+  // where Graph's OUTER envelope carried "ErrorCode":"Forbidden" (a genuine
+  // access-denied, not the generic wording alone would suggest). Since that
+  // outer ErrorCode is lost once unwrapped, detect the same signal from the
+  // final generic text and add the most likely real cause rather than
+  // leaving the admin with a sentence that names no cause at all.
+  if (/^an error has occurred\b/i.test(current.trim())) {
+    return `${current} - this generic error from Intune's backend most often means the tenant doesn't have a Microsoft Intune license (check the tenant's License & Capability Matrix), or the DeviceManagementConfiguration.ReadWrite.All permission isn't actually granted despite being requested - check the Permissions modal.`;
+  }
+
+  return current;
+}
+
+async function postIntuneAssignment(
+  headers: Record<string, string>,
+  policyId: string,
+  assignment: IntuneAssignmentTarget
+): Promise<{ error?: string }> {
+  try {
+    const res = await graphFetch(
+      `https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('${policyId}')/assign`,
+      {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(buildIntuneAssignmentTarget(assignment)),
+      },
+      { retryOnNetworkError: false }
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      const rawMessage = data?.error?.message || `Failed to assign policy (HTTP ${res.status}: ${res.statusText})`;
+      return { error: cleanIntuneConfigV2Error(rawMessage) };
+    }
+    return {};
+  } catch (err: any) {
+    return { error: err.message || "Network error while assigning the policy." };
+  }
+}
+
+// Shared by every Settings Catalog deploy function (AV/EDR/ASR): creates a
+// new policy, assigns it, and - when replacing an existing one - deletes
+// the old one afterward. This is the ONLY way to "update" a deployed
+// Settings Catalog policy's settings: confirmed live that Graph has no
+// route for it at all, not just a shape Clarity365 was getting wrong.
+// `settings` is a `NavigationProperty` (ContainsTarget) on
+// deviceManagementConfigurationPolicy with no bound update Action/Function
+// (checked the live $metadata directly), and PATCHing an individual
+// settings item by its own id (e.g. .../settings('0')) is rejected outright
+// by Intune's real backend with "No OData route exists ... with http verb
+// PATCH" - not a validation error, a genuinely absent route. A prior
+// version of this code tried `PATCH .../configurationPolicies/{id}` with
+// `{ settings }` alone, which fails the same way (a navigation property
+// can't be included in a PATCH to its parent). Verified this create+delete
+// sequence works end-to-end against a real tenant (Coetzee Architects):
+// created a new EDR policy with a changed setting, assigned it, deleted
+// the old one, and confirmed exactly one policy remained with the new
+// value.
+//
+// Deliberately create-first-then-delete-old: if create fails, the
+// tenant's existing policy is untouched - never lose a working policy
+// chasing an update. If the old policy is genuinely being replaced and the
+// delete itself fails (rare), that's surfaced as a warning with `success:
+// true` - the new policy is already live and assigned, so a leftover
+// duplicate is a much smaller problem than reporting the whole deploy as
+// failed.
+async function createSettingsCatalogPolicyReplacing(
+  headers: Record<string, string>,
+  createBody: Record<string, any>,
+  existingPolicyId: string | undefined,
+  assignment: IntuneAssignmentTarget
+): Promise<{ success: boolean; policyId?: string; error?: string }> {
+  const isUpdate = !!existingPolicyId;
+
+  try {
+    const res = await graphFetch(
+      "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies",
+      {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(createBody),
+      },
+      { retryOnNetworkError: false }
+    );
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      return {
+        success: false,
+        error: describeTransientTokenLifetimeError(
+          cleanIntuneConfigV2Error(
+            errJson?.error?.message || `Failed to create policy (HTTP ${res.status}: ${res.statusText})`
+          )
+        ),
+      };
+    }
+
+    const policyId = (await res.json()).id;
+
+    const assignResult = await postIntuneAssignment(headers, policyId, assignment);
+    if (assignResult.error) {
+      return {
+        success: false,
+        policyId,
+        error: `Policy ${isUpdate ? "created (to replace the old one)" : "created"} but assignment failed: ${assignResult.error}`,
+      };
+    }
+
+    if (isUpdate) {
+      const delRes = await graphFetch(
+        `https://graph.microsoft.com/beta/deviceManagement/configurationPolicies/${existingPolicyId}`,
+        { method: "DELETE", headers },
+        { retryOnNetworkError: false }
+      );
+      if (!delRes.ok) {
+        return {
+          success: true,
+          policyId,
+          error: `Updated policy, but the previous version (${existingPolicyId}) could not be removed automatically and may need manual cleanup in Intune.`,
+        };
+      }
+    }
+
+    return { success: true, policyId };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error while connecting to Microsoft Graph." };
+  }
+}
+
+/**
+ * Fetches the current Defender Antivirus Settings Catalog policy (the one
+ * Clarity365 itself deployed, identified by templateFamily like the ASR
+ * read path already does), if any. Read-only - safe to call regardless of
+ * endpointSecurityWriteMode.
+ */
+export async function fetchDefenderAvPolicy(
+  tenant: Tenant
+): Promise<{ deployedPolicyId?: string; settings: DefenderAvPolicySettings; error?: string }> {
+  if (tenant.credentials.authMode === "mock") {
+    return { settings: {} };
+  }
+  return withFreshTokenOnLifetimeError(tenant.credentials, fetchDefenderAvPolicyWithToken);
+}
+
+async function fetchDefenderAvPolicyWithToken(
+  token: string
+): Promise<{ deployedPolicyId?: string; settings: DefenderAvPolicySettings; error?: string }> {
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const policiesResult = await fetchAllPages<any>(
+    `https://graph.microsoft.com/beta/deviceManagement/configurationPolicies?$filter=templateReference/templateFamily eq '${ANTIVIRUS_TEMPLATE_FAMILY}'`,
+    headers
+  );
+  if (policiesResult.error) return { settings: {}, error: describeTransientTokenLifetimeError(policiesResult.error) };
+  if (policiesResult.items.length === 0) return { settings: {} };
+
+  const policy = policiesResult.items[0];
+  const settingsResult = await fetchAllPages<any>(
+    `https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('${policy.id}')/settings`,
+    headers
+  );
+  if (settingsResult.error)
+    return { deployedPolicyId: policy.id, settings: {}, error: describeTransientTokenLifetimeError(settingsResult.error) };
+
+  const selectedIds = new Set(flattenSettingsCatalogSelectedIds(settingsResult.items));
+  const settings: DefenderAvPolicySettings = {};
+  for (const key of Object.keys(DEFENDER_AV_SETTING_DEFINITION_IDS) as (keyof DefenderAvPolicySettings)[]) {
+    const id = DEFENDER_AV_SETTING_DEFINITION_IDS[key];
+    if (selectedIds.has(`${id}_1`)) settings[key] = true;
+    else if (selectedIds.has(`${id}_0`)) settings[key] = false;
+  }
+
+  return { deployedPolicyId: policy.id, settings };
+}
+
+/**
+ * Deploys (creates + assigns) a Defender Antivirus Settings Catalog policy.
+ * Mock-short-circuits first like every other deploy function in this file;
+ * on a live tenant, creates the policy then assigns it, surfacing Graph
+ * errors directly (no CA05-style special-casing needed here yet - this is
+ * the first live use of this write path, so no known failure mode has
+ * turned up to special-case).
+ *
+ * Pass `existingPolicyId` (from a previous deploy, or fetchDefenderAvPolicy)
+ * to update that same policy's settings in place via PATCH instead of
+ * creating a new one - see deployEdrPolicy's comment for why this matters
+ * (the UI's "Redeploy Policy" button used to silently create a duplicate AV
+ * policy on every click).
+ */
+export async function deployDefenderAvPolicy(
+  tenant: Tenant,
+  desired: DefenderAvPolicySettings,
+  assignment: IntuneAssignmentTarget,
+  existingPolicyId?: string
+): Promise<{ success: boolean; policyId?: string; error?: string }> {
+  if (tenant.credentials.authMode === "mock") {
+    return { success: true, policyId: existingPolicyId || `mock-defender-av-${tenant.id}` };
+  }
+  return withFreshTokenOnLifetimeError(tenant.credentials, (token) =>
+    deployDefenderAvPolicyWithToken(token, desired, assignment, existingPolicyId)
+  );
+}
+
+async function deployDefenderAvPolicyWithToken(
+  token: string,
+  desired: DefenderAvPolicySettings,
+  assignment: IntuneAssignmentTarget,
+  existingPolicyId?: string
+): Promise<{ success: boolean; policyId?: string; error?: string }> {
+  const headers = { Authorization: `Bearer ${token}` };
+  const settings = buildDefenderAvSettingsPayload(desired);
+
+  return createSettingsCatalogPolicyReplacing(
+    headers,
+    {
+      name: `Clarity365 Defender Antivirus Policy (${new Date().toISOString().slice(0, 10)})`,
+      description: "Deployed by Clarity365 - Endpoint Security write-enabled mode.",
+      platforms: "windows10",
+      technologies: "mdm",
+      roleScopeTagIds: ["0"],
+      templateReference: { templateFamily: ANTIVIRUS_TEMPLATE_FAMILY },
+      settings,
+    },
+    existingPolicyId,
+    assignment
+  );
+}
+
+// Category "Microsoft Defender for Endpoint" in Microsoft's own Settings
+// Catalog metadata - confirmed live (deviceManagement/configurationCategories
+// + configurationSettings), the same way ANTIVIRUS's settings were. Unlike
+// the AV/ASR template families (both independently confirmed via real
+// deployed policy examples), this exact templateFamily string is NOT
+// independently confirmed the same way - it follows the same
+// "endpointSecurity<PolicyName>" convention Microsoft uses for the other
+// two, but verify it live (does Graph accept the create, does the policy
+// render correctly under Endpoint security > Endpoint detection and
+// response in the portal) before trusting this on a real tenant.
+const EDR_POLICY_TEMPLATE_FAMILY = "endpointSecurityEndpointDetectionAndResponse";
+
+// Both settingDefinitionIds and their exact choice values were read directly
+// off a live tenant's Settings Catalog metadata for the "Microsoft Defender
+// for Endpoint" category (categoryId 577d5951-fc56-4906-90bc-2c508c6611ad on
+// the tenant checked) - not guessed, and not the same naming convention as
+// the AV settings (a completely different CSP root:
+// Device/Vendor/MSFT/WindowsAdvancedThreatProtection, not Policy/Config/Defender).
+// "configurationtype" is a string-valued choice ("AutoFromConnector" is the
+// only value this app exposes - "Onboard"/"Offboard" both need a signed
+// blob file pasted in, out of scope for a plain toggle); "samplesharing" is
+// a 0/1 integer-valued choice like the AV booleans.
+const EDR_CONFIGURATION_TYPE_SETTING_ID = "device_vendor_msft_windowsadvancedthreatprotection_configurationtype";
+const EDR_SAMPLE_SHARING_SETTING_ID = "device_vendor_msft_windowsadvancedthreatprotection_configuration_samplesharing";
+// Confirmed live, via a real deploy attempt: choosing "AutoFromConnector"
+// alone is rejected by Graph with "...with dependent settings doesnt
+// contain required dependent settings. Required dependent settings are
+// device_vendor_msft_windowsadvancedthreatprotection_onboarding_fromconnector".
+// This dependent setting (queried directly to confirm its shape rather than
+// guessed) is a `deviceManagementConfigurationSimpleSettingInstance` holding
+// a `deviceManagementConfigurationSecretSettingValue` - a plain string
+// value, not a choice. Its own description says it "Set[s] ... Onboarding
+// blob and initiate[s] onboarding" - for the Auto-from-connector path,
+// Intune's own docs (deploy-edr.md) say the real onboarding package is
+// fetched from the established Intune<->Defender connector automatically,
+// so this field's actual string content is very likely a required
+// placeholder Intune replaces server-side, not something Clarity365 needs
+// to supply the real blob for - `valueState: "notEncrypted"` is required
+// (the only valid non-default enum member for a plaintext value we're
+// submitting - "invalid" is Graph's own empty-state sentinel,
+// "encryptedValueToken" is only for round-tripping a value Graph already
+// encrypted and handed back).
+const EDR_ONBOARDING_FROM_CONNECTOR_SETTING_ID = "device_vendor_msft_windowsadvancedthreatprotection_onboarding_fromconnector";
+
+// Pure - mirrors buildDefenderAvSettingsPayload's "only emit what's
+// explicitly set" behavior, but each field uses its own confirmed choice
+// value shape rather than one shared _1/_0 convention.
+export function buildEdrPolicySettingsPayload(desired: EdrPolicySettings): { settingInstance: any }[] {
+  const settings: { settingInstance: any }[] = [];
+
+  // Only "true" emits a setting - this is a string choice ("AutoFromConnector"
+  // /"Onboard"/"Offboard"), not a boolean, so there's no clean "off" value to
+  // send; "false"/undefined both mean "leave this Not Configured" by simply
+  // omitting the setting instance entirely.
+  if (desired.autoFromConnector) {
+    settings.push({
+      settingInstance: {
+        "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+        settingDefinitionId: EDR_CONFIGURATION_TYPE_SETTING_ID,
+        choiceSettingValue: {
+          "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingValue",
+          value: `${EDR_CONFIGURATION_TYPE_SETTING_ID}_autofromconnector`,
+          // Required dependent child - see the comment above
+          // EDR_ONBOARDING_FROM_CONNECTOR_SETTING_ID for why this exists.
+          children: [
+            {
+              "@odata.type": "#microsoft.graph.deviceManagementConfigurationSimpleSettingInstance",
+              settingDefinitionId: EDR_ONBOARDING_FROM_CONNECTOR_SETTING_ID,
+              simpleSettingValue: {
+                "@odata.type": "#microsoft.graph.deviceManagementConfigurationSecretSettingValue",
+                value: "AutoFromConnector",
+                valueState: "notEncrypted",
+              },
+            },
+          ],
+        },
+      },
+    });
+  }
+
+  if (desired.sampleSharingAll !== undefined) {
+    settings.push({
+      settingInstance: {
+        "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+        settingDefinitionId: EDR_SAMPLE_SHARING_SETTING_ID,
+        choiceSettingValue: {
+          "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingValue",
+          value: `${EDR_SAMPLE_SHARING_SETTING_ID}_${desired.sampleSharingAll ? "1" : "0"}`,
+          children: [],
+        },
+      },
+    });
+  }
+
+  return settings;
+}
+
+/**
+ * Reads the current Clarity365-deployed EDR policy, if any. Mirrors
+ * fetchDefenderAvPolicy's shape exactly - see that function for the
+ * templateFamily-filter/settings-read pattern being reused here.
+ */
+export async function fetchEdrPolicy(
+  tenant: Tenant
+): Promise<{ deployedPolicyId?: string; settings: EdrPolicySettings; error?: string }> {
+  if (tenant.credentials.authMode === "mock") {
+    return { settings: {} };
+  }
+  return withFreshTokenOnLifetimeError(tenant.credentials, fetchEdrPolicyWithToken);
+}
+
+async function fetchEdrPolicyWithToken(
+  token: string
+): Promise<{ deployedPolicyId?: string; settings: EdrPolicySettings; error?: string }> {
+  const headers = { Authorization: `Bearer ${token}` };
+
+  // First diagnosed live on this exact call, on Coetzee Architects: this
+  // resource (deviceManagement/configurationPolicies) rejected an
+  // already-issued, not-yet-expired-by-our-own-clock token while every
+  // other resource kept accepting the same token - see
+  // withFreshTokenOnLifetimeError's own comment for the full live
+  // diagnosis. That wrapper (applied by the caller above) is what actually
+  // recovers from this now, not a same-token retry inside graphFetch.
+  const policiesResult = await fetchAllPages<any>(
+    `https://graph.microsoft.com/beta/deviceManagement/configurationPolicies?$filter=templateReference/templateFamily eq '${EDR_POLICY_TEMPLATE_FAMILY}'`,
+    headers
+  );
+  if (policiesResult.error) return { settings: {}, error: describeTransientTokenLifetimeError(policiesResult.error) };
+  if (policiesResult.items.length === 0) return { settings: {} };
+
+  const policy = policiesResult.items[0];
+  const settingsResult = await fetchAllPages<any>(
+    `https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('${policy.id}')/settings`,
+    headers
+  );
+  if (settingsResult.error)
+    return { deployedPolicyId: policy.id, settings: {}, error: describeTransientTokenLifetimeError(settingsResult.error) };
+
+  const selectedIds = new Set(flattenSettingsCatalogSelectedIds(settingsResult.items));
+  const settings: EdrPolicySettings = {};
+  if (selectedIds.has(`${EDR_CONFIGURATION_TYPE_SETTING_ID}_autofromconnector`)) settings.autoFromConnector = true;
+  if (selectedIds.has(`${EDR_SAMPLE_SHARING_SETTING_ID}_1`)) settings.sampleSharingAll = true;
+  else if (selectedIds.has(`${EDR_SAMPLE_SHARING_SETTING_ID}_0`)) settings.sampleSharingAll = false;
+
+  return { deployedPolicyId: policy.id, settings };
+}
+
+/**
+ * Deploys an Endpoint Detection and Response Settings Catalog policy.
+ * Mirrors deployDefenderAvPolicy's shape exactly. Pass `existingPolicyId`
+ * (the id returned by a previous deploy, or by fetchEdrPolicy) to update
+ * that same policy's settings in place via PATCH instead of creating a new
+ * one - without it, every call POSTs a brand-new policy, which is how the
+ * UI's "Redeploy Policy" button used to silently pile up duplicate EDR
+ * policies in Intune on every click instead of updating the existing one.
+ */
+export async function deployEdrPolicy(
+  tenant: Tenant,
+  desired: EdrPolicySettings,
+  assignment: IntuneAssignmentTarget,
+  existingPolicyId?: string
+): Promise<{ success: boolean; policyId?: string; error?: string }> {
+  if (tenant.credentials.authMode === "mock") {
+    return { success: true, policyId: existingPolicyId || `mock-edr-policy-${tenant.id}` };
+  }
+  return withFreshTokenOnLifetimeError(tenant.credentials, (token) =>
+    deployEdrPolicyWithToken(token, desired, assignment, existingPolicyId)
+  );
+}
+
+async function deployEdrPolicyWithToken(
+  token: string,
+  desired: EdrPolicySettings,
+  assignment: IntuneAssignmentTarget,
+  existingPolicyId?: string
+): Promise<{ success: boolean; policyId?: string; error?: string }> {
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const settings = buildEdrPolicySettingsPayload(desired);
+  if (settings.length === 0) {
+    return { success: false, error: "No EDR policy settings were selected - nothing to deploy." };
+  }
+
+  return createSettingsCatalogPolicyReplacing(
+    headers,
+    {
+      name: `CLN - EDR Policy (${new Date().toISOString().slice(0, 10)})`,
+      description: "Deployed by CLN Clarity365 - Endpoint security",
+      platforms: "windows10",
+      technologies: "mdm",
+      roleScopeTagIds: ["0"],
+      templateReference: { templateFamily: EDR_POLICY_TEMPLATE_FAMILY },
+      settings,
+    },
+    existingPolicyId,
+    assignment
+  );
+}
+
+// Category "BitLocker" in Microsoft's own Settings Catalog metadata
+// (confirmed live the same way AV/EDR's setting maps were, via a temporary
+// tenant-agnostic category/setting lookup) - the direct CSP category
+// (Device/Vendor/MSFT/BitLocker) Intune's "Endpoint Security > Disk
+// encryption > BitLocker" profile uses, not the separate "BitLocker Drive
+// Encryption" Administrative Templates/GPO category. templateFamily value
+// confirmed against the real beta $metadata enum (deviceManagementConfigurationTemplateFamily,
+// member "endpointSecurityDiskEncryption") - not just following the naming
+// convention by guesswork the way EDR's was originally.
+const BITLOCKER_TEMPLATE_FAMILY = "endpointSecurityDiskEncryption";
+
+const BITLOCKER_BOOLEAN_SETTING_DEFINITION_IDS: Record<
+  "requireDeviceEncryption" | "allowStandardUserEncryption" | "allowWarningForOtherDiskEncryption",
+  string
+> = {
+  requireDeviceEncryption: "device_vendor_msft_bitlocker_requiredeviceencryption",
+  allowStandardUserEncryption: "device_vendor_msft_bitlocker_allowstandarduserencryption",
+  allowWarningForOtherDiskEncryption: "device_vendor_msft_bitlocker_allowwarningforotherdiskencryption",
+};
+
+const BITLOCKER_RECOVERY_ROTATION_SETTING_ID = "device_vendor_msft_bitlocker_configurerecoverypasswordrotation";
+// Confirmed live: 0 = rotation off, 1 = on for Entra ID-joined devices only
+// (Microsoft's own default when this setting is left unconfigured), 2 = on
+// for both Entra ID-joined and hybrid-joined devices.
+const BITLOCKER_RECOVERY_ROTATION_VALUE: Record<Exclude<BitLockerPolicySettings["recoveryPasswordRotation"], undefined>, string> = {
+  off: "0",
+  entraIdOnly: "1",
+  entraIdAndHybrid: "2",
+};
+
+// Pure - mirrors buildDefenderAvSettingsPayload's "only emit what's
+// explicitly set" behavior. The three boolean settings share the same
+// choice-value _1/_0 (enabled/disabled) convention AV's booleans use;
+// recoveryPasswordRotation is its own three-way choice, handled separately.
+export function buildBitLockerSettingsPayload(desired: BitLockerPolicySettings): { settingInstance: any }[] {
+  const settings: { settingInstance: any }[] = [];
+
+  for (const key of Object.keys(BITLOCKER_BOOLEAN_SETTING_DEFINITION_IDS) as (keyof typeof BITLOCKER_BOOLEAN_SETTING_DEFINITION_IDS)[]) {
+    const value = desired[key];
+    if (value === undefined) continue;
+    const id = BITLOCKER_BOOLEAN_SETTING_DEFINITION_IDS[key];
+    settings.push({
+      settingInstance: {
+        "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+        settingDefinitionId: id,
+        choiceSettingValue: { value: `${id}_${value ? "1" : "0"}`, children: [] },
+      },
+    });
+  }
+
+  if (desired.recoveryPasswordRotation !== undefined) {
+    settings.push({
+      settingInstance: {
+        "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+        settingDefinitionId: BITLOCKER_RECOVERY_ROTATION_SETTING_ID,
+        choiceSettingValue: {
+          value: `${BITLOCKER_RECOVERY_ROTATION_SETTING_ID}_${BITLOCKER_RECOVERY_ROTATION_VALUE[desired.recoveryPasswordRotation]}`,
+          children: [],
+        },
+      },
+    });
+  }
+
+  return settings;
+}
+
+/**
+ * Reads the current Clarity365-deployed BitLocker policy, if any. Mirrors
+ * fetchDefenderAvPolicy's shape exactly.
+ */
+export async function fetchBitLockerPolicy(
+  tenant: Tenant
+): Promise<{ deployedPolicyId?: string; settings: BitLockerPolicySettings; error?: string }> {
+  if (tenant.credentials.authMode === "mock") {
+    return { settings: {} };
+  }
+  return withFreshTokenOnLifetimeError(tenant.credentials, fetchBitLockerPolicyWithToken);
+}
+
+async function fetchBitLockerPolicyWithToken(
+  token: string
+): Promise<{ deployedPolicyId?: string; settings: BitLockerPolicySettings; error?: string }> {
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const policiesResult = await fetchAllPages<any>(
+    `https://graph.microsoft.com/beta/deviceManagement/configurationPolicies?$filter=templateReference/templateFamily eq '${BITLOCKER_TEMPLATE_FAMILY}'`,
+    headers
+  );
+  if (policiesResult.error) return { settings: {}, error: describeTransientTokenLifetimeError(policiesResult.error) };
+  if (policiesResult.items.length === 0) return { settings: {} };
+
+  const policy = policiesResult.items[0];
+  const settingsResult = await fetchAllPages<any>(
+    `https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('${policy.id}')/settings`,
+    headers
+  );
+  if (settingsResult.error)
+    return { deployedPolicyId: policy.id, settings: {}, error: describeTransientTokenLifetimeError(settingsResult.error) };
+
+  const selectedIds = new Set(flattenSettingsCatalogSelectedIds(settingsResult.items));
+  const settings: BitLockerPolicySettings = {};
+  for (const key of Object.keys(BITLOCKER_BOOLEAN_SETTING_DEFINITION_IDS) as (keyof typeof BITLOCKER_BOOLEAN_SETTING_DEFINITION_IDS)[]) {
+    const id = BITLOCKER_BOOLEAN_SETTING_DEFINITION_IDS[key];
+    if (selectedIds.has(`${id}_1`)) settings[key] = true;
+    else if (selectedIds.has(`${id}_0`)) settings[key] = false;
+  }
+  for (const [mode, value] of Object.entries(BITLOCKER_RECOVERY_ROTATION_VALUE)) {
+    if (selectedIds.has(`${BITLOCKER_RECOVERY_ROTATION_SETTING_ID}_${value}`)) {
+      settings.recoveryPasswordRotation = mode as BitLockerPolicySettings["recoveryPasswordRotation"];
+      break;
+    }
+  }
+
+  return { deployedPolicyId: policy.id, settings };
+}
+
+/**
+ * Deploys (creates, assigns, and - when replacing an existing deploy -
+ * deletes the old one, via createSettingsCatalogPolicyReplacing) a
+ * BitLocker Settings Catalog policy. Mirrors deployDefenderAvPolicy's shape
+ * exactly.
+ */
+export async function deployBitLockerPolicy(
+  tenant: Tenant,
+  desired: BitLockerPolicySettings,
+  assignment: IntuneAssignmentTarget,
+  existingPolicyId?: string
+): Promise<{ success: boolean; policyId?: string; error?: string }> {
+  if (tenant.credentials.authMode === "mock") {
+    return { success: true, policyId: existingPolicyId || `mock-bitlocker-${tenant.id}` };
+  }
+  return withFreshTokenOnLifetimeError(tenant.credentials, (token) =>
+    deployBitLockerPolicyWithToken(token, desired, assignment, existingPolicyId)
+  );
+}
+
+async function deployBitLockerPolicyWithToken(
+  token: string,
+  desired: BitLockerPolicySettings,
+  assignment: IntuneAssignmentTarget,
+  existingPolicyId?: string
+): Promise<{ success: boolean; policyId?: string; error?: string }> {
+  const headers = { Authorization: `Bearer ${token}` };
+  const settings = buildBitLockerSettingsPayload(desired);
+  if (settings.length === 0) {
+    return { success: false, error: "No BitLocker policy settings were selected - nothing to deploy." };
+  }
+
+  return createSettingsCatalogPolicyReplacing(
+    headers,
+    {
+      name: `CLN - BitLocker Policy (${new Date().toISOString().slice(0, 10)})`,
+      description: "Deployed by CLN Clarity365 - Endpoint security",
+      platforms: "windows10",
+      technologies: "mdm",
+      roleScopeTagIds: ["0"],
+      templateReference: { templateFamily: BITLOCKER_TEMPLATE_FAMILY },
+      settings,
+    },
+    existingPolicyId,
+    assignment
+  );
+}
+
+// Pure - builds the ASR collection-setting children array (one choice
+// setting per requested rule) plus the list of ruleIds that couldn't be
+// matched to a slug (unknown to Microsoft's catalog metadata, or the
+// metadata fetch failed) so the caller can surface a partial-success
+// message rather than silently dropping rules. Confirmed against a real
+// deployed Settings Catalog ASR policy - the choice suffix is "_audit", not
+// "_auditmode"; the read side (asr-configuration-mapper.ts) tolerates both
+// since it was written defensively before this was confirmed, but the
+// write side must emit the one real value.
+export function buildAsrRuleSettingsChildren(
+  desiredModes: Record<string, Exclude<AsrRuleMode, "not_configured">>,
+  ruleIdToSlug: Map<string, string>
+): { children: any[]; skippedRuleIds: string[] } {
+  const modeToSuffix: Record<Exclude<AsrRuleMode, "not_configured">, string> = {
+    block: "block",
+    audit: "audit",
+    warn: "warn",
+  };
+
+  const children: any[] = [];
+  const skippedRuleIds: string[] = [];
+  for (const [ruleId, mode] of Object.entries(desiredModes)) {
+    const slug = ruleIdToSlug.get(ruleId);
+    if (!slug) {
+      skippedRuleIds.push(ruleId);
+      continue;
+    }
+    const value = `${ASR_SETTINGS_CATALOG_ROOT_DEFINITION_ID}_${slug}_${modeToSuffix[mode]}`;
+    children.push({
+      "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingInstance",
+      settingDefinitionId: `${ASR_SETTINGS_CATALOG_ROOT_DEFINITION_ID}_${slug}`,
+      choiceSettingValue: { "@odata.type": "#microsoft.graph.deviceManagementConfigurationChoiceSettingValue", value, children: [] },
+    });
+  }
+
+  return { children, skippedRuleIds };
+}
+
+/**
+ * Deploys ASR rules with per-rule Block/Audit/Warn modes via the same
+ * Settings Catalog surface the read path (getAsrSettingsCatalogSlugMap)
+ * already resolves rule GUIDs against - reused here by inverting the
+ * slug->ruleId map this function already builds and caches.
+ *
+ * Pass `existingPolicyId` (from a previous deploy, or the ASR module's own
+ * read path) to update that same policy's settings in place via PATCH
+ * instead of creating a new one - see deployEdrPolicy's comment for why
+ * this matters (the UI's "Redeploy Policy" button used to silently create
+ * a duplicate ASR policy on every click).
+ */
+export async function deployAsrRulePolicy(
+  tenant: Tenant,
+  desiredModes: Record<string, Exclude<AsrRuleMode, "not_configured">>,
+  assignment: IntuneAssignmentTarget,
+  existingPolicyId?: string
+): Promise<{ success: boolean; policyId?: string; error?: string }> {
+  if (tenant.credentials.authMode === "mock") {
+    return { success: true, policyId: existingPolicyId || `mock-asr-policy-${tenant.id}` };
+  }
+  return withFreshTokenOnLifetimeError(tenant.credentials, (token) =>
+    deployAsrRulePolicyWithToken(token, desiredModes, assignment, existingPolicyId)
+  );
+}
+
+async function deployAsrRulePolicyWithToken(
+  token: string,
+  desiredModes: Record<string, Exclude<AsrRuleMode, "not_configured">>,
+  assignment: IntuneAssignmentTarget,
+  existingPolicyId?: string
+): Promise<{ success: boolean; policyId?: string; error?: string }> {
+  const headers = { Authorization: `Bearer ${token}` };
+  const syncErrors: string[] = [];
+
+  const slugToRuleId = await getAsrSettingsCatalogSlugMap(headers, syncErrors);
+  const ruleIdToSlug = new Map<string, string>();
+  slugToRuleId.forEach((ruleId, slug) => ruleIdToSlug.set(ruleId, slug));
+
+  const { children, skippedRuleIds } = buildAsrRuleSettingsChildren(desiredModes, ruleIdToSlug);
+
+  if (children.length === 0) {
+    return { success: false, error: "No requested ASR rules could be matched to Microsoft's Settings Catalog metadata - nothing to deploy." };
+  }
+
+  const settings = [
+    {
+      settingInstance: {
+        "@odata.type": "#microsoft.graph.deviceManagementConfigurationGroupSettingCollectionInstance",
+        settingDefinitionId: ASR_SETTINGS_CATALOG_ROOT_DEFINITION_ID,
+        groupSettingCollectionValue: [{ children }],
+      },
+    },
+  ];
+
+  const result = await createSettingsCatalogPolicyReplacing(
+    headers,
+    {
+      name: `Clarity365 ASR Rules Policy (${new Date().toISOString().slice(0, 10)})`,
+      description: "Deployed by Clarity365 - Endpoint Security write-enabled mode.",
+      platforms: "windows10",
+      technologies: "mdm",
+      roleScopeTagIds: ["0"],
+      templateReference: { templateFamily: "endpointSecurityAttackSurfaceReduction" },
+      settings,
+    },
+    existingPolicyId,
+    assignment
+  );
+
+  if (result.success && skippedRuleIds.length > 0) {
+    return {
+      ...result,
+      error: `${existingPolicyId ? "Updated" : "Deployed"}, but ${skippedRuleIds.length} rule(s) could not be matched to Microsoft's catalog metadata and were skipped: ${skippedRuleIds.join(", ")}`,
+    };
+  }
+
+  return result;
+}
+
+/**
+ * PATCHes the MDE connector's own settings (deviceManagement/mobileThreatDefenseConnectors/{id}).
+ * Unlike the Settings Catalog writes above, this resource has NO
+ * report-only/preview concept at all - it's a single tenant-wide live
+ * setting, and a PATCH takes effect immediately. There is no safe default
+ * to fall back on here, so the caller (the UI) is responsible for an
+ * explicit "this takes effect immediately, tenant-wide" confirmation
+ * before this function is ever called - this function itself has no way
+ * to make the change any safer than that.
+ */
+export async function updateMdeConnectorSettings(
+  tenant: Tenant,
+  connectorId: string,
+  patch: Partial<MdeConnectorSettings>
+): Promise<{ success: boolean; error?: string }> {
+  if (tenant.credentials.authMode === "mock") {
+    return { success: true };
+  }
+
+  const { token, error } = await getGraphAccessToken(tenant.credentials);
+  if (error || !token) {
+    return { success: false, error: `Authentication Error: ${error}` };
+  }
+
+  const { id: _omitId, partnerState: _omitPartnerState, lastHeartbeatDateTime: _omitHeartbeat, ...writableFields } = patch;
+
+  try {
+    const res = await graphFetch(
+      `https://graph.microsoft.com/beta/deviceManagement/mobileThreatDefenseConnectors/${connectorId}`,
+      {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(writableFields),
+      },
+      { retryOnNetworkError: false }
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      return { success: false, error: cleanIntuneConfigV2Error(data?.error?.message || `Failed to update connector settings (HTTP ${res.status}: ${res.statusText})`) };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error while connecting to Microsoft Graph." };
+  }
+}
+
 // Flattens a legacy "Endpoint Security Template" intent's definitionValues
 // (each an { id, definitionId, valueJson } row - definitionId is prefixed
 // with "deviceConfiguration--windows10EndpointProtectionConfiguration_")
@@ -807,10 +2120,122 @@ function extractIntentAsrProperties(definitionValues: any[]): { propertyName: st
   return properties;
 }
 
+// The real count of named fetch steps below (1 through 8.97) - kept as one
+// source of truth so the progress percentage this drives can never silently
+// drift out of sync with the steps actually being reported, the way a
+// hand-maintained duplicate count would. Steps 9/10 (local computation,
+// snapshot assembly) aren't included - they're fast enough that reaching
+// 100% right at the last Graph fetch reads correctly.
+export const TOTAL_SYNC_STEPS = 22;
+
+// Maps one raw Graph conditionalAccessPolicy into Clarity365's CAPolicyRule
+// shape. Pulled out of fetchLiveTenantSnapshot's inline .map() so this
+// mapping/classification step is unit-testable directly (same convention as
+// secure-score-mapper.ts) - this exact function is where the CA04
+// includeGuestsOrExternalUsers bug lived, and it had zero test coverage of
+// its own before this extraction (only the pure ca-baseline-matcher.ts
+// functions it calls were tested in isolation).
+export function mapConditionalAccessPolicy(p: any): CAPolicyRule {
+  const detectedCode = classifyPolicyBaselineCode(p);
+  const baselineDef = CA_BASELINE_STANDARDS.find((b) => b.code === detectedCode);
+
+  // Graph's grantControls.authenticationStrength is a sibling object to
+  // builtInControls, not an entry inside it - encode its presence as a marker
+  // string in the array (matching this app's own convention, e.g. the
+  // "authenticationStrength:PhishingResistantMFA" strings used when Clarity365
+  // deploys its own CA10 policy) so ca-baseline-matcher.ts's array-based
+  // hasAuthStrengthOrSession/controlsInclude checks can see it.
+  const builtInControls: string[] = p.grantControls?.builtInControls || [];
+  const authStrengthName = p.grantControls?.authenticationStrength?.displayName || p.grantControls?.authenticationStrength?.id;
+  const grantControls = authStrengthName ? [...builtInControls, `authenticationStrength:${authStrengthName}`] : builtInControls;
+
+  // Fields the Security Simulations engine needs that this mapper used to
+  // drop (see ai-context-vault/Optimization/Security Simulations Plan.md).
+  const extended = mapCaPolicyExtendedFields(p);
+
+  return {
+    id: p.id,
+    name: p.displayName,
+    baselineCode: detectedCode,
+    baselineTitle: baselineDef?.name,
+    state: p.state as any,
+    modifiedDateTime: p.modifiedDateTime || new Date().toISOString(),
+    createdDateTime: p.createdDateTime || new Date().toISOString(),
+    grantControls,
+    conditions: {
+      // Guest/external-user targeting moved from a plain "GuestsOrExternalUsers"
+      // string inside includeUsers/excludeUsers to a structured
+      // includeGuestsOrExternalUsers/excludeGuestsOrExternalUsers object - Graph
+      // still silently accepts (and auto-upgrades) the deprecated string on
+      // create, but a live GET only ever returns the new structured field, never
+      // the string. Without this, includeUsers/excludeUsers come back empty for
+      // a CA04 (or CA02's guest exclusion) policy that is genuinely correctly
+      // configured, and re-validation against this mapped shape falsely reports
+      // it as Misconfigured even though the raw sync-time classification (which
+      // reads the raw Graph response directly, not this mapped shape) got it
+      // right. Re-encoded as the same "GuestsOrExternalUsers" marker string
+      // ca-baseline-matcher.ts's targetsGuests() already looks for, so no
+      // matcher change is needed - confirmed live against a real dmafrica CA04
+      // policy Graph had already silently upgraded this way.
+      users: {
+        // No "|| includeRoles" fallback here on purpose: Graph always
+        // returns includeUsers as an array (empty, never omitted) for a
+        // role-scoped policy, and [] is truthy in JS, so that fallback
+        // could never actually fire - found during a follow-up review as
+        // dead code with the exact same "empty array masks a real value"
+        // shape as the CA04 bug above, just not currently symptomatic
+        // because targetsAdminRoles() already reads includeRoles from its
+        // own preserved field below, not from this array. Merging role
+        // GUIDs into include would also be semantically wrong regardless
+        // (they aren't user/group identifiers, and other checks scan
+        // include specifically for "All"/"GuestsOrExternalUsers" markers).
+        include: [
+          ...(p.conditions?.users?.includeUsers || []),
+          ...(p.conditions?.users?.includeGuestsOrExternalUsers ? ["GuestsOrExternalUsers"] : []),
+        ],
+        exclude: [
+          ...(p.conditions?.users?.excludeUsers || []),
+          ...(p.conditions?.users?.excludeGuestsOrExternalUsers ? ["GuestsOrExternalUsers"] : []),
+        ],
+        excludeGroupIds: p.conditions?.users?.excludeGroups || [],
+        includeRoles: p.conditions?.users?.includeRoles || [],
+        ...extended.users,
+      },
+      applications: {
+        include: p.conditions?.applications?.includeApplications || [],
+        exclude: p.conditions?.applications?.excludeApplications || [],
+        ...extended.applications,
+      },
+      clientAppTypes: p.conditions?.clientAppTypes || [],
+      // Previously dropped entirely - CA06 (signInRiskLevels), CA07
+      // (userRiskLevels), and CA08 (locations) all validate structurally
+      // against these fields, so a live-synced policy that legitimately
+      // satisfies them was still failing re-validation against the stored
+      // snapshot even though the initial sync-time classification (run
+      // against the raw Graph response above) correctly detected the code.
+      platforms: {
+        include: p.conditions?.platforms?.includePlatforms || [],
+        exclude: p.conditions?.platforms?.excludePlatforms || [],
+      },
+      locations: {
+        include: p.conditions?.locations?.includeLocations || [],
+        exclude: p.conditions?.locations?.excludeLocations || [],
+      },
+      userRiskLevels: p.conditions?.userRiskLevels || [],
+      signInRiskLevels: p.conditions?.signInRiskLevels || [],
+      ...extended.conditions,
+    },
+    grantOperator: extended.grantOperator,
+    sessionControls: extended.sessionControls,
+    matchesBaseline: !!detectedCode,
+  };
+}
+
 export async function fetchLiveTenantSnapshot(
   tenant: Tenant,
   existingSnapshot?: TenantSecuritySnapshot,
-  onExoRefreshRotated?: (newRefreshToken: string) => void
+  onExoRefreshRotated?: (newRefreshToken: string) => void,
+  onProgress?: (step: string, stepIndex: number, totalSteps: number) => void
 ): Promise<{ snapshot?: TenantSecuritySnapshot; error?: string }> {
   if (tenant.credentials.authMode === "mock") {
     return { snapshot: existingSnapshot };
@@ -825,6 +2250,7 @@ export async function fetchLiveTenantSnapshot(
   const syncErrors: string[] = [];
 
   // 1. Fetch Conditional Access Policies
+  onProgress?.("Conditional Access policies", 1, TOTAL_SYNC_STEPS);
   let livePolicies: CAPolicyRule[] = [];
   try {
     const caResult = await fetchAllPages<any>(
@@ -833,67 +2259,14 @@ export async function fetchLiveTenantSnapshot(
     );
     if (caResult.error) syncErrors.push(`Conditional Access policies: ${caResult.error}`);
 
-    livePolicies = caResult.items.map((p: any) => {
-      const detectedCode = classifyPolicyBaselineCode(p);
-      const baselineDef = CA_BASELINE_STANDARDS.find((b) => b.code === detectedCode);
-
-      // Graph's grantControls.authenticationStrength is a sibling object to
-      // builtInControls, not an entry inside it - encode its presence as a marker
-      // string in the array (matching this app's own convention, e.g. the
-      // "authenticationStrength:PhishingResistantMFA" strings used when Clarity365
-      // deploys its own CA10 policy) so ca-baseline-matcher.ts's array-based
-      // hasAuthStrengthOrSession/controlsInclude checks can see it.
-      const builtInControls: string[] = p.grantControls?.builtInControls || [];
-      const authStrengthName = p.grantControls?.authenticationStrength?.displayName || p.grantControls?.authenticationStrength?.id;
-      const grantControls = authStrengthName ? [...builtInControls, `authenticationStrength:${authStrengthName}`] : builtInControls;
-
-      return {
-        id: p.id,
-        name: p.displayName,
-        baselineCode: detectedCode,
-        baselineTitle: baselineDef?.name,
-        state: p.state as any,
-        modifiedDateTime: p.modifiedDateTime || new Date().toISOString(),
-        createdDateTime: p.createdDateTime || new Date().toISOString(),
-        grantControls,
-        conditions: {
-          users: {
-            include: p.conditions?.users?.includeUsers || p.conditions?.users?.includeRoles || [],
-            exclude: p.conditions?.users?.excludeUsers || [],
-            excludeGroupIds: p.conditions?.users?.excludeGroups || [],
-            includeRoles: p.conditions?.users?.includeRoles || [],
-          },
-          applications: {
-            include: p.conditions?.applications?.includeApplications || [],
-            exclude: p.conditions?.applications?.excludeApplications || [],
-          },
-          clientAppTypes: p.conditions?.clientAppTypes || [],
-          // Previously dropped entirely - CA06 (signInRiskLevels), CA07
-          // (userRiskLevels), and CA08 (locations) all validate structurally
-          // against these fields, so a live-synced policy that legitimately
-          // satisfies them was still failing re-validation against the stored
-          // snapshot even though the initial sync-time classification (run
-          // against the raw Graph response above) correctly detected the code.
-          platforms: {
-            include: p.conditions?.platforms?.includePlatforms || [],
-            exclude: p.conditions?.platforms?.excludePlatforms || [],
-          },
-          locations: {
-            include: p.conditions?.locations?.includeLocations || [],
-            exclude: p.conditions?.locations?.excludeLocations || [],
-          },
-          userRiskLevels: p.conditions?.userRiskLevels || [],
-          signInRiskLevels: p.conditions?.signInRiskLevels || [],
-        },
-        matchesBaseline: !!detectedCode,
-      };
-    });
+    livePolicies = caResult.items.map(mapConditionalAccessPolicy);
   } catch (err: any) {
     console.error("[Graph Client] Error fetching CA policies:", err);
     syncErrors.push(`Conditional Access policies: ${err.message || "Unexpected error while processing policies."}`);
   }
 
   // 2. Fetch Users & Directory Roles
+  onProgress?.("Users & directory roles", 2, TOTAL_SYNC_STEPS);
   let usersList: TenantAccountSummary["users"] = [];
   const adminUserRolesMap = new Map<string, string[]>(); // userId -> roleNames[]
 
@@ -970,6 +2343,7 @@ export async function fetchLiveTenantSnapshot(
   }
 
   // 3. Fetch Sign-In Logs
+  onProgress?.("Sign-in logs", 3, TOTAL_SYNC_STEPS);
   let signInsList: SignInEvent[] = [];
   try {
     // Some tenant configurations reject a $top=250 audit log request with 400;
@@ -1069,6 +2443,7 @@ export async function fetchLiveTenantSnapshot(
   }
 
   // 4. Fetch MFA & Authentication Methods
+  onProgress?.("MFA & authentication methods", 4, TOTAL_SYNC_STEPS);
   let mfaProfilesList: UserMfaProfile[] = [];
   try {
     const mfaResult = await fetchAllPages<any>(
@@ -1172,6 +2547,7 @@ export async function fetchLiveTenantSnapshot(
   }
 
   // 5. Fetch Intune Managed Devices
+  onProgress?.("Intune managed devices", 5, TOTAL_SYNC_STEPS);
   let intuneDevices: IntuneDevice[] = [];
   try {
     const devicesResult = await fetchAllPages<any>(
@@ -1185,6 +2561,7 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`Intune devices: ${err.message || "Unexpected error while processing devices."}`);
   }
 
+  onProgress?.("Intune Endpoint Security policies", 6, TOTAL_SYNC_STEPS);
   // 6. Fetch Intune Endpoint Security policy counts (tenant-wide aggregates,
   // not per-device). Endpoint Security "Intents" is a Graph beta surface -
   // category matching here is best-effort and worth confirming against a
@@ -1212,6 +2589,7 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`Intune Endpoint Security policies: ${err.message || "Unexpected error while processing policies."}`);
   }
 
+  onProgress?.("Attack Surface Reduction rule configuration", 7, TOTAL_SYNC_STEPS);
   // 6b. Fetch real Attack Surface Reduction rule configuration state. Real
   // tenants can configure ASR rules via up to three independent, mergeable
   // Intune surfaces (verified against Microsoft Learn, not guessed) - a
@@ -1324,6 +2702,7 @@ export async function fetchLiveTenantSnapshot(
   // overwriting it with a confident-looking but empty result.
   const asrRulesLive: AsrRuleState[] | null = asrConfigFetchSucceeded ? mergeAsrRuleStates(asrSignals) : null;
 
+  onProgress?.("Microsoft Secure Score", 8, TOTAL_SYNC_STEPS);
   // 7. Fetch Microsoft Secure Score & control profiles
   let secureScoreData: TenantSecureScore | null = null;
   try {
@@ -1357,6 +2736,25 @@ export async function fetchLiveTenantSnapshot(
         mapSecureScoreControl(cs, profileMap.get(cs.controlName))
       );
 
+      // Company branding isn't a real Microsoft Secure Score control - it's
+      // Clarity365's own recommendation, appended after the Microsoft-sourced
+      // ones. Best-effort and isolated in its own try: reuses the
+      // Organization.Read.All permission already required elsewhere, but if
+      // this one call fails for any reason, the rest of Secure Score should
+      // still load rather than losing all 70+ real controls over one extra.
+      try {
+        const brandingResult = await fetchAllPages<any>(
+          `https://graph.microsoft.com/v1.0/organization/${tenant.credentials.tenantId}/branding/localizations`,
+          headers
+        );
+        if (!brandingResult.error) {
+          controls.push(buildCompanyBrandingControl(brandingResult.items));
+        }
+      } catch {
+        // Bonus control only - omit it from this sync rather than failing
+        // the whole Secure Score section over it.
+      }
+
       secureScoreData = {
         currentScore: latest.currentScore || 0,
         maxScore: latest.maxScore || 0,
@@ -1373,6 +2771,7 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`Secure Score: ${err.message || "Unexpected error while processing secure score."}`);
   }
 
+  onProgress?.("Defender for Office 365 policies & TABL", 9, TOTAL_SYNC_STEPS);
   // 8. Fetch MDO Policies & TABL via Exchange Online (see exo-client.ts -
   // Defender for Office 365 policies aren't reachable via standard Graph).
   // Skipped silently (not pushed as a sync error) if Exchange Online hasn't
@@ -1395,6 +2794,7 @@ export async function fetchLiveTenantSnapshot(
     }
   }
 
+  onProgress?.("MDO threat detections", 10, TOTAL_SYNC_STEPS);
   // 8.5. Fetch MDO-sourced threat detections via Microsoft Graph's Security
   // Alerts API. Independent of the Exchange Online connection above (this is
   // a plain Graph client-secret call, same as Secure Score/Intune) - useful
@@ -1418,6 +2818,7 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`MDO Threat Alerts: ${err.message || "Unexpected error while processing threat alerts."}`);
   }
 
+  onProgress?.("Mailbox delegations & forwarding rules", 11, TOTAL_SYNC_STEPS);
   // 8.6. Fetch live mailbox delegations, forwarding rules, and mailbox-audit
   // status via the same Exchange Online connection MDO uses (Module 6/7).
   // Gated the same way as MDO policies above - skipped silently if EXO isn't
@@ -1456,6 +2857,7 @@ export async function fetchLiveTenantSnapshot(
     }
   }
 
+  onProgress?.("Domain authentication (SPF/DKIM/DMARC)", 12, TOTAL_SYNC_STEPS);
   // 8.7. Domain Authentication (SPF/DKIM/DMARC). DKIM comes from the EXO
   // connection above; SPF/DMARC are plain public DNS TXT lookups run for
   // every accepted domain, independent of any Microsoft 365 credential -
@@ -1489,6 +2891,7 @@ export async function fetchLiveTenantSnapshot(
     }
   }
 
+  onProgress?.("Groups & distribution lists", 13, TOTAL_SYNC_STEPS);
   // 8.8. Groups & Distribution - pure Graph, independent of the EXO
   // connection above. Exchange has no bulk "every group's owners/members"
   // endpoint any more than it does for mailboxes, so the same N+1-with-a-cap
@@ -1543,6 +2946,7 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`Groups: ${err.message || "Unexpected error while processing groups."}`);
   }
 
+  onProgress?.("SharePoint & OneDrive storage", 14, TOTAL_SYNC_STEPS);
   // 8.9. SharePoint, OneDrive & Storage - depends on groupsLive (fetched
   // above) to resolve a team site's owner via its linked M365 group. No bulk
   // "every site's storage quota" Graph endpoint exists any more than for
@@ -1601,6 +3005,7 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`SharePoint: ${err.message || "Unexpected error while processing SharePoint sites."}`);
   }
 
+  onProgress?.("App registrations & enterprise applications", 15, TOTAL_SYNC_STEPS);
   // 8.95. Fetch App Registrations & Enterprise Applications (Module 9)
   let appRegistrationsLive: AppRegistrationItem[] | null = null;
   try {
@@ -1618,6 +3023,7 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`App Registrations: ${err.message || "Unexpected error while processing applications."}`);
   }
 
+  onProgress?.("Subscribed SKUs & license capabilities", 16, TOTAL_SYNC_STEPS);
   // 8.96. Fetch Subscribed SKUs & detect Tenant Capabilities / Licenses
   let capabilitiesLive: TenantCapability[] | null = null;
   let licenseSkusLive: TenantLicenseSku[] | null = null;
@@ -1658,6 +3064,7 @@ export async function fetchLiveTenantSnapshot(
     }));
   }
 
+  onProgress?.("Microsoft Defender XDR incidents", 17, TOTAL_SYNC_STEPS);
   // 8.97. Fetch Microsoft Defender XDR Incidents (Module 8.6: SOC & Event Response)
   let incidentsLive: SecurityIncidentItem[] | null = null;
   try {
@@ -1678,6 +3085,180 @@ export async function fetchLiveTenantSnapshot(
   // Fallback: If tenant doesn't have Defender XDR incidents, synthesize from MDO alerts
   if (!incidentsLive && mdoAlerts && mdoAlerts.length > 0) {
     incidentsLive = synthesizeIncidentsFromMdoAlerts(mdoAlerts);
+  }
+
+  onProgress?.("Microsoft Defender for Endpoint connector settings", 18, TOTAL_SYNC_STEPS);
+  // 8.98. Fetch the MDE connector's own configuration (the "Defender and MEM
+  // Reporting" settings blade) - deviceManagement/mobileThreatDefenseConnectors,
+  // v1.0 fields plus beta-only additions (macOS, Windows MAM, iOS cert sync -
+  // see MdeConnectorSettings). Beta throughout for one consistent shape rather
+  // than a v1.0 call plus a second beta call for the extra fields. A tenant
+  // that has never configured this connector at all returns an empty array,
+  // not an error - left undefined in that case rather than a fake object.
+  let mdeConnectorSettings: MdeConnectorSettings | undefined;
+  try {
+    const connectorResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/beta/deviceManagement/mobileThreatDefenseConnectors",
+      headers
+    );
+    if (connectorResult.error) {
+      syncErrors.push(`MDE connector settings: ${connectorResult.error}`);
+    } else if (connectorResult.items.length > 0) {
+      mdeConnectorSettings = mapMdeConnectorSettings(connectorResult.items[0]);
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching MDE connector settings:", err);
+    syncErrors.push(`MDE connector settings: ${err.message || "Unexpected error while processing connector settings."}`);
+  }
+
+  onProgress?.("Microsoft Defender for Endpoint onboarding status", 19, TOTAL_SYNC_STEPS);
+  // 8.99. Fetch per-device MDE onboarding status - the real Defender
+  // telemetry intune-mapper.ts's own comment says would be needed to
+  // replace the compliance-state-derived edrOnboardingState approximation
+  // (see applyRealEdrOnboardingStates, applied to intuneDevices below).
+  let atpOnboardingStates: AtpOnboardingDeviceState[] = [];
+  try {
+    const onboardingResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/beta/deviceManagement/advancedThreatProtectionOnboardingStateSummary/advancedThreatProtectionOnboardingDeviceSettingStates",
+      headers
+    );
+    if (onboardingResult.error) {
+      syncErrors.push(`MDE onboarding status: ${onboardingResult.error}`);
+    } else {
+      atpOnboardingStates = onboardingResult.items.map(mapAtpOnboardingDeviceState);
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching MDE onboarding status:", err);
+    syncErrors.push(`MDE onboarding status: ${err.message || "Unexpected error while processing onboarding status."}`);
+  }
+
+  if (atpOnboardingStates.length > 0) {
+    intuneDevices = applyRealEdrOnboardingStates(intuneDevices, atpOnboardingStates);
+  }
+
+  onProgress?.("Intune device compliance reasons", 20, TOTAL_SYNC_STEPS);
+  // 8.995. Fetch per-setting compliance breakdown -
+  // deviceCompliancePolicySettingStateSummaries is a fleet-wide (not
+  // per-device) v1.0 Graph resource, confirmed not deprecated: one row per
+  // distinct setting actually checked by an assigned compliance policy
+  // (e.g. "Require BitLocker", "Require Threat scan" i.e. Defender
+  // Antimalware, "Minimum OS version"), each with its own nested
+  // deviceComplianceSettingStates collection listing exactly which devices
+  // fail it and why - see
+  // ai-context-vault/Optimization/Intune Non-Compliance Reasons Plan.md.
+  // Same DeviceManagementConfiguration.Read.All permission already required
+  // for the managedDevices fetch above - no new consent needed. Bounded by
+  // the number of distinct settings a tenant's compliance policies actually
+  // check (realistically single digits to ~20), not by device count, so
+  // this stays a small, fleet-wide fetch rather than an expensive
+  // per-device drill-down.
+  try {
+    const summariesResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/v1.0/deviceManagement/deviceCompliancePolicySettingStateSummaries?$top=999",
+      headers
+    );
+    if (summariesResult.error) {
+      syncErrors.push(`Intune compliance setting summaries: ${summariesResult.error}`);
+    } else {
+      const reasonRows: { deviceName: string; reason: DeviceComplianceReason }[] = [];
+      for (const summary of summariesResult.items) {
+        if (!summary?.id) continue;
+        const statesResult = await fetchAllPages<any>(
+          `https://graph.microsoft.com/v1.0/deviceManagement/deviceCompliancePolicySettingStateSummaries/${summary.id}/deviceComplianceSettingStates?$top=999`,
+          headers
+        );
+        if (statesResult.error) {
+          syncErrors.push(`Intune compliance setting states (${summary.settingName || summary.id}): ${statesResult.error}`);
+          continue;
+        }
+        for (const raw of statesResult.items) {
+          const mapped = mapDeviceComplianceSettingStateRow(raw);
+          if (mapped) reasonRows.push(mapped);
+        }
+      }
+      if (reasonRows.length > 0) {
+        intuneDevices = applyDeviceComplianceReasons(intuneDevices, reasonRows);
+      }
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching Intune compliance setting states:", err);
+    syncErrors.push(`Intune compliance setting states: ${err.message || "Unexpected error while processing compliance reasons."}`);
+  }
+
+  onProgress?.("Conditional Access named locations & session controls", 21, TOTAL_SYNC_STEPS);
+  // 8.996. Security Simulations Stage 1 (see ai-context-vault/Optimization/
+  // Security Simulations Plan.md). Named locations resolve the location
+  // GUIDs on each CA policy into countries / IP ranges - without them no
+  // "sign-in from a foreign country" question can be answered. Same
+  // Policy.Read.All permission the CA policy fetch already uses.
+  let namedLocationsLive: CaNamedLocation[] | null = null;
+  try {
+    const locResult = await fetchAllPages<any>(
+      "https://graph.microsoft.com/v1.0/identity/conditionalAccess/namedLocations",
+      headers
+    );
+    if (locResult.error) {
+      syncErrors.push(`Named locations: ${locResult.error}`);
+    } else {
+      namedLocationsLive = locResult.items.map(mapNamedLocation).filter((l): l is CaNamedLocation => l !== null);
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching named locations:", err);
+    syncErrors.push(`Named locations: ${err.message || "Unexpected error while processing named locations."}`);
+  }
+
+  // Token protection (secureSignInSession) and continuous access evaluation
+  // exist only on the beta endpoint - confirmed against Microsoft Learn
+  // 2026-09-29, v1.0's sessionControls has neither. Best-effort and
+  // deliberately NOT reported as a sync error: the v1.0 policy list above is
+  // authoritative, and a failure here just leaves both fields undefined
+  // ("not assessed"), never false.
+  if (livePolicies.length > 0) {
+    try {
+      const betaResult = await fetchAllPages<any>(
+        "https://graph.microsoft.com/beta/identity/conditionalAccess/policies?$select=id,sessionControls",
+        headers
+      );
+      if (!betaResult.error) {
+        const extrasById = new Map<string, Pick<CaSessionControls, "tokenProtection" | "continuousAccessEvaluation">>();
+        for (const item of betaResult.items) {
+          if (item?.id) extrasById.set(item.id, mapCaBetaSessionExtras(item));
+        }
+        livePolicies = applyCaBetaSessionExtras(livePolicies, extrasById);
+      }
+    } catch (err: any) {
+      console.warn("[Graph Client] Beta CA session-control read failed (non-fatal):", err?.message || err);
+    }
+  }
+
+  onProgress?.("Tenant identity settings (security defaults, consent, guests)", 22, TOTAL_SYNC_STEPS);
+  // 8.997. Three single-object policy reads (all Policy.Read.All, already
+  // held). Each is independent - one failing leaves only its own fields
+  // undefined in mapTenantIdentitySettings, never the others.
+  let identitySettingsLive: TenantIdentitySettings | null = null;
+  {
+    const readPolicy = async (url: string, label: string): Promise<any | undefined> => {
+      try {
+        const res = await graphFetch(url, { headers });
+        if (!res.ok) {
+          syncErrors.push(`${label}: HTTP ${res.status}`);
+          return undefined;
+        }
+        return await res.json();
+      } catch (err: any) {
+        console.error(`[Graph Client] Error fetching ${label}:`, err);
+        syncErrors.push(`${label}: ${err.message || "Unexpected error."}`);
+        return undefined;
+      }
+    };
+    const [securityDefaults, authorizationPolicy, adminConsentPolicy] = await Promise.all([
+      readPolicy("https://graph.microsoft.com/v1.0/policies/identitySecurityDefaultsEnforcementPolicy", "Security defaults"),
+      readPolicy("https://graph.microsoft.com/v1.0/policies/authorizationPolicy", "Authorization policy"),
+      readPolicy("https://graph.microsoft.com/v1.0/policies/adminConsentRequestPolicy", "Admin consent workflow"),
+    ]);
+    if (securityDefaults || authorizationPolicy || adminConsentPolicy) {
+      identitySettingsLive = mapTenantIdentitySettings(securityDefaults, authorizationPolicy, adminConsentPolicy);
+    }
   }
 
   // 9. Compute baseline coverage
@@ -1705,7 +3286,11 @@ export async function fetchLiveTenantSnapshot(
     baselineCoverageScore: coveragePercent,
     baselineDefinitions: CA_BASELINE_STANDARDS,
     policies: livePolicies.length > 0 ? livePolicies : base.conditionalAccess.policies,
+    namedLocations: namedLocationsLive !== null ? namedLocationsLive : base.conditionalAccess.namedLocations,
   };
+  if (identitySettingsLive !== null) {
+    base.identitySettings = identitySettingsLive;
+  }
 
   if (mfaProfilesList.length > 0) {
     base.mfaAudit = mfaProfilesList;
@@ -1735,6 +3320,8 @@ export async function fetchLiveTenantSnapshot(
       antivirusPoliciesCount,
       edrPoliciesCount,
       devices: intuneDevices,
+      mdeConnectorSettings: mdeConnectorSettings || base.intune?.mdeConnectorSettings,
+      onboardingStates: atpOnboardingStates.length > 0 ? atpOnboardingStates : base.intune?.onboardingStates,
     };
   }
 

@@ -7,6 +7,8 @@ import {
 } from "../types";
 import { validateCaPolicyCompliance } from "./ca-baseline-matcher";
 import { tenantHasEntraP2 } from "./drift-analyzer";
+import { DATA_PROTECTION_RECOMMENDATIONS, Regulation } from "../data/data-protection-recommendations";
+import { getTierEligibility } from "../utils/data-protection-tier-gating";
 
 // ---------------------------------------------------------------------------
 // CIS Microsoft 365 Foundations Benchmark v3.0 Control Definitions
@@ -20,10 +22,78 @@ interface ControlDefinition {
   level?: "Level 1" | "Level 2";
   relevance: "critical" | "high" | "medium";
   relatedBaselineCode?: string;
+  // Present only on POPIA/GDPR/HIPAA's organizational/legal controls - see
+  // ComplianceControlItem.attestationKey. When set, this control's evaluator
+  // below reads snapshot.tenant.complianceAttestations[attestationKey]
+  // instead of computing anything from live snapshot data.
+  attestationKey?: string;
+  sourceUrl?: string;
   evaluator: (snapshot: TenantSecuritySnapshot) => {
     status: "compliant" | "non_compliant" | "partially_compliant" | "not_applicable";
     evidence: string;
     remediationGuide: string;
+  };
+}
+
+// Shared by every manual/attestation control below (POPIA/GDPR/HIPAA's
+// organizational half) - reads the tenant's own attestation state rather
+// than computing anything, and never defaults an unattested item to
+// "compliant." A human must explicitly attest; absence of a record is a gap,
+// not a pass.
+function evaluateAttestation(
+  snap: TenantSecuritySnapshot,
+  key: string,
+  compliantEvidence: string,
+  nonCompliantRemediation: string
+) {
+  const record = snap.tenant.complianceAttestations?.[key];
+  if (record?.attested) {
+    return {
+      status: "compliant" as const,
+      evidence: `Attested by ${record.attestedBy || "an operator"} on ${
+        record.attestedAt ? new Date(record.attestedAt).toLocaleDateString() : "an unrecorded date"
+      }.${record.note ? ` Note: ${record.note}` : ""} ${compliantEvidence}`,
+      remediationGuide: "Attested - no action needed unless circumstances have changed since the attestation date.",
+    };
+  }
+  return {
+    status: "non_compliant" as const,
+    evidence: "Not yet attested - this is an organizational/legal requirement Clarity365 cannot verify automatically; a human must confirm it.",
+    remediationGuide: nonCompliantRemediation,
+  };
+}
+
+// Shared by POPIA/GDPR/HIPAA's "DLP recommendations available" auto control.
+// Deliberately caps at "partially_compliant" even when every tagged
+// recommendation is licence-eligible - eligibility is not the same as
+// deployment, and this app has no live Purview sync to confirm a
+// recommendation was actually adopted (see the DLP & Sensitivity Labels
+// Plan's Stage 0/1 status). Claiming "compliant" here would overstate what's
+// actually known.
+function evaluateDlpEligibility(snap: TenantSecuritySnapshot, regulation: Regulation) {
+  // Deliberately excludes sensitivity-label entries (added 2026-09-22) so
+  // this control's own name/wording ("DLP recommendations") keeps meaning
+  // what it already said before labels shared the same catalog array - a
+  // silent scope change here would be exactly the kind of thing this
+  // codebase's own recurring-bug-class notes warn about. The QBR's separate
+  // dataProtectionSection deliberately does the opposite (counts both) since
+  // its own heading already promises "DLP & Sensitivity Labels."
+  const tagged = DATA_PROTECTION_RECOMMENDATIONS.filter(
+    (r) => r.regulations.includes(regulation) && !("kind" in r && r.kind === "label")
+  );
+  const eligible = tagged.filter((r) => getTierEligibility(snap.tenant.tier, r.minimumLicenseTier) === "eligible");
+
+  if (eligible.length === 0) {
+    return {
+      status: "non_compliant" as const,
+      evidence: `0 of ${tagged.length} ${regulation}-tagged DLP recommendations are available on this tenant's licence (${snap.tenant.tier}).`,
+      remediationGuide: "Review the Data Protection module's licence requirements - an upgrade may be needed before any recommendation in this set can be deployed.",
+    };
+  }
+  return {
+    status: "partially_compliant" as const,
+    evidence: `${eligible.length} of ${tagged.length} ${regulation}-tagged DLP recommendations are licence-eligible. Eligibility is not deployment - this does not confirm any of them are actually configured in Purview.`,
+    remediationGuide: `Review and deploy the relevant recommendations in the Data Protection module: ${eligible.map((r) => r.title).join("; ")}.`,
   };
 }
 
@@ -514,6 +584,358 @@ const ESSENTIAL_EIGHT_CONTROLS: ControlDefinition[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// POPIA / GDPR / UK GDPR / HIPAA Readiness Controls (added 2026-09-22)
+// ---------------------------------------------------------------------------
+// Hybrid, unlike the three frameworks above: section "1." is auto-computed
+// from this snapshot (mirrors CIS/NIST/Essential Eight exactly - same
+// evaluator shape, same data sources); section "2." is manual attestation
+// via evaluateAttestation() - organizational/legal requirements no security
+// tool can verify. Every citation below was checked against a public source
+// during planning, not asserted from memory - see sourceUrl on each control
+// and ai-context-vault/Optimization/Compliance Readiness Checklist Plan.md
+// for the full research trail. Technical-to-legal mapping for engineering
+// purposes, not legal advice - confirm with the client's own legal/compliance
+// counsel before presenting any of this as authoritative.
+
+function mfaEnforcedPercent(snap: TenantSecuritySnapshot): number {
+  const users = snap.mfaAudit || [];
+  if (users.length === 0) return 0;
+  const enforced = users.filter((u: any) => u.mfaRegistered || u.mfaEnforcedByPolicy || u.enforced).length;
+  return Math.round((enforced / users.length) * 100);
+}
+
+const POPIA_READINESS_CONTROLS: ControlDefinition[] = [
+  {
+    controlNumber: "1.1",
+    section: "1. Technical Safeguards",
+    title: "Access control baseline (Conditional Access)",
+    description: "POPIA s.19 requires appropriate technical measures to prevent unlawful access - Conditional Access baseline coverage is this tenant's primary access-control signal.",
+    relevance: "critical",
+    sourceUrl: "https://popia.co.za/section-19-security-measures-on-integrity-and-confidentiality-of-personal-information/",
+    evaluator: (snap) => {
+      const score = snap.conditionalAccess?.baselineCoverageScore ?? 0;
+      if (score >= 80) return { status: "compliant", evidence: `CA baseline coverage is ${score}%.`, remediationGuide: "Maintain coverage; review CA Policy Baseline periodically." };
+      if (score > 0) return { status: "partially_compliant", evidence: `CA baseline coverage is ${score}%.`, remediationGuide: "Deploy the remaining CA baseline policies in the CA Policy Baseline module." };
+      return { status: "non_compliant", evidence: "No CA baseline policies detected.", remediationGuide: "Deploy the CA baseline (CA01-CA10) via the CA Policy Baseline module." };
+    },
+  },
+  {
+    controlNumber: "1.2",
+    section: "1. Technical Safeguards",
+    title: "Multi-factor authentication enforcement",
+    description: "POPIA s.19's security-safeguards requirement, applied to credential compromise specifically.",
+    relevance: "critical",
+    sourceUrl: "https://popia.co.za/section-19-security-measures-on-integrity-and-confidentiality-of-personal-information/",
+    evaluator: (snap) => {
+      const pct = mfaEnforcedPercent(snap);
+      if (pct >= 90) return { status: "compliant", evidence: `MFA enforced for ${pct}% of audited users.`, remediationGuide: "Maintain coverage." };
+      if (pct > 0) return { status: "partially_compliant", evidence: `MFA enforced for ${pct}% of audited users.`, remediationGuide: "Close remaining gaps via the MFA & Auth Methods module." };
+      return { status: "non_compliant", evidence: "No MFA enforcement detected.", remediationGuide: "Enforce MFA - see the MFA & Auth Methods module." };
+    },
+  },
+  {
+    controlNumber: "1.3",
+    section: "1. Technical Safeguards",
+    title: "Mailbox audit logging enabled",
+    description: "POPIA s.17's openness/accountability principle depends on being able to investigate what happened to data after the fact.",
+    relevance: "high",
+    sourceUrl: "https://popia.co.za/",
+    evaluator: (snap) => {
+      if (snap.mailboxAuditingEnabled === undefined) return { status: "not_applicable", evidence: "Exchange Online not connected - auditing status unknown.", remediationGuide: "Connect Exchange Online to evaluate this control." };
+      if (snap.mailboxAuditingEnabled) return { status: "compliant", evidence: "Tenant-wide mailbox auditing is enabled.", remediationGuide: "Maintain." };
+      return { status: "non_compliant", evidence: "Mailbox auditing is disabled tenant-wide.", remediationGuide: "Run Set-OrganizationConfig -AuditDisabled $false." };
+    },
+  },
+  {
+    controlNumber: "1.4",
+    section: "1. Technical Safeguards",
+    title: "DLP recommendations available for identity, health & financial data",
+    description: "Eligibility for this catalog's POPIA-tagged DLP/label recommendations (see the Data Protection module) - not confirmation any are deployed.",
+    relevance: "high",
+    evaluator: (snap) => evaluateDlpEligibility(snap, "popia"),
+  },
+  {
+    controlNumber: "2.1",
+    section: "2. Organizational & Legal",
+    title: "Information Officer registered with the Information Regulator",
+    description: "POPIA s.55(2) requires every Information Officer to be registered with the Information Regulator before taking up duties.",
+    relevance: "critical",
+    attestationKey: "popia-information-officer-registered",
+    sourceUrl: "https://eservices.inforegulator.org.za/",
+    evaluator: (snap) => evaluateAttestation(
+      snap,
+      "popia-information-officer-registered",
+      "",
+      "Register the Information Officer (and any Deputy) at eservices.inforegulator.org.za - free, roughly 30 minutes - then mark this attested with the date."
+    ),
+  },
+  {
+    controlNumber: "2.2",
+    section: "2. Organizational & Legal",
+    title: "Written operator agreements with all third-party processors",
+    description: "POPIA ss.20-21 require a written contract with every operator (payroll, IT vendor, cloud provider, etc.). Without one, the client remains accountable for the operator's own non-compliance.",
+    relevance: "critical",
+    attestationKey: "popia-operator-agreements",
+    sourceUrl: "https://popia.co.za/section-21-security-measures-regarding-information-processed-by-operator/",
+    evaluator: (snap) => evaluateAttestation(
+      snap,
+      "popia-operator-agreements",
+      "",
+      "Confirm a written agreement exists with every third party processing personal information on this client's behalf, covering s.19 safeguards and breach notification."
+    ),
+  },
+  {
+    controlNumber: "2.3",
+    section: "2. Organizational & Legal",
+    title: "PAIA manual published",
+    description: "The Promotion of Access to Information Act manual documents how the organization handles access requests - a standard companion requirement alongside POPIA.",
+    relevance: "medium",
+    attestationKey: "popia-paia-manual",
+    evaluator: (snap) => evaluateAttestation(snap, "popia-paia-manual", "", "Publish a PAIA manual - templates are available from the Information Regulator."),
+  },
+  {
+    controlNumber: "2.4",
+    section: "2. Organizational & Legal",
+    title: "Data subject access/correction request process documented",
+    description: "POPIA ss.23-25 give data subjects the right to request access to, and correction of, their personal information.",
+    relevance: "high",
+    attestationKey: "popia-data-subject-requests",
+    evaluator: (snap) => evaluateAttestation(snap, "popia-data-subject-requests", "", "Document who handles a data subject access/correction request and how, within a reasonable time."),
+  },
+  {
+    controlNumber: "2.5",
+    section: "2. Organizational & Legal",
+    title: "Breach notification procedure reaches the Information Regulator",
+    description: "POPIA s.22 requires notifying the Regulator (and affected data subjects) as soon as reasonably possible after a security compromise - not just an internal alert.",
+    relevance: "critical",
+    attestationKey: "popia-breach-notification-procedure",
+    evaluator: (snap) => evaluateAttestation(snap, "popia-breach-notification-procedure", "", "Document the actual notification path to the Information Regulator, distinct from Clarity365's own internal incident reports."),
+  },
+  {
+    controlNumber: "2.6",
+    section: "2. Organizational & Legal",
+    title: "Direct marketing consent mechanism (opt-in), if applicable",
+    description: "POPIA s.69 requires prior opt-in consent for unsolicited electronic direct marketing.",
+    relevance: "medium",
+    attestationKey: "popia-direct-marketing-consent",
+    evaluator: (snap) => evaluateAttestation(snap, "popia-direct-marketing-consent", "", "Confirm an opt-in consent mechanism exists before any direct marketing communication, or mark not applicable if this client does no direct marketing."),
+  },
+];
+
+const GDPR_READINESS_CONTROLS: ControlDefinition[] = [
+  {
+    controlNumber: "1.1",
+    section: "1. Technical Safeguards",
+    title: "Access control baseline (Conditional Access)",
+    description: "GDPR Art. 32 requires appropriate technical measures - Conditional Access baseline coverage is this tenant's primary signal.",
+    relevance: "critical",
+    sourceUrl: "https://gdpr-info.eu/art-32-gdpr/",
+    evaluator: (snap) => {
+      const score = snap.conditionalAccess?.baselineCoverageScore ?? 0;
+      if (score >= 80) return { status: "compliant", evidence: `CA baseline coverage is ${score}%.`, remediationGuide: "Maintain coverage." };
+      if (score > 0) return { status: "partially_compliant", evidence: `CA baseline coverage is ${score}%.`, remediationGuide: "Deploy the remaining CA baseline policies." };
+      return { status: "non_compliant", evidence: "No CA baseline policies detected.", remediationGuide: "Deploy the CA baseline via the CA Policy Baseline module." };
+    },
+  },
+  {
+    controlNumber: "1.2",
+    section: "1. Technical Safeguards",
+    title: "Multi-factor authentication enforcement",
+    description: "GDPR Art. 32(1)(b) - ongoing confidentiality of processing systems.",
+    relevance: "critical",
+    sourceUrl: "https://gdpr-info.eu/art-32-gdpr/",
+    evaluator: (snap) => {
+      const pct = mfaEnforcedPercent(snap);
+      if (pct >= 90) return { status: "compliant", evidence: `MFA enforced for ${pct}% of audited users.`, remediationGuide: "Maintain coverage." };
+      if (pct > 0) return { status: "partially_compliant", evidence: `MFA enforced for ${pct}% of audited users.`, remediationGuide: "Close remaining gaps via the MFA & Auth Methods module." };
+      return { status: "non_compliant", evidence: "No MFA enforcement detected.", remediationGuide: "Enforce MFA." };
+    },
+  },
+  {
+    controlNumber: "1.3",
+    section: "1. Technical Safeguards",
+    title: "Mailbox audit logging enabled",
+    description: "Supports Art. 30's recordkeeping and Art. 33's breach-investigation obligations.",
+    relevance: "high",
+    evaluator: (snap) => {
+      if (snap.mailboxAuditingEnabled === undefined) return { status: "not_applicable", evidence: "Exchange Online not connected.", remediationGuide: "Connect Exchange Online to evaluate this control." };
+      if (snap.mailboxAuditingEnabled) return { status: "compliant", evidence: "Tenant-wide mailbox auditing is enabled.", remediationGuide: "Maintain." };
+      return { status: "non_compliant", evidence: "Mailbox auditing is disabled tenant-wide.", remediationGuide: "Run Set-OrganizationConfig -AuditDisabled $false." };
+    },
+  },
+  {
+    controlNumber: "1.4",
+    section: "1. Technical Safeguards",
+    title: "DLP recommendations available for identifiers & special category data",
+    description: "Eligibility for this catalog's GDPR/UK GDPR-tagged DLP/label recommendations - not confirmation any are deployed.",
+    relevance: "high",
+    evaluator: (snap) => evaluateDlpEligibility(snap, "gdpr_uk_gdpr"),
+  },
+  {
+    controlNumber: "2.1",
+    section: "2. Organizational & Legal",
+    title: "Records of Processing Activities documented (Art. 30)",
+    description: "The under-250-employee exemption is real but narrow in practice - it requires non-regular processing, no special-category data, and no risk to data subjects, all at once. Ordinary payroll/HR processing alone usually disqualifies it, regardless of headcount.",
+    relevance: "critical",
+    attestationKey: "gdpr-ropa-documented",
+    sourceUrl: "https://gdpr-info.eu/art-30-gdpr/",
+    evaluator: (snap) => evaluateAttestation(snap, "gdpr-ropa-documented", "", "Document a Record of Processing Activities - don't assume the small-business exemption applies without checking all three conditions."),
+  },
+  {
+    controlNumber: "2.2",
+    section: "2. Organizational & Legal",
+    title: "DPO appointed, or a documented reason why not required (Art. 37)",
+    description: "Mandatory only for public authorities, large-scale systematic monitoring, or large-scale special-category/criminal-data processing as a core activity. Most SME clients won't need one - document that conclusion rather than leaving it unaddressed.",
+    relevance: "medium",
+    attestationKey: "gdpr-dpo-assessed",
+    sourceUrl: "https://gdpr-info.eu/art-37-gdpr/",
+    evaluator: (snap) => evaluateAttestation(snap, "gdpr-dpo-assessed", "", "Assess against the three Art. 37 triggers and document the conclusion, even if the answer is 'not required.'"),
+  },
+  {
+    controlNumber: "2.3",
+    section: "2. Organizational & Legal",
+    title: "Data Processing Agreements in place with all processors (Art. 28)",
+    description: "Every vendor processing personal data on the client's behalf needs a DPA - commonly missed for smaller/niche vendors.",
+    relevance: "critical",
+    attestationKey: "gdpr-dpas-in-place",
+    sourceUrl: "https://gdpr-info.eu/art-28-gdpr/",
+    evaluator: (snap) => evaluateAttestation(snap, "gdpr-dpas-in-place", "", "Confirm a DPA exists with every processor, not just the largest/most obvious ones."),
+  },
+  {
+    controlNumber: "2.4",
+    section: "2. Organizational & Legal",
+    title: "Data subject rights process documented (Art. 12-22)",
+    description: "Access, rectification, erasure, portability and objection all need a real, documented fulfillment process.",
+    relevance: "high",
+    attestationKey: "gdpr-data-subject-rights-process",
+    evaluator: (snap) => evaluateAttestation(snap, "gdpr-data-subject-rights-process", "", "Document who handles a data subject rights request and the fulfillment timeline."),
+  },
+  {
+    controlNumber: "2.5",
+    section: "2. Organizational & Legal",
+    title: "Privacy notice published (Art. 13-14)",
+    description: "Data subjects must be told what's collected and why, at the point of collection.",
+    relevance: "medium",
+    attestationKey: "gdpr-privacy-notice-published",
+    evaluator: (snap) => evaluateAttestation(snap, "gdpr-privacy-notice-published", "", "Publish a privacy notice covering the categories in Art. 13-14."),
+  },
+  {
+    controlNumber: "2.6",
+    section: "2. Organizational & Legal",
+    title: "International transfer legal basis documented (Art. 44-49)",
+    description: "The Data Protection module's cross-border-transfer DLP control is a technical approximation; the actual legal basis (SCCs, an adequacy decision, etc.) is a separate, required document.",
+    relevance: "high",
+    attestationKey: "gdpr-international-transfer-basis",
+    evaluator: (snap) => evaluateAttestation(snap, "gdpr-international-transfer-basis", "", "Document the legal transfer mechanism for any personal data leaving the EU/UK."),
+  },
+];
+
+const HIPAA_READINESS_CONTROLS: ControlDefinition[] = [
+  {
+    controlNumber: "1.1",
+    section: "1. Technical Safeguards",
+    title: "Access control baseline (Conditional Access)",
+    description: "HIPAA 45 CFR 164.312(a) - access control technical safeguard.",
+    relevance: "critical",
+    sourceUrl: "https://www.hhs.gov/hipaa/for-professionals/security/laws-regulations/index.html",
+    evaluator: (snap) => {
+      const score = snap.conditionalAccess?.baselineCoverageScore ?? 0;
+      if (score >= 80) return { status: "compliant", evidence: `CA baseline coverage is ${score}%.`, remediationGuide: "Maintain coverage." };
+      if (score > 0) return { status: "partially_compliant", evidence: `CA baseline coverage is ${score}%.`, remediationGuide: "Deploy the remaining CA baseline policies." };
+      return { status: "non_compliant", evidence: "No CA baseline policies detected.", remediationGuide: "Deploy the CA baseline via the CA Policy Baseline module." };
+    },
+  },
+  {
+    controlNumber: "1.2",
+    section: "1. Technical Safeguards",
+    title: "Multi-factor authentication enforcement",
+    description: "HIPAA 164.312(d) - person or entity authentication (addressable - see 2.6 for what that means in practice).",
+    relevance: "critical",
+    evaluator: (snap) => {
+      const pct = mfaEnforcedPercent(snap);
+      if (pct >= 90) return { status: "compliant", evidence: `MFA enforced for ${pct}% of audited users.`, remediationGuide: "Maintain coverage." };
+      if (pct > 0) return { status: "partially_compliant", evidence: `MFA enforced for ${pct}% of audited users.`, remediationGuide: "Close remaining gaps via the MFA & Auth Methods module." };
+      return { status: "non_compliant", evidence: "No MFA enforcement detected.", remediationGuide: "Enforce MFA." };
+    },
+  },
+  {
+    controlNumber: "1.3",
+    section: "1. Technical Safeguards",
+    title: "Audit controls (mailbox audit logging)",
+    description: "HIPAA 164.312(b) - audit controls, a required (not addressable) specification.",
+    relevance: "high",
+    evaluator: (snap) => {
+      if (snap.mailboxAuditingEnabled === undefined) return { status: "not_applicable", evidence: "Exchange Online not connected.", remediationGuide: "Connect Exchange Online to evaluate this control." };
+      if (snap.mailboxAuditingEnabled) return { status: "compliant", evidence: "Tenant-wide mailbox auditing is enabled.", remediationGuide: "Maintain." };
+      return { status: "non_compliant", evidence: "Mailbox auditing is disabled tenant-wide.", remediationGuide: "Run Set-OrganizationConfig -AuditDisabled $false." };
+    },
+  },
+  {
+    controlNumber: "1.4",
+    section: "1. Technical Safeguards",
+    title: "DLP recommendations available for PHI",
+    description: "Eligibility for this catalog's HIPAA-tagged PHI DLP recommendation - not confirmation it's deployed.",
+    relevance: "high",
+    evaluator: (snap) => evaluateDlpEligibility(snap, "hipaa"),
+  },
+  {
+    controlNumber: "2.1",
+    section: "2. Organizational & Legal",
+    title: "BAA/DPA downloaded and retained for records",
+    description: "Microsoft's HIPAA BAA terms are included by default in the Products and Services Data Protection Addendum for eligible customers - not a separate document the client signs. The action is downloading and filing a copy, not chasing a signature.",
+    relevance: "critical",
+    attestationKey: "hipaa-baa-retained",
+    sourceUrl: "https://learn.microsoft.com/en-us/answers/questions/5811334/how-to-sign-a-business-associate-agreement-and-add",
+    evaluator: (snap) => evaluateAttestation(snap, "hipaa-baa-retained", "", "Download the BAA/DPA from the Microsoft Service Trust Portal and file it in the client's compliance records."),
+  },
+  {
+    controlNumber: "2.2",
+    section: "2. Organizational & Legal",
+    title: "Privacy Officer and Security Officer designated",
+    description: "HIPAA §164.530(a) and §164.308(a)(2) require named, responsible individuals.",
+    relevance: "critical",
+    attestationKey: "hipaa-officers-designated",
+    evaluator: (snap) => evaluateAttestation(snap, "hipaa-officers-designated", "", "Name a Privacy Officer and a Security Officer (can be the same person in a small organization) and document it."),
+  },
+  {
+    controlNumber: "2.3",
+    section: "2. Organizational & Legal",
+    title: "Documented risk analysis on file",
+    description: "HIPAA §164.308(a)(1) - a required specification, the foundation the rest of the Security Rule builds on.",
+    relevance: "critical",
+    attestationKey: "hipaa-risk-analysis",
+    evaluator: (snap) => evaluateAttestation(snap, "hipaa-risk-analysis", "", "Conduct and document a risk analysis covering all ePHI the client handles."),
+  },
+  {
+    controlNumber: "2.4",
+    section: "2. Organizational & Legal",
+    title: "Workforce training completed",
+    description: "HIPAA §164.308(a)(5).",
+    relevance: "medium",
+    attestationKey: "hipaa-workforce-training",
+    evaluator: (snap) => evaluateAttestation(snap, "hipaa-workforce-training", "", "Deliver and document HIPAA workforce training."),
+  },
+  {
+    controlNumber: "2.5",
+    section: "2. Organizational & Legal",
+    title: "Contingency/backup plan documented",
+    description: "HIPAA §164.308(a)(7) - a required specification covering data backup, disaster recovery, and emergency operation.",
+    relevance: "high",
+    attestationKey: "hipaa-contingency-plan",
+    evaluator: (snap) => evaluateAttestation(snap, "hipaa-contingency-plan", "", "Document a backup, disaster-recovery, and emergency-operations plan."),
+  },
+  {
+    controlNumber: "2.6",
+    section: "2. Organizational & Legal",
+    title: "Notice of Privacy Practices published",
+    description: "HIPAA §164.520.",
+    relevance: "medium",
+    attestationKey: "hipaa-npp-published",
+    evaluator: (snap) => evaluateAttestation(snap, "hipaa-npp-published", "", "Publish a Notice of Privacy Practices."),
+  },
+];
+
+// ---------------------------------------------------------------------------
 // Assessment Engine
 // ---------------------------------------------------------------------------
 
@@ -533,6 +955,15 @@ export function evaluateTenantCompliance(
   } else if (framework === "essential_eight") {
     controlDefs = ESSENTIAL_EIGHT_CONTROLS;
     frameworkTitle = "Australian Cyber Security Centre (ACSC) Essential Eight";
+  } else if (framework === "popia") {
+    controlDefs = POPIA_READINESS_CONTROLS;
+    frameworkTitle = "POPIA Compliance Readiness";
+  } else if (framework === "gdpr_uk_gdpr") {
+    controlDefs = GDPR_READINESS_CONTROLS;
+    frameworkTitle = "GDPR / UK GDPR Compliance Readiness";
+  } else if (framework === "hipaa") {
+    controlDefs = HIPAA_READINESS_CONTROLS;
+    frameworkTitle = "HIPAA Compliance Readiness";
   }
 
   const items: ComplianceControlItem[] = controlDefs.map((def) => {
@@ -550,6 +981,8 @@ export function evaluateTenantCompliance(
       evidence: result.evidence,
       remediationGuide: result.remediationGuide,
       relatedBaselineCode: def.relatedBaselineCode,
+      attestationKey: def.attestationKey,
+      sourceUrl: def.sourceUrl,
     };
   });
 
@@ -631,7 +1064,13 @@ export function evaluateFleetCompliance(
       ? "CIS Microsoft 365 Foundations Benchmark v3.0"
       : framework === "nist_csf_v2"
       ? "NIST Cybersecurity Framework (CSF 2.0)"
-      : "Australian Cyber Security Centre (ACSC) Essential Eight";
+      : framework === "essential_eight"
+      ? "Australian Cyber Security Centre (ACSC) Essential Eight"
+      : framework === "popia"
+      ? "POPIA Compliance Readiness"
+      : framework === "gdpr_uk_gdpr"
+      ? "GDPR / UK GDPR Compliance Readiness"
+      : "HIPAA Compliance Readiness";
 
   return {
     framework,

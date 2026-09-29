@@ -17,6 +17,9 @@ tags: [data-model]
 
 This is the natural top-level taxonomy for the whole app: every [[Clarity365 MOC#Modules|module]] that isn't UI chrome is ultimately scoring, deploying, or reporting on some subset of these 39 rules.
 
+## Woodgrove demo CA fix (2026-09-29)
+Woodgrove, the "100% coverage" zero-trust demo tenant, generated all ten CA01-CA10 policies from one template ("MFA for all users"), so **8 of 10 failed `validateCaPolicyCompliance`**: no legacy block, no country block, no compliant device, no risk conditions. Each now has its real shape (`WOODGROVE_BASELINE_OVERRIDES` in `mock-tenants.ts`), plus four non-baseline policies (device-code/auth-transfer block, security-info registration, token protection, insider risk in report-only). Admin policies use live-shape role template GUIDs via `includeRoles`, so both CA identifier dialects appear in demo data (see [[Security Simulations Plan]]). `mock-tenants.test.ts` guards this. All four demo tenants also gained `namedLocations` and `identitySettings` with different profiles: Woodgrove strict, Contoso mixed, Northwind and Fabrikam permissive.
+
 ## Snapshot scaffolding
 - **default-snapshot.ts** :  `createBlankSnapshot()`, the single source of truth for an empty [[Domain Types#The hub type|`TenantSecuritySnapshot`]], seeded with 4 base capabilities. Used for brand-new tenants and as the pre-sync scaffold.
 - **mock-tenants.ts** (2330 lines) :  `INITIAL_TENANTS` (4 demo orgs: Contoso Pharma, Northwind Health, Fabrikam Logistics, Woodgrove FSI) + `MOCK_TENANT_DATA`, one full realistic snapshot per tenant. This is the entire demo/simulation-mode dataset :  see also `scripts/installer.js`, which seeds these same four tenants (named slightly differently there: Contoso E5, Northwind BP, Fabrikam E3, Woodgrove Zero-Trust) on first launch.

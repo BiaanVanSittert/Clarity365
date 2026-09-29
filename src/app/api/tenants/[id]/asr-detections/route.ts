@@ -14,7 +14,8 @@ export async function POST(
   try {
     const { id } = params;
     const body = await request.json().catch(() => ({}));
-    const { ruleId } = body;
+    const { ruleId, timeRange } = body;
+    const range: "7d" | "30d" | "all" = timeRange === "7d" || timeRange === "all" ? timeRange : "30d";
 
     const tenant = tenantStore.getTenant(id);
     if (!tenant) {
@@ -22,7 +23,7 @@ export async function POST(
     }
 
     if (ruleId) {
-      const result = await tenantStore.getAsrDetectionEvents(id, ruleId);
+      const result = await tenantStore.getAsrDetectionEvents(id, ruleId, range);
       if (!result) {
         return NextResponse.json({ success: false, error: "Tenant not found" }, { status: 404 });
       }
@@ -32,7 +33,7 @@ export async function POST(
       return NextResponse.json({ success: true, events: result.events || [] });
     }
 
-    const result = await tenantStore.getAsrDetectionSummaries(id);
+    const result = await tenantStore.getAsrDetectionSummaries(id, range);
     if (!result) {
       return NextResponse.json({ success: false, error: "Tenant not found" }, { status: 404 });
     }

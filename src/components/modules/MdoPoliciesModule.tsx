@@ -3,6 +3,8 @@ import { TenantSecuritySnapshot, TablEntry, MdoThreatPolicy, MdoBaselineResult }
 import { StatusPill } from "../common/StatusPill";
 import { Modal } from "../common/Modal";
 import { LocalOnlyNotice } from "../common/LocalOnlyNotice";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
 import { defaultTablExpirationIso } from "@/lib/services/mdo-mapper";
 import { MDO_BASELINE_STANDARDS } from "@/lib/data/mdo-baseline-definitions";
@@ -77,9 +79,9 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
 
   const exoConnected = !!tenant.credentials.exoRefreshToken;
   const exoWriteEnabled = !!tenant.credentials.exoWriteEnabled;
-  const mdoPolicySyncErrors = (snapshot.syncHealth?.errors || []).filter((e) => e.startsWith("MDO Policies:"));
-  const mdoTablSyncErrors = (snapshot.syncHealth?.errors || []).filter((e) => e.startsWith("MDO TABL:"));
-  const mdoAlertSyncErrors = (snapshot.syncHealth?.errors || []).filter((e) => e.startsWith("MDO Threat Alerts:"));
+  const mdoPolicySyncErrors = getSyncErrorsForPrefixes(snapshot, ["MDO Policies:"]);
+  const mdoTablSyncErrors = getSyncErrorsForPrefixes(snapshot, ["MDO TABL:"]);
+  const mdoAlertSyncErrors = getSyncErrorsForPrefixes(snapshot, ["MDO Threat Alerts:"]);
 
   const policies = mdoThreat.policies;
   const tablEntries = mdoThreat.tabl;
@@ -414,19 +416,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
             </div>
           ) : (
             <>
-              {mdoPolicySyncErrors.length > 0 && (
-                <div className="m-3 p-3 bg-rose-50 dark:bg-red-950 border border-rose-300 dark:border-red-800 text-rose-900 dark:text-red-300 text-xs rounded-sm space-y-1.5">
-                  <div className="flex items-center gap-2 font-semibold">
-                    <AlertTriangle size={14} className="text-rose-600 dark:text-red-400" />
-                    <span>Exchange Online sync error</span>
-                  </div>
-                  {mdoPolicySyncErrors.map((err, i) => (
-                    <div key={i} className="text-[11px] font-mono bg-white/70 dark:bg-slate-900/50 p-1.5 border border-rose-200 dark:border-red-800 rounded-sm">
-                      {err}
-                    </div>
-                  ))}
-                </div>
-              )}
+              <SyncErrorBanner errors={mdoPolicySyncErrors} title="Exchange Online sync error" className="m-3" />
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse table-dense">
                   <thead>
@@ -631,19 +621,7 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
               <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{filteredTabl.length} Entries</span>
             </div>
 
-            {mdoTablSyncErrors.length > 0 && (
-              <div className="m-3 p-3 bg-rose-50 dark:bg-red-950 border border-rose-300 dark:border-red-800 text-rose-900 dark:text-red-300 text-xs rounded-sm space-y-1.5">
-                <div className="flex items-center gap-2 font-semibold">
-                  <AlertTriangle size={14} className="text-rose-600 dark:text-red-400" />
-                  <span>Exchange Online sync error</span>
-                </div>
-                {mdoTablSyncErrors.map((err, i) => (
-                  <div key={i} className="text-[11px] font-mono bg-white/70 dark:bg-slate-900/50 p-1.5 border border-rose-200 dark:border-red-800 rounded-sm">
-                    {err}
-                  </div>
-                ))}
-              </div>
-            )}
+            <SyncErrorBanner errors={mdoTablSyncErrors} title="Exchange Online sync error" className="m-3" />
 
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse table-dense">
@@ -769,22 +747,11 @@ export const MdoPoliciesModule: React.FC<MdoPoliciesModuleProps> = ({ snapshot, 
             <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400">{alerts.length} Alerts</span>
           </div>
 
-          {mdoAlertSyncErrors.length > 0 && (
-            <div className="m-3 p-3 bg-rose-50 dark:bg-red-950 border border-rose-300 dark:border-red-800 text-rose-900 dark:text-red-300 text-xs rounded-sm space-y-1.5">
-              <div className="flex items-center gap-2 font-semibold">
-                <AlertTriangle size={14} className="text-rose-600 dark:text-red-400" />
-                <span>Threat alert sync error</span>
-              </div>
-              {mdoAlertSyncErrors.map((err, i) => (
-                <div key={i} className="text-[11px] font-mono bg-white/70 dark:bg-slate-900/50 p-1.5 border border-rose-200 dark:border-red-800 rounded-sm">
-                  {err}
-                </div>
-              ))}
-              <p className="text-[10px] text-rose-700 dark:text-red-400">
-                Ensure your App Registration has been granted <strong>SecurityAlert.Read.All</strong> with admin consent.
-              </p>
-            </div>
-          )}
+          <SyncErrorBanner errors={mdoAlertSyncErrors} title="Threat alert sync error" className="m-3">
+            <p className="text-[10px] text-rose-700 dark:text-red-400">
+              Ensure your App Registration has been granted <strong>SecurityAlert.Read.All</strong> with admin consent.
+            </p>
+          </SyncErrorBanner>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse table-dense">

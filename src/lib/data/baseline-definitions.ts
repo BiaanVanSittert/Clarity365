@@ -36,7 +36,7 @@ $ca01Params = @{
         applications = @{
             includeApplications = @("All")
         }
-        clientAppTypes = @("exchangeActiveSync", "otherClients")
+        clientAppTypes = @("exchangeActiveSync", "other")
     }
     grantControls = @{
         operator = "OR"
@@ -203,7 +203,7 @@ try {
     name: "Require multifactor authentication for Azure management",
     description: "Enforces MFA specifically for administrative access to the Azure Portal, Microsoft Azure CLI, PowerShell, and REST APIs.",
     recommendedState: "enabled",
-    targetScope: "All users, Target app: Microsoft Azure Management (797f3427-79cd-4827-8132-47d473d450e4)",
+    targetScope: "All users, Target app: Microsoft Azure Management (797f4846-ba00-4fd7-ba43-dac1f8f63013)",
     riskMitigated: "Unauthorized administrative modifications to Azure infrastructure and cloud tenant subscriptions.",
     powershellTemplate: (domain: string) => `# Connect to Microsoft Graph
 Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
@@ -226,7 +226,7 @@ $ca05Params = @{
             excludeUsers = $excludeUserIds
         }
         applications = @{
-            includeApplications = @("797f3427-79cd-4827-8132-47d473d450e4") # Microsoft Azure Management
+            includeApplications = @("797f4846-ba00-4fd7-ba43-dac1f8f63013") # Microsoft Azure Management
         }
         clientAppTypes = @("all")
     }

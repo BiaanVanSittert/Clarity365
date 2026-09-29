@@ -2,7 +2,7 @@
 // the mapping/synthesis rules here are unit-testable pure functions that
 // don't need a live Graph response to exercise.
 import { ASR_RULE_DEFINITIONS } from "../data/asr-rule-definitions";
-import { AsrRuleActivitySummary, AsrRuleMode } from "../types";
+import { AsrRuleActivitySummary, AsrRuleMode, AsrDetectionTimeRange } from "../types";
 
 export type AsrDetectionKind = "audit" | "block" | "warn_bypassed";
 
@@ -54,15 +54,27 @@ function stableHash(input: string): number {
   return hash;
 }
 
+// Scales the base (30-day) synthesized count for a shorter/longer selected
+// window, so the demo experience isn't identical regardless of which range
+// is picked - deliberately not a live query against mock data (there isn't
+// one), just a proportional adjustment of the same deterministic base.
+const TIME_RANGE_SCALE: Record<AsrDetectionTimeRange, number> = {
+  "7d": 0.25,
+  "30d": 1,
+  all: 3,
+};
+
 // A rule that isn't enforcing anything can't have logged a detection for it -
 // Not Configured and the one rule with no Advanced Hunting telemetry
 // (Webshell creation) always synthesize to zero, so the mock demo never
 // shows activity for something that couldn't possibly have produced it.
 export function synthesizeMockActivity(
   ruleStates: { ruleId: string; mode: AsrRuleMode }[],
-  seed: string
+  seed: string,
+  timeRange: AsrDetectionTimeRange = "30d"
 ): AsrRuleActivitySummary[] {
   const modeByRule = new Map(ruleStates.map((r) => [r.ruleId, r.mode]));
+  const scale = TIME_RANGE_SCALE[timeRange];
 
   return ASR_RULE_DEFINITIONS.map((def) => {
     const mode = modeByRule.get(def.id) || "not_configured";
@@ -72,12 +84,12 @@ export function synthesizeMockActivity(
 
     const hash = stableHash(`${seed}:${def.id}`);
     if (mode === "block") {
-      return { ruleId: def.id, auditHitCount: 0, blockHitCount: hash % 7, warnBypassedCount: 0 };
+      return { ruleId: def.id, auditHitCount: 0, blockHitCount: Math.round((hash % 7) * scale), warnBypassedCount: 0 };
     }
     // audit or warn: logs everything it would have stopped, so a larger range.
     const warnBypassedCount = def.advancedHuntingActionTypes.some((t) => t.endsWith("WarnBypassed"))
-      ? (hash >> 4) % 3
+      ? Math.round(((hash >> 4) % 3) * scale)
       : 0;
-    return { ruleId: def.id, auditHitCount: hash % 16, blockHitCount: 0, warnBypassedCount };
+    return { ruleId: def.id, auditHitCount: Math.round((hash % 16) * scale), blockHitCount: 0, warnBypassedCount };
   });
 }

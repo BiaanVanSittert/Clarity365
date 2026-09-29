@@ -2,6 +2,8 @@ import React, { useMemo, useState } from "react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { EmptyStateRow } from "../common/EmptyStateRow";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 import { getAllPrivilegedAccounts } from "@/lib/services/admin-hygiene-matcher";
 import { Crown, ShieldCheck, ShieldX, AlertTriangle, Ban, Search, Download, Terminal } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
@@ -72,6 +74,7 @@ export const PrivilegedAccessModule: React.FC<PrivilegedAccessModuleProps> = ({ 
   const [tierFilter, setTierFilter] = useState<PrivilegedAccessTier | "all">("all");
   const [includeDisabled, setIncludeDisabled] = useState(false);
 
+  const privilegedAccessSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Directory roles:", "Users:"]);
   const privilegedAccounts = getAllPrivilegedAccounts(snapshot);
   const isLeanFootprint = privilegedAccounts.length <= 5;
 
@@ -161,6 +164,8 @@ export const PrivilegedAccessModule: React.FC<PrivilegedAccessModuleProps> = ({ 
           <span>Secure Unprotected Admins</span>
         </button>
       </div>
+
+      <SyncErrorBanner errors={privilegedAccessSyncErrors} title="Directory roles sync error - data below may be stale" />
 
       {/* Tier legend and filter chips */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">

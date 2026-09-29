@@ -83,6 +83,13 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   const baselineDefinitions = CA_BASELINE_STANDARDS;
   const missingCABaselineCount = baselineDefinitions.length - deployedCodes.size;
 
+  // Live report: a deleted CA10 policy kept showing as deployed here even
+  // after a Sync Tenant click and a page refresh, because the sync itself
+  // was silently failing outright - so this widget kept rendering the
+  // last-good cached snapshot from before the deletion with no hint that
+  // anything was stale. See ConditionalAccessModule.tsx's matching banner.
+  const caSyncErrors = (snapshot.syncHealth?.errors || []).filter((e) => e.startsWith("Conditional Access policies:"));
+
   const sharedMailboxesCount = mailboxes.filter((m) => m.recipientType === "SharedMailbox").length;
   const licensedSharedMailboxWasteCount = mailboxes.filter((m) => m.recipientType === "SharedMailbox" && m.hasDirectLicense).length;
 
@@ -377,10 +384,17 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             </div>
           </div>
 
-          <div className="mt-3 text-[11px] text-slate-500 dark:text-slate-400 flex justify-between items-center">
-            <span>Standard: <code className="font-mono text-slate-700 dark:text-slate-300">CA01-CA10 Baseline</code></span>
-            <span className="text-slate-400 dark:text-slate-500">Strict Prefix Matching</span>
-          </div>
+          {caSyncErrors.length > 0 ? (
+            <div className="mt-3 text-[11px] text-rose-700 dark:text-red-400 flex items-center gap-1.5 font-medium">
+              <AlertTriangle size={12} className="shrink-0" />
+              <span>Last sync failed to fetch CA policies - this may be stale. See Module 1 for details.</span>
+            </div>
+          ) : (
+            <div className="mt-3 text-[11px] text-slate-500 dark:text-slate-400 flex justify-between items-center">
+              <span>Standard: <code className="font-mono text-slate-700 dark:text-slate-300">CA01-CA10 Baseline</code></span>
+              <span className="text-slate-400 dark:text-slate-500">Strict Prefix Matching</span>
+            </div>
+          )}
         </div>
       </div>
 

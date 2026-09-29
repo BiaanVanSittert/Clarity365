@@ -4,7 +4,7 @@ tags: [moc]
 
 # Clarity365 :  AI Context Map
 
-Multi-Tenant M365 IRM & Security Posture Suite for MSPs & Enterprise IT. This vault is a hand-built knowledge map of the codebase as of `f97226a` (2026-09-08) :  24 modules, 33 API routes, ~30 services, one SQLite-backed store. Open Obsidian's **Graph View** on this vault to see it as a mindmap; colors are grouped by tag (module / service / architecture / api / data-model / mcp / optimization / recommendation).
+Multi-Tenant M365 IRM & Security Posture Suite for MSPs & Enterprise IT. This vault is a hand-built knowledge map of the codebase as of `f97226a` (2026-09-08) :  24 modules, 33 API routes, ~30 services, one SQLite-backed store (see [[Audit Log Investigator]] for a since-added 25th module and 8 more routes, and [[Defender Configuration & Onboarding]] for a 26th module reusing existing routes). Open Obsidian's **Graph View** on this vault to see it as a mindmap; colors are grouped by tag (module / service / architecture / api / data-model / mcp / optimization / recommendation).
 
 Start here, then follow links outward :  every note links back to this one, so you can never get lost.
 
@@ -29,13 +29,13 @@ Start here, then follow links outward :  every note links back to this one, so y
 
 ## Modules
 **Tenant-scoped security modules:**
-[[Conditional Access Policy Scanner]] · [[Sign-In Logs & CA Diagnostics]] · [[Secure Score & Timeline]] · [[MFA Enforcement & Auth Audit]] · [[User & Account Classification]] · [[Privileged Access Review]] · [[Exchange Mailbox Permissions]] · [[Email Forwarding Rules Audit]] · [[Mailflow Rules & Transport Hygiene]] · [[Defender for Office 365 & TABL]] · [[App Registrations & Connected Services]] · [[Intune Endpoint Security]] · [[Attack Surface Reduction Rules]] · [[Groups & Distribution Management]] · [[SharePoint & Storage Policies]] · [[Domain Authentication]]
+[[Conditional Access Policy Scanner]] · [[Sign-In Logs & CA Diagnostics]] · [[Secure Score & Timeline]] · [[MFA Enforcement & Auth Audit]] · [[User & Account Classification]] · [[Privileged Access Review]] · [[Exchange Mailbox Permissions]] · [[Email Forwarding Rules Audit]] · [[Mailflow Rules & Transport Hygiene]] · [[Defender for Office 365 & TABL]] · [[App Registrations & Connected Services]] · [[Intune Endpoint Security]] · [[Attack Surface Reduction Rules]] · [[Defender Configuration & Onboarding]] · [[Groups & Distribution Management]] · [[SharePoint & Storage Policies]] · [[Domain Authentication]]
 
 **System & agent-facing:**
-[[Audit Log Viewer]] · [[MCP Tools Playground]] · [[Event Response (Incident Response)]]
+[[Audit Log Viewer]] · [[Audit Log Investigator]] · [[MCP Tools Playground]] · [[Event Response (Incident Response)]]
 
 **Reporting & compliance:**
-[[Executive Reporting (QBR)]] · [[Compliance Matrix (CIS-NIST-Essential 8)]]
+[[Executive Reporting (QBR)]] · [[Compliance Matrix (CIS-NIST-Essential 8)]] · [[Data Protection (DLP & Sensitivity Labels)]] · [[Fleet Data Protection Visibility]]
 
 **Fleet-scale (cross-tenant):**
 [[Fleet Baseline Rollout]] · [[Fleet Baseline Drift]] · [[Fleet TABL Sync]] · [[Fleet License Optimization]] · [[Tenant License Optimization]]
@@ -43,6 +43,7 @@ Start here, then follow links outward :  every note links back to this one, so y
 ## Where this goes next
 [[Optimization Plan]] :  prioritized findings from this scan (security gaps, test coverage, structural risk)
 [[Prompting & Obsidian Workflow]] :  how to prompt Claude Code against this vault, and how to keep the vault from going stale
+[[DLP & Sensitivity Labels Plan]] :  multi-stage plan for Purview DLP and sensitivity labels (planning only) · [[DLP Stage 1 - Data Model & Licensing]] :  in-depth Stage 1 · [[DLP Stage 3 - Remaining Data Categories]] :  in-depth plan for the last four data categories · [[DLP Stage 5 - Fleet Rollout]] :  next stage, generating guided packs across many tenants · [[Compliance Readiness Checklist Plan]] :  technical + organizational readiness for POPIA/GDPR/HIPAA, not just DLP · [[Sensitivity Labels Catalog Plan]] :  the still-missing label half of "DLP & Sensitivity Labels" · [[Security Simulations Plan]] :  planned Security Simulations category (attack scenarios, sign-in situation simulator, CA gap analysis), awaiting review
 
 ## A note on repo history
 This vault was built immediately after discovering the local working copy was **203 commits behind `origin/main`** :  an entire auth system, fleet operations layer, incident response, compliance frameworks, and executive reporting existed on GitHub but not in the checked-out code. The repo was fast-forwarded to match before this scan ran, so everything above reflects the current, real state of the app :  not the stale one. See [[Optimization Plan]] for how to stop this from recurring silently.

@@ -30,11 +30,25 @@ describe("normalizeCategory", () => {
 });
 
 describe("normalizeCostOrImpact", () => {
-  it("maps known values and defaults unknowns to Moderate", () => {
+  it("maps known values case-insensitively", () => {
     expect(normalizeCostOrImpact("low")).toBe("Low");
     expect(normalizeCostOrImpact("High")).toBe("High");
-    expect(normalizeCostOrImpact("weird")).toBe("Moderate");
-    expect(normalizeCostOrImpact(undefined)).toBe("Moderate");
+    expect(normalizeCostOrImpact("moderate")).toBe("Moderate");
+  });
+
+  it("treats Graph's 'Medium' as an alias for Moderate", () => {
+    expect(normalizeCostOrImpact("Medium")).toBe("Moderate");
+    expect(normalizeCostOrImpact("medium")).toBe("Moderate");
+  });
+
+  it("surfaces Graph's own 'Unknown' value as Unknown rather than guessing a severity", () => {
+    expect(normalizeCostOrImpact("Unknown")).toBe("Unknown");
+  });
+
+  it("defaults unrecognized or missing values to Unknown, not Moderate - confirmed live this is Graph's own value for most controls", () => {
+    expect(normalizeCostOrImpact("weird")).toBe("Unknown");
+    expect(normalizeCostOrImpact(undefined)).toBe("Unknown");
+    expect(normalizeCostOrImpact(null)).toBe("Unknown");
   });
 });
 
@@ -71,8 +85,19 @@ describe("normalizeActionType", () => {
 describe("mapSecureScoreControl", () => {
   it("joins a score entry with its control profile", () => {
     const control = mapSecureScoreControl(
-      { controlName: "mfaAdmins", score: 40, controlCategory: "Identity" },
-      { id: "mfaAdmins", title: "Require MFA for admins", maxScore: 50, implementationCost: "Low", userImpact: "Low", actionType: "Config", remediation: "Enable MFA for all admin roles." }
+      { controlName: "mfaAdmins", score: 40, controlCategory: "Identity", description: "Requires MFA for admins.", implementationStatus: "current status: Off" },
+      {
+        id: "mfaAdmins",
+        title: "Require MFA for admins",
+        maxScore: 50,
+        implementationCost: "Low",
+        userImpact: "Low",
+        actionType: "Config",
+        remediation: "Enable MFA for all admin roles.",
+        actionUrl: "https://entra.microsoft.com/",
+        remediationImpact: "Admins must complete MFA at sign-in.",
+        threats: ["Account breach"],
+      }
     );
     expect(control).toEqual({
       id: "mfaAdmins",
@@ -84,7 +109,13 @@ describe("mapSecureScoreControl", () => {
       userImpact: "Low",
       status: "Partial",
       actionType: "Configuration",
+      description: "Requires MFA for admins.",
       remediationSummary: "Enable MFA for all admin roles.",
+      actionUrl: "https://entra.microsoft.com/",
+      remediationImpact: "Admins must complete MFA at sign-in.",
+      threats: ["Account breach"],
+      implementationStatus: "current status: Off",
+      deployment: { type: "guided" },
     });
   });
 
@@ -94,6 +125,23 @@ describe("mapSecureScoreControl", () => {
     expect(control.scoreMax).toBe(0);
     expect(control.status).toBe("Unresolved");
     expect(control.remediationSummary).toBe("No remediation guidance available for this control.");
+    expect(control.description).toBe("No description available for this control.");
+    expect(control.actionUrl).toBeUndefined();
+    expect(control.deployment).toEqual({ type: "manual_only" });
+  });
+
+  it("uses the curated description fallback when Graph's own description is empty but a fallback exists for this controlName", () => {
+    const control = mapSecureScoreControl({ controlName: "mdo_autoforwardingmode", score: 1 }, { id: "mdo_autoforwardingmode", maxScore: 1 });
+    expect(control.description).toContain("forwarding");
+    expect(control.description).not.toBe("No description available for this control.");
+  });
+
+  it("prefers Graph's own live description over the curated fallback when both are available", () => {
+    const control = mapSecureScoreControl(
+      { controlName: "mdo_autoforwardingmode", score: 1, description: "Live Microsoft-provided text." },
+      { id: "mdo_autoforwardingmode", maxScore: 1 }
+    );
+    expect(control.description).toBe("Live Microsoft-provided text.");
   });
 
   it("handles a remediation field that's an object instead of a string", () => {
@@ -102,6 +150,32 @@ describe("mapSecureScoreControl", () => {
       { id: "c1", maxScore: 10, remediation: { description: "Do the thing." } }
     );
     expect(control.remediationSummary).toBe("Do the thing.");
+  });
+
+  it("defaults to guided deployment when a control has an actionUrl but no live-verified auto-deploy mapping", () => {
+    const control = mapSecureScoreControl(
+      { controlName: "spo_idle_session_timeout", score: 0 },
+      { id: "spo_idle_session_timeout", maxScore: 1, actionUrl: "https://admin.microsoft.com/" }
+    );
+    expect(control.deployment).toEqual({ type: "guided" });
+  });
+
+  it("upgrades deployment to auto for a controlName with a confirmed baseline mapping", () => {
+    const control = mapSecureScoreControl(
+      { controlName: "BlockLegacyAuthentication", score: 0 },
+      { id: "BlockLegacyAuthentication", maxScore: 20, actionUrl: "https://entra.microsoft.com/" }
+    );
+    expect(control.deployment).toEqual({ type: "auto", clarity365Action: "CA01" });
+  });
+
+  it("omits optional fields entirely rather than storing empty strings/arrays", () => {
+    const control = mapSecureScoreControl(
+      { controlName: "c2", score: 0 },
+      { id: "c2", maxScore: 5, remediationImpact: "", threats: [] }
+    );
+    expect(control.remediationImpact).toBeUndefined();
+    expect(control.threats).toBeUndefined();
+    expect(control.implementationStatus).toBeUndefined();
   });
 });
 

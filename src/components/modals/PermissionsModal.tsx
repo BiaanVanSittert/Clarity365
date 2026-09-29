@@ -230,7 +230,18 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
           </div>
         )}
 
-        {report && (
+        {report && (() => {
+          // Write-access permissions always render last, regardless of the
+          // order testAppRegistrationPermissions returns them in - keeps the
+          // "what does this let Clarity365 change, not just read" grouping
+          // obvious without depending on source-array order. Stable sort:
+          // relative order within the read-only group and within the
+          // write-access group is otherwise preserved.
+          const orderedPermissions = [...report.permissions].sort(
+            (a, b) => Number(!!a.isWriteAccess) - Number(!!b.isWriteAccess)
+          );
+
+          return (
           <div className="space-y-3">
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-600 dark:text-slate-400">
@@ -264,7 +275,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
             {/* Per-optional-permission summary - makes the read-vs-write mode explicit
                 at a glance, since "All Required Permissions Granted" above deliberately
                 says nothing about optional ones either way. */}
-            {report.permissions
+            {orderedPermissions
               .filter((p) => p.optional)
               .map((p) => (
                 <div
@@ -283,6 +294,8 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                   <span>
                     {p.status === "granted" ? (
                       <>Write access enabled for <strong>{p.requiredFor.replace(/^Optional:\s*/, "")}</strong>.</>
+                    ) : p.status === "unlicensed" ? (
+                      <><strong>{p.requiredFor.replace(/^Optional:\s*/, "")}</strong> isn&apos;t available - not a permission issue, {p.errorMessage?.charAt(0).toLowerCase()}{p.errorMessage?.slice(1)}</>
                     ) : (
                       <>Running in read-only/reporting mode - <strong>{p.requiredFor.replace(/^Optional:\s*/, "")}</strong> isn&apos;t available. Grant <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded font-mono">{p.permission}</code> in Entra to enable it.</>
                     )}
@@ -302,7 +315,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                  {report.permissions.map((p, idx) => (
+                  {orderedPermissions.map((p, idx) => (
                     <tr
                       key={idx}
                       className={
@@ -343,6 +356,13 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
                           <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 border border-emerald-200 dark:border-emerald-800 text-[11px]">
                             <CheckCircle className="w-3.5 h-3.5" /> Granted
                           </span>
+                        ) : p.status === "unlicensed" ? (
+                          <span
+                            title="Granting this permission in Azure AD will not fix this - the tenant needs to purchase the underlying license."
+                            className="inline-flex items-center gap-1 text-amber-800 dark:text-amber-400 font-medium bg-amber-50 dark:bg-amber-950 px-2 py-0.5 border border-amber-300 dark:border-amber-800 text-[11px]"
+                          >
+                            <Info className="w-3.5 h-3.5" /> No License
+                          </span>
                         ) : p.optional ? (
                           <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-400 font-medium bg-slate-100 dark:bg-slate-700 px-2 py-0.5 border border-slate-300 dark:border-slate-600 text-[11px]">
                             Not Granted - Read-Only Mode
@@ -359,22 +379,50 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
               </table>
             </div>
 
-            {/* Guidance for missing permissions */}
-            <div className="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-400 text-xs space-y-1">
-              <div className="font-semibold flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-400" />
-                How to Grant Missing Permissions in Azure Portal:
+            {/* No-license guidance - shown instead of (never alongside a claim
+                that) the Azure Portal walkthrough below would help, since
+                granting a Graph permission can't fix a missing license SKU. */}
+            {report.permissions.some((p) => p.status === "unlicensed") && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-400 text-xs space-y-1">
+                <div className="font-semibold flex items-center gap-1.5">
+                  <Info className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                  Some features need a license this tenant doesn&apos;t have:
+                </div>
+                <ul className="text-[11px] text-amber-800 dark:text-amber-400 leading-relaxed list-disc pl-4 space-y-0.5">
+                  {report.permissions
+                    .filter((p) => p.status === "unlicensed")
+                    .map((p) => (
+                      <li key={p.permission}>{p.errorMessage}</li>
+                    ))}
+                </ul>
+                <p className="text-[11px] text-amber-800 dark:text-amber-400 leading-relaxed pt-1">
+                  No change in Azure AD / Entra will fix this - it requires purchasing the underlying Microsoft 365 license for {tenant.displayName}.
+                </p>
               </div>
-              <p className="text-[11px] text-amber-800 dark:text-amber-400 leading-relaxed">
-                1. Navigate to <strong>Microsoft Entra Admin Center</strong> &gt; <strong>App registrations</strong> &gt; Select your App Registration.
-                <br />
-                2. Go to <strong>API permissions</strong> &gt; <strong>Add a permission</strong> &gt; <strong>Microsoft Graph</strong> &gt; <strong>Application permissions</strong>.
-                <br />
-                3. Check all required permissions listed above and click <strong>Grant admin consent for {tenant.displayName}</strong>.
-              </p>
-            </div>
+            )}
+
+            {/* Guidance for genuinely missing/unconsented permissions - only
+                shown when at least one required permission actually needs a
+                consent grant, so this never co-appears as false advice for a
+                tenant whose only failures are licensing gaps above. */}
+            {report.permissions.some((p) => p.status === "missing" && !p.optional) && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-400 text-xs space-y-1">
+                <div className="font-semibold flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                  How to Grant Missing Permissions in Azure Portal:
+                </div>
+                <p className="text-[11px] text-amber-800 dark:text-amber-400 leading-relaxed">
+                  1. Navigate to <strong>Microsoft Entra Admin Center</strong> &gt; <strong>App registrations</strong> &gt; Select your App Registration.
+                  <br />
+                  2. Go to <strong>API permissions</strong> &gt; <strong>Add a permission</strong> &gt; <strong>Microsoft Graph</strong> &gt; <strong>Application permissions</strong>.
+                  <br />
+                  3. Check all required permissions listed above and click <strong>Grant admin consent for {tenant.displayName}</strong>.
+                </p>
+              </div>
+            )}
           </div>
-        )}
+          );
+        })()}
 
         {/* Exchange Online (MDO Policies) - delegated device-code auth flow */}
         <div className="border border-slate-200 dark:border-slate-700 p-3 space-y-3">

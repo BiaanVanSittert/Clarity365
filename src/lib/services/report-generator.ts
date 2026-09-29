@@ -6,6 +6,8 @@ import {
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { validateCaPolicyCompliance } from "./ca-baseline-matcher";
 import { calculateTenantMonthlyWaste } from "./fleet-analyzer";
+import { DATA_PROTECTION_RECOMMENDATIONS } from "../data/data-protection-recommendations";
+import { getTierEligibility } from "../utils/data-protection-tier-gating";
 
 export const DEFAULT_MSP_BRANDING: ReportBrandingConfig = {
   mspName: "Clarity365 Managed Cyber Defense",
@@ -245,5 +247,41 @@ export function generateTenantQbrReport(
       totalEstimatedAnnualWaste,
       reclaimableSeats,
     },
+    dataProtectionSection: buildDataProtectionSection(snapshot),
+  };
+}
+
+// Reuses the same tier-eligibility check the Fleet Data Protection
+// Visibility matrix uses (getTierEligibility, see the module comment there
+// for the "Tenant.tier is a label, not verified entitlement" caveat that
+// applies here too) - applied to this one tenant instead of the whole fleet.
+function buildDataProtectionSection(
+  snapshot: TenantSecuritySnapshot
+): ExecutiveQbrReport["dataProtectionSection"] {
+  const tier = snapshot.tenant.tier;
+  let eligibleCount = 0;
+  let needsE5Count = 0;
+  let unconfirmedCount = 0;
+  const eligibleRecommendations: { id: string; title: string; regulations: string[] }[] = [];
+
+  for (const rec of DATA_PROTECTION_RECOMMENDATIONS) {
+    const eligibility = getTierEligibility(tier, rec.minimumLicenseTier);
+    if (eligibility === "eligible") {
+      eligibleCount++;
+      eligibleRecommendations.push({ id: rec.id, title: rec.title, regulations: rec.regulations });
+    } else if (eligibility === "requires_e5") {
+      needsE5Count++;
+    } else {
+      unconfirmedCount++;
+    }
+  }
+
+  return {
+    tenantTier: tier,
+    totalRecommendationsCount: DATA_PROTECTION_RECOMMENDATIONS.length,
+    eligibleRecommendationsCount: eligibleCount,
+    needsE5Count,
+    unconfirmedTierCount: unconfirmedCount,
+    eligibleRecommendations,
   };
 }

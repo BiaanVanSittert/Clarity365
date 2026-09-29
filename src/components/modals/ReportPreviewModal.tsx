@@ -17,6 +17,7 @@ import {
   Settings,
   ChevronRight,
   ExternalLink,
+  ShieldEllipsis,
 } from "lucide-react";
 
 interface ReportPreviewModalProps {
@@ -65,6 +66,7 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
     goldenBaselineSection,
     threatsAndHygieneSection,
     costOptimizationSection,
+    dataProtectionSection,
   } = report;
 
   const statusColors = {
@@ -403,6 +405,51 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                 Reclaim Potential: ${executiveSummary.totalMonthlyCostSavingsIdentified}/mo
               </span>
             </div>
+          </div>
+        </div>
+
+        {/* Section 5: Data Protection Readiness (DLP & Sensitivity Labels) -
+            guidance-only, tier-eligibility view. Deliberately not framed as a
+            live posture check - there is no live DLP sync for this tenant
+            (see the DLP & Sensitivity Labels Plan in the vault). */}
+        <div className="space-y-2.5">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-1 flex items-center gap-1.5">
+            <ShieldEllipsis size={14} className="text-slate-500" />
+            <span>5. Data Protection Readiness (DLP & Sensitivity Labels)</span>
+          </h3>
+
+          <div className="p-3 bg-slate-50 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-800 rounded-sm text-xs">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <span className="font-bold text-slate-800 dark:text-slate-200">
+                  {dataProtectionSection.eligibleRecommendationsCount} of {dataProtectionSection.totalRecommendationsCount} catalog
+                  recommendations available on this tenant's licence ({dataProtectionSection.tenantTier})
+                </span>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Guidance only - applied by hand in the Microsoft Purview portal, not deployed by Clarity365.
+                  {dataProtectionSection.needsE5Count > 0 &&
+                    ` ${dataProtectionSection.needsE5Count} recommendation(s) need E5 and aren't shown as available below.`}
+                </p>
+              </div>
+              {dataProtectionSection.unconfirmedTierCount > 0 && (
+                <span className="px-2 py-1 text-[11px] font-bold rounded-sm bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 whitespace-nowrap">
+                  {dataProtectionSection.unconfirmedTierCount} tier-unconfirmed
+                </span>
+              )}
+            </div>
+            {dataProtectionSection.eligibleRecommendations.length > 0 && (
+              <ul className="mt-2.5 space-y-1 border-t border-slate-200 dark:border-slate-800 pt-2.5">
+                {dataProtectionSection.eligibleRecommendations.map((rec) => (
+                  <li key={rec.id} className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                    <CheckCircle2 size={11} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
+                    <span>{rec.title}</span>
+                    {rec.regulations.length > 0 && (
+                      <span className="text-slate-400 dark:text-slate-500">({rec.regulations.join(", ")})</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
 

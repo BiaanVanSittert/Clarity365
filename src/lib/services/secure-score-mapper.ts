@@ -1,4 +1,6 @@
-import { SecureScoreControl, SecureScoreHistoryPoint } from "../types";
+import { SecureScoreControl, SecureScoreControlDeployment, SecureScoreHistoryPoint } from "../types";
+import { applyAutoDeployMapping } from "./secure-score-control-mapping";
+import { getSecureScoreDescriptionFallback } from "../data/secure-score-description-fallbacks";
 
 // Maps Microsoft Graph's /security/secureScores + /security/secureScoreControlProfiles
 // responses into Clarity365's SecureScoreControl shape. Graph splits "current score
@@ -23,15 +25,20 @@ export function normalizeCategory(raw: string | undefined | null): SecureScoreCo
   return CATEGORY_MAP[lower] || "Apps";
 }
 
-const COST_IMPACT_MAP: Record<string, "Low" | "Moderate" | "High"> = {
+const COST_IMPACT_MAP: Record<string, "Low" | "Moderate" | "High" | "Unknown"> = {
   low: "Low",
   moderate: "Moderate",
+  medium: "Moderate",
   high: "High",
+  unknown: "Unknown",
 };
 
-export function normalizeCostOrImpact(raw: string | undefined | null): "Low" | "Moderate" | "High" {
+// Graph's own value for the large majority of controls (confirmed live) - do
+// not fold this into "Moderate". A missing/unrecognized value defaults to
+// "Unknown" rather than a guessed severity, for the same reason.
+export function normalizeCostOrImpact(raw: string | undefined | null): "Low" | "Moderate" | "High" | "Unknown" {
   const lower = (raw || "").toLowerCase();
-  return COST_IMPACT_MAP[lower] || "Moderate";
+  return COST_IMPACT_MAP[lower] || "Unknown";
 }
 
 export function deriveControlStatus(scoreCurrent: number, scoreMax: number): SecureScoreControl["status"] {
@@ -58,6 +65,8 @@ export interface RawControlScore {
   controlName: string;
   score?: number;
   controlCategory?: string;
+  description?: string;
+  implementationStatus?: string;
 }
 
 export interface RawControlProfile {
@@ -69,6 +78,19 @@ export interface RawControlProfile {
   userImpact?: string;
   actionType?: string;
   remediation?: string | { description?: string };
+  actionUrl?: string;
+  remediationImpact?: string;
+  threats?: string[];
+}
+
+// Phase 1 default - no live-verified Graph write path is wired up yet, so
+// every control starts as "guided" (has an actionUrl and/or remediation
+// text to follow) or "manual_only" (neither). Phase 2's control-mapping
+// table overrides this to "auto" for the small subset that maps onto a
+// baseline Clarity365 already deploys (CA01-10, EDR/AV/ASR/BitLocker).
+function deriveDefaultDeployment(profile: RawControlProfile | undefined): SecureScoreControlDeployment {
+  if (profile?.actionUrl || profile?.remediation) return { type: "guided" };
+  return { type: "manual_only" };
 }
 
 export function mapSecureScoreControl(scoreEntry: RawControlScore, profile: RawControlProfile | undefined): SecureScoreControl {
@@ -89,7 +111,22 @@ export function mapSecureScoreControl(scoreEntry: RawControlScore, profile: RawC
     userImpact: normalizeCostOrImpact(profile?.userImpact),
     status: deriveControlStatus(scoreCurrent, scoreMax),
     actionType: normalizeActionType(profile?.actionType),
+    description:
+      scoreEntry.description ||
+      getSecureScoreDescriptionFallback(scoreEntry.controlName) ||
+      "No description available for this control.",
     remediationSummary,
+    actionUrl: profile?.actionUrl,
+    remediationImpact:
+      typeof profile?.remediationImpact === "string" && profile.remediationImpact.length > 0
+        ? profile.remediationImpact
+        : undefined,
+    threats: profile?.threats && profile.threats.length > 0 ? profile.threats : undefined,
+    implementationStatus:
+      scoreEntry.implementationStatus && scoreEntry.implementationStatus.length > 0
+        ? scoreEntry.implementationStatus
+        : undefined,
+    deployment: applyAutoDeployMapping(scoreEntry.controlName, deriveDefaultDeployment(profile)),
   };
 }
 

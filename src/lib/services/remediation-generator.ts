@@ -46,7 +46,7 @@ $ca01Params = @{
         applications = @{
             includeApplications = @("All")
         }
-        clientAppTypes = @("exchangeActiveSync", "otherClients")
+        clientAppTypes = @("exchangeActiveSync", "other")
     }
     grantControls = @{
         operator = "OR"

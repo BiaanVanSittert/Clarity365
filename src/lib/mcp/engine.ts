@@ -2,6 +2,7 @@ import { tenantStore } from "../services/tenant-store";
 import { generateRemediationPlanForTenant } from "../services/remediation-generator";
 import { MCP_TOOL_DEFINITIONS, McpToolDefinition } from "./definitions";
 import { defaultTablExpirationIso } from "../services/mdo-mapper";
+import { DATA_PROTECTION_RECOMMENDATIONS } from "../data/data-protection-recommendations";
 
 export { MCP_TOOL_DEFINITIONS };
 export type { McpToolDefinition };
@@ -189,6 +190,76 @@ async function runMcpTool(name: string, args: Record<string, any>) {
           : { success: false, error: result.error || `Entry ${args.entryId} not found.` };
       }
       return { success: false, error: `Unknown action '${args.action}'.` };
+    }
+
+    case "query_data_protection_recommendations": {
+      // The one tool with no tenant to look up - deliberately, this queries
+      // the static guidance catalog only. No tenantId check, no snapshot
+      // lookup, and (per the "No cross-tenant actions, ever" rule - see
+      // ai-context-vault/Optimization/DLP & Sensitivity Labels Plan.md) no
+      // path to touch a real tenant's DLP/label config from this tool at all.
+      if (args.recommendationId) {
+        const rec = DATA_PROTECTION_RECOMMENDATIONS.find((r) => r.id === args.recommendationId);
+        if (!rec) return { success: false, error: `Unknown recommendation id '${args.recommendationId}'.` };
+        // "kind" only exists on label entries (DLP entries have no kind
+        // field at all - see the type's own comment) - branch on it rather
+        // than assuming every catalog entry is a DLP rule, now that labels
+        // (added 2026-09-22) share this same array.
+        const isLabel = "kind" in rec && rec.kind === "label";
+        return {
+          success: true,
+          recommendation: {
+            id: rec.id,
+            kind: isLabel ? "label" : "dlp",
+            title: rec.title,
+            regulations: rec.regulations,
+            dataCategories: rec.dataCategories,
+            minimumLicenseTier: rec.minimumLicenseTier,
+            summary: rec.summary,
+            ...(isLabel
+              ? {
+                  labels: (rec as any).labels,
+                  labelPolicySettings: (rec as any).labelPolicySettings,
+                  autoLabeling: (rec as any).autoLabeling,
+                }
+              : {
+                  sensitiveInfoTypes: (rec as any).sensitiveInfoTypes,
+                  recommendedLocations: (rec as any).recommendedLocations,
+                  recommendedStartingMode: (rec as any).recommendedStartingMode,
+                  ruleLogicSummary: (rec as any).ruleLogicSummary,
+                  actions: (rec as any).actions,
+                }),
+            portalSteps: rec.portalSteps,
+            // Materialized with a generic placeholder - this tool call isn't
+            // scoped to a real tenant, so there's no real name to substitute.
+            powershellTemplate: rec.powershellTemplate("YourTenantName"),
+            e5Enhancements: rec.e5Enhancements || [],
+            regulationRefs: rec.regulationRefs,
+            caveats: rec.caveats,
+            relatedRecommendationIds: rec.relatedRecommendationIds || [],
+          },
+        };
+      }
+
+      let results = [...DATA_PROTECTION_RECOMMENDATIONS];
+      if (args.regulation) results = results.filter((r) => r.regulations.includes(args.regulation));
+      if (args.dataCategory) results = results.filter((r) => r.dataCategories.includes(args.dataCategory));
+      if (args.minimumLicenseTier) results = results.filter((r) => r.minimumLicenseTier === args.minimumLicenseTier);
+
+      return {
+        success: true,
+        count: results.length,
+        note: "Guidance-only catalog - every recommendation is applied by hand in the Purview portal or via a generated PowerShell script. This tool never reads or writes a real tenant's DLP/label configuration. Pass recommendationId (from one of the ids below) for full detail on one entry.",
+        recommendations: results.map((r) => ({
+          id: r.id,
+          kind: "kind" in r && r.kind === "label" ? "label" : "dlp",
+          title: r.title,
+          regulations: r.regulations,
+          dataCategories: r.dataCategories,
+          minimumLicenseTier: r.minimumLicenseTier,
+          summary: r.summary,
+        })),
+      };
     }
 
     case "generate_remediation_plan": {

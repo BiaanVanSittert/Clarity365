@@ -3,6 +3,8 @@ import { TenantSecuritySnapshot, SharePointSiteItem } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { LocalOnlyNotice } from "../common/LocalOnlyNotice";
 import { EmptyStateRow } from "../common/EmptyStateRow";
+import { SyncErrorBanner } from "../common/SyncErrorBanner";
+import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 import { FileSpreadsheet, HardDrive, Share2, AlertTriangle, Search, Filter, ShieldCheck, Check, Download } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { evaluateSharePointBaseline } from "@/lib/services/sharepoint-baseline-matcher";
@@ -15,6 +17,7 @@ interface SharePointStorageModuleProps {
 
 export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = ({ snapshot, onLocalRefresh }) => {
   const { sharePoint, tenant, accountClassification } = snapshot;
+  const sharePointSyncErrors = getSyncErrorsForPrefixes(snapshot, ["SharePoint:", "SharePoint Sites:", "SharePoint Settings:"]);
   const [searchQuery, setSearchQuery] = useState("");
   const [sharingFilter, setSharingFilter] = useState<string>("all");
   const [tenantSharingLevel, setTenantSharingLevel] = useState(sharePoint.tenantSharingLevel);
@@ -120,6 +123,8 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
           </div>
         </div>
       </div>
+
+      <SyncErrorBanner errors={sharePointSyncErrors} title="SharePoint sync error - data below may be stale" />
 
       {/* Tenant-Wide Sharing Policy Configuration Card */}
       <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 p-4 rounded-sm shadow-xs space-y-3">

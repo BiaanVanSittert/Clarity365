@@ -32,6 +32,9 @@ import {
   FileText,
   Crown,
   ShieldHalf,
+  FileSearch,
+  Radar,
+  ShieldEllipsis,
 } from "lucide-react";
 import { TenantSecuritySnapshot, FleetPostureSummary } from "@/lib/types";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
@@ -46,6 +49,7 @@ import {
 import { ASR_RULE_DEFINITIONS } from "@/lib/data/asr-rule-definitions";
 import { classifyAsrRuleTier } from "@/lib/services/asr-rule-matcher";
 import { hasDefenderForEndpointCapability } from "@/lib/utils/defender-for-endpoint";
+import { computeIntuneCoverageGaps } from "@/lib/services/intune-coverage-analyzer";
 
 interface SidebarProps {
   activeView: string;
@@ -221,6 +225,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }).length
       : 0;
 
+  // Users missing an Intune-enrolled device + devices missing EDR/AV
+  // coverage - the same two pure lenses DefenderConfigurationModule itself
+  // renders, reused here rather than a third re-derivation of "what counts
+  // as a gap."
+  const defenderCoverageGaps = snapshot
+    ? computeIntuneCoverageGaps(snapshot.accountClassification.users, snapshot.intune.devices)
+    : null;
+  const defenderCoverageGapCount = defenderCoverageGaps
+    ? defenderCoverageGaps.usersWithoutIntuneDevice.length + defenderCoverageGaps.devicesWithoutEdr.length
+    : 0;
+
   const orphanedUsersCount = snapshot ? snapshot.accountClassification.unlicensedActiveCount : 0;
 
   const unprotectedAdminsCount = snapshot
@@ -346,6 +361,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: Award,
         },
         {
+          id: "fleet_data_protection",
+          label: "Data Protection Visibility",
+          icon: ShieldEllipsis,
+        },
+        {
           id: "executive_reports",
           label: "Executive & QBR Reports",
           icon: FileText,
@@ -469,6 +489,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           badgeCount: asrRuleGapCount > 0 ? asrRuleGapCount : undefined,
           badgeStatus: "fail",
         },
+        {
+          id: "defender_config",
+          label: "Defender Config & Onboarding",
+          icon: Radar,
+          badgeCount: defenderCoverageGapCount > 0 ? defenderCoverageGapCount : undefined,
+          badgeStatus: "warn",
+          badgeDetail:
+            defenderCoverageGaps && defenderCoverageGapCount > 0
+              ? `${defenderCoverageGaps.usersWithoutIntuneDevice.length} user(s) missing from Intune, ${defenderCoverageGaps.devicesWithoutEdr.length} device(s) missing EDR/AV`
+              : undefined,
+        },
       ],
     },
     {
@@ -554,6 +585,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ],
     },
     {
+      label: "Data Protection",
+      items: [
+        {
+          id: "data_protection",
+          label: "DLP & Sensitivity Labels",
+          icon: ShieldEllipsis,
+        },
+      ],
+    },
+    {
       label: "Cost & Optimization",
       items: [
         {
@@ -583,6 +624,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: "audit_log",
           label: "Audit Log",
           icon: History,
+        },
+      ],
+    },
+    {
+      label: "Tools",
+      items: [
+        {
+          id: "audit_investigator",
+          label: "Audit Log Investigator",
+          icon: FileSearch,
         },
       ],
     },

@@ -1,12 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { graphFetch } from "./graph-fetch";
 
-function mockResponse(status: number, headers: Record<string, string> = {}) {
-  return {
+function mockResponse(status: number, headers: Record<string, string> = {}, body: string = "") {
+  const res = {
     status,
     ok: status >= 200 && status < 300,
     headers: { get: (name: string) => headers[name] ?? null },
-  } as Response;
+    text: async () => body,
+  } as unknown as Response;
+  (res as any).clone = () => res;
+  return res;
 }
 
 describe("graphFetch", () => {
@@ -116,5 +119,46 @@ describe("graphFetch", () => {
       graphFetch("https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies", {}, { retryOnNetworkError: false })
     ).rejects.toThrow("ECONNRESET");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a 401 'Lifetime validation failed' body and succeeds once the transient rejection clears", async () => {
+    const lifetimeErrorBody = JSON.stringify({ error: { message: "Lifetime validation failed, the token is expired." } });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(mockResponse(401, {}, lifetimeErrorBody))
+      .mockResolvedValueOnce(mockResponse(200));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = graphFetch("https://graph.microsoft.com/beta/deviceManagement/configurationPolicies");
+    await vi.runAllTimersAsync();
+    const res = await promise;
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a 401 for a real, unrelated auth failure", async () => {
+    const realAuthError = JSON.stringify({ error: { message: "Access token is empty." } });
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse(401, {}, realAuthError));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await graphFetch("https://graph.microsoft.com/v1.0/users");
+
+    expect(res.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives up after its bounded retry budget and returns the still-failing 401 response", async () => {
+    const lifetimeErrorBody = JSON.stringify({ error: { message: "Lifetime validation failed, the token is expired." } });
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse(401, {}, lifetimeErrorBody));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = graphFetch("https://graph.microsoft.com/beta/deviceManagement/configurationPolicies");
+    await vi.runAllTimersAsync();
+    const res = await promise;
+
+    expect(res.status).toBe(401);
+    // 1 initial attempt + 2 bounded retries for this specific error class.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
