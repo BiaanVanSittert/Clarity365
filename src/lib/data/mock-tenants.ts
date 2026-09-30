@@ -118,7 +118,14 @@ const WOODGROVE_BASELINE_OVERRIDES: Record<string, Pick<CAPolicyRule, "grantCont
   CA09: {
     grantControls: ["compliantDevice", "domainJoinedDevice"],
     grantOperator: "OR",
-    conditions: { users: wgAllUsers, applications: wgAllApps, clientAppTypes: ["all"], platforms: { include: ["all"], exclude: [] } },
+    // Guests are excluded: their devices can never be compliant in this
+    // tenant, so including them ("All users" does) blocks all collaboration.
+    conditions: {
+      users: { include: ["All"], exclude: [WG_BREAKGLASS, "GuestsOrExternalUsers"] },
+      applications: wgAllApps,
+      clientAppTypes: ["all"],
+      platforms: { include: ["all"], exclude: [] },
+    },
   },
   CA10: {
     grantControls: ["authenticationStrength:Phishing-resistant MFA"],
@@ -1285,6 +1292,25 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       { ruleId: "c1db55ab-c21a-4637-bb3f-a12568109d35", mode: "audit", sourcePolicyNames: ["Attack Surface Reduction Baseline"] },
     ],
     groups: [
+      // Referenced by CA02's "group:GuestServiceAccounts" exclusion. Without it
+      // the Security Simulations engine rightly reported every CA02 evaluation
+      // as "can't confirm" (an excluded group it couldn't find).
+      {
+        id: "grp-guest-svc",
+        displayName: "GuestServiceAccounts",
+        mailNickname: "guest-service-accounts",
+        groupType: "Security",
+        membershipType: "Assigned",
+        ownersCount: 2,
+        membersCount: 2,
+        owners: ["admin-alex@contosopharm.com", "secops-lead@contosopharm.com"],
+        members: ["svc-partner-sync@contosopharm.com", "svc-lims-bridge@contosopharm.com"],
+        isPrivileged: false,
+        syncSource: "Cloud",
+        createdDateTime: "2024-01-10T12:00:00Z",
+        isAssignableToRole: false,
+        guestMemberCount: 0,
+      },
       {
         id: "grp-01",
         displayName: "Global Cloud Security Engineers",

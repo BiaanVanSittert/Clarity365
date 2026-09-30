@@ -38,6 +38,25 @@ export interface SimAccount {
   // picker warns, since an emergency-access account is excluded from most
   // policies by design and its results don't represent a normal admin.
   breakGlassReasons?: string[];
+  // Enabled/report-only policies that exclude this account by name (object
+  // id or upn). Found live: the default "standard user" at one tenant was
+  // individually excluded from both the MFA and legacy-auth policies, so the
+  // picker's default made a well-protected tenant look wide open. The picker
+  // defaults to an account without these and marks the rest.
+  excludedFrom?: string[];
+}
+
+function directExclusionsByAccount(snapshot: TenantSecuritySnapshot): Map<string, string[]> {
+  const byRef = new Map<string, string[]>();
+  for (const p of snapshot.conditionalAccess?.policies || []) {
+    if (p.state === "disabled") continue;
+    for (const e of p.conditions.users.exclude || []) {
+      const key = e.replace(/^upn:/i, "").toLowerCase();
+      if (key === "guestsorexternalusers" || key.startsWith("group:")) continue;
+      byRef.set(key, [...(byRef.get(key) || []), p.name]);
+    }
+  }
+  return byRef;
 }
 
 export interface SimAccountLists {
@@ -71,12 +90,20 @@ export function listSimAccounts(snapshot: TenantSecuritySnapshot): SimAccountLis
   const lists: SimAccountLists = { globalAdmins: [], otherAdmins: [], standardUsers: [], guests: [] };
   const seen = new Set<string>();
   const breakGlass = detectLikelyBreakGlassAccounts(snapshot);
+  const exclusions = directExclusionsByAccount(snapshot);
 
   for (const p of profiles) {
     if (!p.accountEnabled) continue;
     seen.add(p.id);
     const bg = isLikelyBreakGlassRef(p.id, breakGlass) || isLikelyBreakGlassRef(p.userPrincipalName, breakGlass);
-    const account: SimAccount = { id: p.id, userPrincipalName: p.userPrincipalName, displayName: p.displayName, breakGlassReasons: bg?.reasons };
+    const excludedFrom = [...(exclusions.get(p.id.toLowerCase()) || []), ...(exclusions.get(p.userPrincipalName.toLowerCase()) || [])];
+    const account: SimAccount = {
+      id: p.id,
+      userPrincipalName: p.userPrincipalName,
+      displayName: p.displayName,
+      breakGlassReasons: bg?.reasons,
+      excludedFrom: excludedFrom.length > 0 ? [...new Set(excludedFrom)] : undefined,
+    };
     const dirEntry = directory.find((d) => d.id === p.id);
     if (dirEntry?.classification === "guest" || isGuestUpn(p.userPrincipalName)) {
       lists.guests.push(account);
@@ -96,7 +123,15 @@ export function listSimAccounts(snapshot: TenantSecuritySnapshot): SimAccountLis
   // Guests often have no MFA registration row - fall back to the directory list.
   for (const d of directory) {
     if (seen.has(d.id) || !d.accountEnabled) continue;
-    if (d.classification === "guest") lists.guests.push({ id: d.id, userPrincipalName: d.userPrincipalName, displayName: d.displayName });
+    if (d.classification === "guest") {
+      const excludedFrom = [...(exclusions.get(d.id.toLowerCase()) || []), ...(exclusions.get(d.userPrincipalName.toLowerCase()) || [])];
+      lists.guests.push({
+        id: d.id,
+        userPrincipalName: d.userPrincipalName,
+        displayName: d.displayName,
+        excludedFrom: excludedFrom.length > 0 ? [...new Set(excludedFrom)] : undefined,
+      });
+    }
   }
 
   const byName = (a: SimAccount, b: SimAccount) => a.displayName.localeCompare(b.displayName);
@@ -105,6 +140,13 @@ export function listSimAccounts(snapshot: TenantSecuritySnapshot): SimAccountLis
   lists.standardUsers.sort(byName);
   lists.guests.sort(byName);
   return lists;
+}
+
+// The account a picker should start on: a typical one - not a likely
+// break-glass account and not individually excluded from any policy -
+// falling back to any account at all.
+export function pickTypicalAccount(accounts: SimAccount[]): SimAccount | undefined {
+  return accounts.find((a) => !a.breakGlassReasons && !a.excludedFrom) || accounts.find((a) => !a.breakGlassReasons) || accounts[0];
 }
 
 export function buildSimUser(snapshot: TenantSecuritySnapshot, userId: string): CaSimUser | undefined {
@@ -167,6 +209,13 @@ const BREAK_GLASS_NAME = /(break.?glass|emergency|bg[-_.]?admin|glass.?break)/i;
 export function detectLikelyBreakGlassAccounts(snapshot: TenantSecuritySnapshot): BreakGlassCandidate[] {
   const policies = (snapshot.conditionalAccess?.policies || []).filter((p) => p.state !== "disabled");
   if (policies.length === 0) return [];
+  // Microsoft: report-only policies don't need an emergency-access exclusion,
+  // so an account excluded from every ENFORCED policy is a candidate even if
+  // it isn't excluded from the report-only ones. Found live: a tenant with 3
+  // enforced and 7 report-only policies excluded its break-glass account from
+  // all 3 enforced ones, which read as only 3 of 10 before this.
+  const enforcedIds = new Set(policies.filter((p) => p.state === "enabled").map((p) => p.id));
+  const enforcedCounts = new Map<string, number>();
 
   const counts = new Map<string, { kind: "user" | "group"; count: number }>();
   for (const p of policies) {
@@ -182,6 +231,7 @@ export function detectLikelyBreakGlassAccounts(snapshot: TenantSecuritySnapshot)
       const entry = counts.get(key) || { kind: isGroup ? "group" : "user", count: 0 };
       entry.count += 1;
       counts.set(key, entry);
+      if (enforcedIds.has(p.id)) enforcedCounts.set(key, (enforcedCounts.get(key) || 0) + 1);
     }
   }
 
@@ -197,7 +247,10 @@ export function detectLikelyBreakGlassAccounts(snapshot: TenantSecuritySnapshot)
     const reasons: string[] = [];
     if (BREAK_GLASS_NAME.test(label) || (displayName && BREAK_GLASS_NAME.test(displayName))) reasons.push("Named like an emergency-access account");
     const share = count / policies.length;
+    const enforcedCount = enforcedCounts.get(ref) || 0;
+    const enforcedShare = enforcedIds.size > 0 ? enforcedCount / enforcedIds.size : 0;
     if (count >= 2 && share >= 0.6) reasons.push(`Excluded from ${count} of ${policies.length} active policies`);
+    else if (enforcedCount >= 2 && enforcedShare >= 0.6) reasons.push(`Excluded from ${enforcedCount} of ${enforcedIds.size} enforced policies`);
     if (reasons.length === 0) continue;
 
     candidates.push({

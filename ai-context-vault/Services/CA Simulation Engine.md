@@ -40,4 +40,14 @@ Run read-only against all nine synced tenants. Findings that shaped the code: a 
 
 **Dev-server caveat:** the background auto-sync scheduler runs whatever code existed when the server started (see [[Tenant Store]]). A server started before Stage 1 **overwrote** freshly-synced Stage 1 data with old-shape snapshots every 30 minutes. Restart the dev server (`npm run restart`) after any change to the sync code, then re-sync. From schema version 2 onward a stale build refuses to overwrite newer snapshots (see [[Tenant Store]]).
 
-Consumers (planned): Sign-in Situations, CA Gap Analysis, Scenarios. Part of [[Clarity365 MOC]].
+## Stage 3 additions
+- Guests: risk-based policies never apply to a guest with risk (Microsoft evaluates guest risk in the home tenant).
+- `recommendFixes` options take a `normalContext`; a fix that would also block it gets `sideEffect` and is ranked after targeted fixes. A `licence` fix leads risk situations when P2 is missing.
+- `listSimAccounts` marks `excludedFrom` (policies that exclude the account by id or UPN); `pickTypicalAccount` prefers accounts with neither exclusions nor break-glass signs.
+
+## Stage 4 additions
+- `riskRemediation` grant control → a remediation requirement (same kind as password change).
+- `securityDefaultsPolicies()` exported so [[CA Gap Analysis]] can read the synthetic policies' controls.
+- Break-glass detection also flags accounts excluded from at least 60% of **enforced** policies (Microsoft: report-only policies don't need the exclusion).
+
+Consumers: [[Sign-in Situations]], [[CA Gap Analysis]] (built); Scenarios (planned). Part of [[Clarity365 MOC]].

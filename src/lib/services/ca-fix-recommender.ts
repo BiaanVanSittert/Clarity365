@@ -27,7 +27,7 @@ export type CaDesiredOutcome =
   // Blocked, or access only through an approved/app-protected mobile app.
   | "appProtection";
 
-export type CaFixKind = "enableReportOnly" | "removeExclusion" | "reviewUncertain" | "deployBaseline" | "createPolicy";
+export type CaFixKind = "licence" | "enableReportOnly" | "removeExclusion" | "reviewUncertain" | "deployBaseline" | "createPolicy";
 
 export interface CaFixRecommendation {
   kind: CaFixKind;
@@ -37,6 +37,13 @@ export interface CaFixRecommendation {
   baselineCode?: string;
   // Set when acting on this would touch a likely emergency-access account.
   warning?: string;
+  // Set when the fix would ALSO block the situation's normal, benign
+  // counterpart (options.normalContext): a broad fix rather than a targeted
+  // one. Found live: "require a compliant device for everyone" was the
+  // suggested fix for foreign-country, device-code, user-risk and guest
+  // situations alike, because every situation modelled an unmanaged device.
+  // Broad fixes are listed after targeted ones.
+  sideEffect?: string;
 }
 
 export function meetsDesiredOutcome(summary: CaOutcomeSummary, desired: CaDesiredOutcome): boolean {
@@ -84,6 +91,18 @@ export interface CaFixOptions {
   // existing can be enabled or widened.
   newPolicyDescription: string;
   breakGlass: BreakGlassCandidate[];
+  // The same sign-in with the risky part removed (home country instead of a
+  // foreign one, a normal flow instead of device code, a compliant device
+  // instead of an unmanaged one). Used to tell a targeted fix from one that
+  // would block normal sign-ins too.
+  normalContext?: SignInContext;
+}
+
+function sideEffectOf(trialEnv: CaEnvironment, env: CaEnvironment, normal: SignInContext | undefined): string | undefined {
+  if (!normal) return undefined;
+  const before = evaluateSignIn(normal, env).enforced.outcome;
+  const after = evaluateSignIn(normal, trialEnv).enforced.outcome;
+  return before !== "blocked" && after === "blocked" ? "This would also block this user's normal sign-ins, not just this situation." : undefined;
 }
 
 export function recommendFixes(ctx: SignInContext, env: CaEnvironment, desired: CaDesiredOutcome, options: CaFixOptions): CaFixRecommendation[] {
@@ -92,16 +111,29 @@ export function recommendFixes(ctx: SignInContext, env: CaEnvironment, desired: 
 
   const fixes: CaFixRecommendation[] = [];
 
+  // 0. Risk-based situations can't be handled by any policy without Entra ID P2.
+  const riskSituation = ctx.signInRisk !== "none" || ctx.userRisk !== "none";
+  const riskUnlicensed = riskSituation && !env.entraP2Licensed;
+  if (riskUnlicensed) {
+    fixes.push({
+      kind: "licence",
+      title: "License Microsoft Entra ID P2",
+      detail:
+        "Sign-in and user risk conditions only work with Entra ID P2 (Microsoft 365 E5, or the P2 add-on). Without it no risk-based policy is ever evaluated, so the tenant can't respond to this situation automatically.",
+    });
+  }
+
   // 1. A report-only policy that would reach the desired outcome on its own.
   const reportOnly = env.policies.filter((p) => p.state === "enabledForReportingButNotEnforced");
   for (const p of reportOnly) {
-    const trial = evaluateSignIn(ctx, withPolicy(env, p.id, (x) => ({ ...x, state: "enabled" })));
-    if (meetsDesiredOutcome(trial.enforced, desired)) {
+    const trialEnv = withPolicy(env, p.id, (x) => ({ ...x, state: "enabled" }));
+    if (meetsDesiredOutcome(evaluateSignIn(ctx, trialEnv).enforced, desired)) {
       fixes.push({
         kind: "enableReportOnly",
         title: `Enable report-only policy "${p.name}"`,
         detail: "This policy is in report-only mode. Switched on, it would stop this situation. Review its sign-in log impact first.",
         policyIds: [p.id],
+        sideEffect: sideEffectOf(trialEnv, env, options.normalContext),
       });
     }
   }
@@ -122,6 +154,9 @@ export function recommendFixes(ctx: SignInContext, env: CaEnvironment, desired: 
     if (!policy || policy.state === "disabled") continue;
     const trialEnv = withPolicy(env, policy.id, (p) => ({ ...removeExclusions(p, t.excludedBy!), state: "enabled" }));
     if (!meetsDesiredOutcome(evaluateSignIn(ctx, trialEnv).enforced, desired)) continue;
+    // Excluding guests from an all-users policy is normal when a dedicated
+    // guest policy exists; only suggest undoing it when nothing else can.
+    if (t.excludedBy.every((h) => h.kind === "guests") && fixes.some((f) => f.kind === "enableReportOnly" && !f.sideEffect)) continue;
 
     const breakGlass = t.excludedBy.map((h) => isLikelyBreakGlassRef(h.ref, options.breakGlass)).find(Boolean);
     const exclusionText = t.excludedBy.map(describeExclusion).join(", ");
@@ -132,6 +167,7 @@ export function recommendFixes(ctx: SignInContext, env: CaEnvironment, desired: 
         `This policy would stop the situation, but ${exclusionText}.` +
         (policy.state === "enabledForReportingButNotEnforced" ? " The policy is also still in report-only mode." : ""),
       policyIds: [policy.id],
+      sideEffect: sideEffectOf(trialEnv, env, options.normalContext),
       warning: breakGlass
         ? `This exclusion looks like an emergency-access (break-glass) account (${breakGlass.reasons.join("; ")}). Microsoft recommends keeping those excluded; confirm it is one, and that it is monitored, rather than removing it.`
         : undefined,
@@ -161,10 +197,17 @@ export function recommendFixes(ctx: SignInContext, env: CaEnvironment, desired: 
     }
   }
 
-  // 5. Otherwise, a new policy.
-  if (!fixes.some((f) => f.kind === "enableReportOnly" || f.kind === "removeExclusion" || f.kind === "deployBaseline")) {
+  // 5. Otherwise, a new policy. Broad fixes alone don't count as an answer.
+  const hasTargetedFix = fixes.some(
+    (f) => (f.kind === "enableReportOnly" || f.kind === "removeExclusion" || f.kind === "deployBaseline") && !f.sideEffect
+  );
+  if (!hasTargetedFix && !riskUnlicensed) {
     fixes.push({ kind: "createPolicy", title: "Create a new Conditional Access policy", detail: options.newPolicyDescription });
   }
 
-  return fixes;
+  // Targeted fixes first; otherwise stable, so the order above holds.
+  return fixes
+    .map((f, i) => ({ f, i }))
+    .sort((a, b) => Number(!!a.f.sideEffect) - Number(!!b.f.sideEffect) || a.i - b.i)
+    .map((x) => x.f);
 }

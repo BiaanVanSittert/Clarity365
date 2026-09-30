@@ -215,6 +215,13 @@ describe("client app, platform, flows and risk", () => {
     expect(unlicensed.reason).toMatch(/P2/);
   });
 
+  it("risk policies don't apply to guests (their risk is evaluated in their home tenant)", () => {
+    const p = policy({ grantControls: ["block"], conditions: { signInRiskLevels: ["high"] } });
+    const t = tracePolicy(p, ctx({ user: guest, signInRisk: "high" }), env([p]));
+    expect(t.applies).toBe("no");
+    expect(t.reason).toMatch(/home organization/);
+  });
+
   it("insider risk levels, with a licensing note", () => {
     const p = policy({ grantControls: ["block"], conditions: { insiderRiskLevels: ["elevated"] } });
     const r = evaluateSignIn(ctx({ insiderRisk: "elevated" }), env([p]));
@@ -299,6 +306,12 @@ describe("grant controls", () => {
     expect(ios.enforced.outcome).toBe("challenged");
     expect(ios.enforced.requirementKinds).toEqual(["appProtection"]);
     expect(evaluateSignIn(ctx({ platform: "windows" }), env([p])).enforced.outcome).toBe("blocked");
+  });
+
+  it("treats Microsoft's risk remediation grant as a remediation requirement", () => {
+    const p = policy({ grantControls: ["riskRemediation", "authenticationStrength:Multifactor authentication"], grantOperator: "AND", conditions: { userRiskLevels: ["high"] } });
+    const r = evaluateSignIn(ctx({ userRisk: "high" }), env([p]));
+    expect(r.enforced.requirementKinds).toEqual(["passwordChange", "authenticationStrength"]);
   });
 
   it("recognises phishing-resistant authentication strength", () => {

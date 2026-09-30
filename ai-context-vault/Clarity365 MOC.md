@@ -31,6 +31,9 @@ Start here, then follow links outward :  every note links back to this one, so y
 **Tenant-scoped security modules:**
 [[Conditional Access Policy Scanner]] · [[Sign-In Logs & CA Diagnostics]] · [[Secure Score & Timeline]] · [[MFA Enforcement & Auth Audit]] · [[User & Account Classification]] · [[Privileged Access Review]] · [[Exchange Mailbox Permissions]] · [[Email Forwarding Rules Audit]] · [[Mailflow Rules & Transport Hygiene]] · [[Defender for Office 365 & TABL]] · [[App Registrations & Connected Services]] · [[Intune Endpoint Security]] · [[Attack Surface Reduction Rules]] · [[Defender Configuration & Onboarding]] · [[Groups & Distribution Management]] · [[SharePoint & Storage Policies]] · [[Domain Authentication]]
 
+**Security Simulations:**
+[[Sign-in Situations]] · [[CA Gap Analysis]]
+
 **System & agent-facing:**
 [[Audit Log Viewer]] · [[Audit Log Investigator]] · [[MCP Tools Playground]] · [[Event Response (Incident Response)]]
 

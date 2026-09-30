@@ -4,7 +4,7 @@ tags: [optimization, plan, ca, simulation]
 
 # Security Simulations - Plan
 
-Status: **reviewed 2026-09-29. Stages 1 and 2 built 2026-09-29; Stage 3 (Sign-in Situations UI) next.** Live data needs a dev-server restart and re-sync first (see Stage 2 record).
+Status: **reviewed 2026-09-29. Stages 1-3 built 2026-09-29, Stage 4 built 2026-09-30; Stage 5 (extra data for the non-CA scenarios) next, then the booked lint item last.**
 
 ## Decisions (user review, 2026-09-29)
 1. **Colours**: green (prevented) and red (not prevented) are the main states. **Orange** is used only where needed: partial coverage, report-only, and "not assessed" states.
@@ -167,6 +167,18 @@ Notes for Stage 3: show a single tenant-level "re-sync needed" banner when `inco
 
 Layout: persona and account picker on top, a summary strip ("19 of 26 prevented, 5 not prevented, 2 not assessed", clickable to filter, following the Sign-In Logs KPI-card convention), then the situation list.
 
+### Stage 3 build record (2026-09-29)
+Built: [[Sign-in Situations]] (module, situation definitions, runner, country list), wired into AppShell and a new **Security Simulations** sidebar group. 689 tests pass. Verified read-only against seven re-synced live tenants.
+
+Changes to earlier stages made while building:
+- **Engine:** risk-based policies don't apply to guests (Microsoft evaluates guest risk in the guest's home tenant); without this, "Guest · high sign-in risk" looked protected when it wasn't.
+- **Fix recommender:** fixes that would also block the situation's normal twin are flagged "broad" and ranked last. Found live: "require a compliant device for everyone" was the answer to nearly every situation. Missing Entra ID P2 is its own first recommendation for risk situations.
+- **Picker:** defaults to a typical account, not an individually excluded one (see the module note).
+- **Demo data:** Woodgrove's CA09 now excludes guests (it blocked all guest collaboration, correctly flagged by the good-path situation); Contoso gained the `GuestServiceAccounts` group its CA02 excludes (it read "can't confirm" everywhere). `mock-tenants.test.ts` now guards that every `group:` marker resolves.
+- **Tests:** `vitest.config.mjs` compiles JSX with Oxc so `.tsx` components can be imported, which enables the first component test.
+
+Not done, and worth considering: a sidebar badge (red-situation count). Left out for now to keep the sidebar computation light; it would need the engine to run on every snapshot change.
+
 ## Stage 4 : CA Gap Analysis view
 
 `CaGapAnalysisModule.tsx` plus a pure `ca-gap-analyzer.ts` built on the engine.
@@ -192,6 +204,18 @@ Layout: persona and account picker on top, a summary strip ("19 of 26 prevented,
 - Legacy-auth block not scoped to all resources.
 - Trusted named locations with very broad IP ranges.
 - Security defaults on (CA not in use at all).
+
+### Stage 4 build record (2026-09-30)
+Built: [[CA Gap Analysis]] (analyzer, module, sidebar badge, links into Sign-in Situations). 711 tests pass. Verified read-only against all nine live tenants.
+
+Decisions taken while building (open to review):
+- The matrix uses synthetic persona users, so it answers "does policy cover this persona as a whole"; individual exclusions are findings, not cell colours.
+- Report-only shows only when it would actually close the gap; otherwise the cell is red.
+- Users × phishing-resistant is not applicable unless enforced (Microsoft recommends it for admins only); the reference screenshot shows it the same way.
+- Workload identities are shown but not scored, because their licence can't be detected.
+- The lockout finding counts MFA as "restricting", per Microsoft's emergency-access guidance, so an admin-MFA policy with no exclusion is flagged (high; critical when it blocks).
+
+Earlier-stage changes: the Stage 1 mapper now accepts lower-case grant operators (Microsoft's own docs send `"and"`); the engine understands the newer `riskRemediation` grant; break-glass detection also judges against enforced policies only; `securityDefaultsPolicies()` is exported for the analyzer.
 
 ## Stage 5 : Extra data for the non-CA scenarios
 
@@ -243,6 +267,24 @@ EXO steps only run when EXO is connected. Otherwise the related checks show grey
 - Add the CA score and top findings to [[Executive Reporting (QBR)]].
 - **Break-glass designation**: let the operator mark one tenant's emergency-access accounts, so their exclusions read as intended rather than as gaps. This is a tenant-scoped settings write through [[Tenant Store]]. *(Open question 3.)*
 - **Live What If cross-check**: Microsoft Graph has a Conditional Access What If evaluation API in **beta** (`POST /identity/conditionalAccess/evaluate`). **Unverified: confirm on Microsoft Learn before building.** If it exists, a "verify with Microsoft" button per situation would give ground truth (including nested groups and device filters the local engine marks indeterminate) through a read-only, single-tenant route. The local engine stays primary, because it works for demo tenants, offline, and explains *why*.
+
+## Final item (after all Security Simulations work) : pre-existing lint errors
+Booked 2026-09-30 at the user's request, to do once every stage above is finished. **Scope corrected the same day:** the first count (2 errors in `IntuneSecurityModule.tsx`) came from a lint run piped through `tail`, which hid all but the last file. The real state of `npx next lint --dir src`: **33 errors, all `react/no-unescaped-entities`** (unescaped `'` / `"` in JSX text), plus 3 `react-hooks/exhaustive-deps` warnings, in 8 files that predate this feature:
+
+| File | Errors | Warnings |
+|---|---|---|
+| `modules/DefenderConfigurationModule.tsx` | 13 | 1 |
+| `modules/AsrRulesModule.tsx` | 6 | |
+| `modules/ComplianceMatrixModule.tsx` | 4 | |
+| `modals/ReportPreviewModal.tsx` | 3 | |
+| `modules/ConditionalAccessModule.tsx` | 2 | |
+| `modules/DataProtectionModule.tsx` | 2 | |
+| `modules/IntuneSecurityModule.tsx` | 2 | |
+| `modules/FleetDataProtectionModule.tsx` | 1 | |
+| `modules/FleetBaselineRolloutModule.tsx` | | 1 |
+| `modules/McpPlaygroundModule.tsx` | | 1 |
+
+**Why it matters more than it looks:** `next.config.mjs` doesn't set `eslint.ignoreDuringBuilds`, so `next build` runs lint and fails on errors. `npm run build` (and so the Docker image) is broken until these are fixed; `npm run dev` is unaffected. The fix is mechanical (escape the characters; review each hook-dependency warning rather than blindly adding dependencies), then confirm `next lint` is clean and `next build` succeeds (with the dev server stopped, since both use `.next/`).
 
 ## Files and blast radius
 

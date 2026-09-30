@@ -22,6 +22,18 @@ describe("demo tenant Conditional Access data", () => {
     }
   });
 
+  it("every group a demo policy references by \"group:\" marker exists in that tenant's groups", () => {
+    for (const [tenantId, snap] of Object.entries(MOCK_TENANT_DATA)) {
+      const names = new Set((snap.groups || []).flatMap((g) => [g.displayName.toLowerCase(), g.id.toLowerCase()]));
+      for (const policy of snap.conditionalAccess.policies) {
+        const refs = [...policy.conditions.users.include, ...policy.conditions.users.exclude].filter((r) => r.toLowerCase().startsWith("group:"));
+        for (const ref of refs) {
+          expect(names.has(ref.slice(6).toLowerCase()), `${tenantId} / ${policy.name} references unknown group "${ref}"`).toBe(true);
+        }
+      }
+    }
+  });
+
   it("every named-location id a demo policy references resolves to one of that tenant's named locations", () => {
     const builtIn = new Set(["All", "AllTrusted"]);
     for (const [tenantId, snap] of Object.entries(MOCK_TENANT_DATA)) {

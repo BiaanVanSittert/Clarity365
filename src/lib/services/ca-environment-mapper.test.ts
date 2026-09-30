@@ -78,6 +78,11 @@ describe("mapCaPolicyExtendedFields", () => {
     expect(mapped.grantControls).toEqual(["mfa", "compliantDevice"]);
   });
 
+  it("accepts a lower-case grant operator, as Microsoft's documented examples send it", () => {
+    expect(mapCaPolicyExtendedFields({ grantControls: { operator: "and" } }).grantOperator).toBe("AND");
+    expect(mapCaPolicyExtendedFields({ grantControls: { operator: "or" } }).grantOperator).toBe("OR");
+  });
+
   it("leaves grantOperator undefined when Graph omits it or sends an unexpected value", () => {
     expect(mapCaPolicyExtendedFields({ grantControls: null }).grantOperator).toBeUndefined();
     expect(mapCaPolicyExtendedFields({ grantControls: { operator: "XOR" } }).grantOperator).toBeUndefined();

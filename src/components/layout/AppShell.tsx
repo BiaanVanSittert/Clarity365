@@ -23,6 +23,7 @@ import { RefreshCw, CheckCircle, AlertTriangle, X } from "lucide-react";
 import { ErrorBoundary } from "../common/ErrorBoundary";
 
 // Lazy-load module components for fast initial load
+import type { SituationPersona } from "@/lib/data/signin-situation-definitions";
 const OverviewDashboard = lazy(() => import("../dashboard/OverviewDashboard").then(m => ({ default: m.OverviewDashboard })));
 const FleetOverviewDashboard = lazy(() => import("../dashboard/FleetOverviewDashboard").then(m => ({ default: m.FleetOverviewDashboard })));
 const FleetLicenseOptimizationModule = lazy(() => import("../modules/FleetLicenseOptimizationModule").then(m => ({ default: m.FleetLicenseOptimizationModule })));
@@ -54,6 +55,8 @@ const ExecutiveReportingModule = lazy(() => import("../modules/ExecutiveReportin
 const ComplianceMatrixModule = lazy(() => import("../modules/ComplianceMatrixModule").then(m => ({ default: m.ComplianceMatrixModule })));
 const DataProtectionModule = lazy(() => import("../modules/DataProtectionModule").then(m => ({ default: m.DataProtectionModule })));
 const FleetDataProtectionModule = lazy(() => import("../modules/FleetDataProtectionModule").then(m => ({ default: m.FleetDataProtectionModule })));
+const CaGapAnalysisModule = lazy(() => import("../modules/CaGapAnalysisModule").then(m => ({ default: m.CaGapAnalysisModule })));
+const SignInSituationsModule = lazy(() => import("../modules/SignInSituationsModule").then(m => ({ default: m.SignInSituationsModule })));
 const AuditLogInvestigatorModule = lazy(() => import("../modules/AuditLogInvestigatorModule").then(m => ({ default: m.AuditLogInvestigatorModule })));
 
 export const AppShell: React.FC = () => {
@@ -61,6 +64,8 @@ export const AppShell: React.FC = () => {
   const [activeTenantId, setActiveTenantId] = useState<string | null>("fleet"); // Default to Fleet View on startup
   const [snapshot, setSnapshot] = useState<TenantSecuritySnapshot | null>(null);
   const [activeView, setActiveView] = useState<string>("fleet_overview");
+  // Persona Sign-in Situations opens on when CA Gap Analysis links into it.
+  const [simPersona, setSimPersona] = useState<SituationPersona | undefined>(undefined);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
@@ -751,6 +756,26 @@ export const AppShell: React.FC = () => {
                 <AsrRulesModule snapshot={snapshot} onNavigate={(view) => setActiveView(view)} />
               )}
               {activeView === "asr_rules" && !snapshot && <SkeletonLoader />}
+            </ErrorBoundary>
+
+            <ErrorBoundary moduleName="Sign-in Situations" key={`eb-sim-signin-${activeTenantId}`}>
+              {activeView === "sim_signin" && snapshot && (
+                <SignInSituationsModule snapshot={snapshot} onNavigate={(view) => setActiveView(view)} initialPersona={simPersona} />
+              )}
+              {activeView === "sim_signin" && !snapshot && <SkeletonLoader />}
+            </ErrorBoundary>
+
+            <ErrorBoundary moduleName="CA Gap Analysis" key={`eb-sim-ca-gaps-${activeTenantId}`}>
+              {activeView === "sim_ca_gaps" && snapshot && (
+                <CaGapAnalysisModule
+                  snapshot={snapshot}
+                  onOpenSituations={(persona) => {
+                    setSimPersona(persona);
+                    setActiveView("sim_signin");
+                  }}
+                />
+              )}
+              {activeView === "sim_ca_gaps" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Defender Configuration & Onboarding" key={`eb-defender-config-${activeTenantId}`}>

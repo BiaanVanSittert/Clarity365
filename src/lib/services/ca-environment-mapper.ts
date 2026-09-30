@@ -48,7 +48,9 @@ export function mapCaPolicyExtendedFields(p: any): {
       }
     : undefined;
 
-  const operatorRaw = p?.grantControls?.operator;
+  // Case-insensitive: Microsoft's own documented examples send "and"/"or" in
+  // lower case (confirmed on the workload-identity Learn page, 2026-09-30).
+  const operatorRaw = typeof p?.grantControls?.operator === "string" ? p.grantControls.operator.toUpperCase() : undefined;
   const grantOperator = operatorRaw === "AND" || operatorRaw === "OR" ? operatorRaw : undefined;
 
   return {

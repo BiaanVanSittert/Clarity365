@@ -20,6 +20,6 @@ Every [[Baseline Matchers|baseline matcher]], every [[Data Mappers|data mapper]]
 | `scheduler.ts` | Background auto-sync loop |
 | `remediation-generator.ts` | Output is shown directly in the UI and returned by an MCP tool to external agents |
 
-No UI/component tests exist at all (no React Testing Library, no Playwright/Cypress) :  all ~25 tests are service-layer unit tests. See [[Optimization Plan]] for prioritization.
+UI tests are almost absent (no React Testing Library, no Playwright/Cypress). The one exception is `SignInSituationsModule.test.ts`, a server-render smoke test (`react-dom/server`) that catches render-time crashes; it works because `vitest.config.mjs` compiles JSX with Oxc (`tsconfig.json`'s `jsx: preserve` is for Next.js and can't run under Vite). The same pattern is cheap to reuse for other modules. See [[Optimization Plan]] for prioritization.
 
 Part of [[Clarity365 MOC]].

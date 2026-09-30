@@ -458,6 +458,9 @@ function evaluateControl(control: string, ctx: SignInContext): ControlState | { 
       : { state: "unmet", reason: "requires an approved or app-protected mobile app, which this sign-in can't use" };
   }
   if (cl === "passwordchange") return { state: "requires", req: { kind: "passwordChange", label: "Secure password change" } };
+  // Microsoft's newer "Require risk remediation" grant (user-risk policies):
+  // the user self-remediates, which covers passwordless users too.
+  if (cl === "riskremediation") return { state: "requires", req: { kind: "passwordChange", label: "Risk remediation" } };
   return { state: "requires", req: { kind: "other", label: `Control: ${c}` } };
 }
 
@@ -551,6 +554,12 @@ export function tracePolicy(policy: CAPolicyRule, ctx: SignInContext, env: CaEnv
   if (hasRisk && !env.entraP2Licensed) {
     return { ...base, reason: "Uses sign-in or user risk, which needs Microsoft Entra ID P2 (not licensed), so it never evaluates" };
   }
+  // Microsoft Entra ID Protection evaluates a B2B guest's risk in the guest's
+  // HOME tenant; the resource tenant's risk-based policies don't see it.
+  const riskActive = ctx.signInRisk !== "none" || ctx.userRisk !== "none";
+  if (hasRisk && ctx.user.isGuest && riskActive) {
+    return { ...base, reason: "Guest risk is evaluated by the guest's home organization, so this tenant's risk-based policies don't apply to guests" };
+  }
 
   const users = evaluateUsers(policy, ctx.user, env.groups);
   const apps = evaluateApplications(policy, ctx.target);
@@ -604,7 +613,7 @@ export function tracePolicy(policy: CAPolicyRule, ctx: SignInContext, env: CaEnv
 
 // Security defaults, modelled as three synthetic policies. Only used when
 // security defaults are on (they can't coexist with Conditional Access).
-function securityDefaultsPolicies(): CAPolicyRule[] {
+export function securityDefaultsPolicies(): CAPolicyRule[] {
   const common = {
     baselineCode: null,
     state: "enabled" as const,

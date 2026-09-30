@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MOCK_TENANT_DATA } from "../data/mock-tenants";
 import { TenantSecuritySnapshot } from "../types";
-import { buildCaEnvironment, buildSimUser, buildSyntheticSimUser, detectLikelyBreakGlassAccounts, listSimAccounts } from "./ca-sim-context";
+import { buildCaEnvironment, buildSimUser, buildSyntheticSimUser, detectLikelyBreakGlassAccounts, listSimAccounts, pickTypicalAccount } from "./ca-sim-context";
 import { GLOBAL_ADMIN_TEMPLATE_ID } from "../utils/directory-role-templates";
 import { SignInContext, evaluateSignIn } from "./ca-policy-evaluator";
 
@@ -61,6 +61,23 @@ describe("listSimAccounts", () => {
   });
 });
 
+describe("pickTypicalAccount", () => {
+  it("skips individually excluded and break-glass accounts (regression: an excluded service account was the default)", () => {
+    const woodgrove = MOCK_TENANT_DATA["tenant-woodgrove-fsi"];
+    const policies = woodgrove.conditionalAccess.policies.map((p, i) =>
+      i === 1 ? { ...p, conditions: { ...p.conditions, users: { ...p.conditions.users, exclude: [...p.conditions.users.exclude, "u-svc"] } } } : p
+    );
+    const snap = snapshotWith({
+      conditionalAccess: { ...woodgrove.conditionalAccess, policies },
+      mfaAudit: [mfaProfile("u-svc", "aaa-scanner@x.com"), mfaProfile("u-real", "bbb-user@x.com")],
+      accountClassification: { ...woodgrove.accountClassification, users: [] },
+    });
+    const users = listSimAccounts(snap).standardUsers;
+    expect(users[0].excludedFrom).toEqual([policies[1].name]);
+    expect(pickTypicalAccount(users)!.id).toBe("u-real");
+  });
+});
+
 describe("buildCaEnvironment", () => {
   it("marks live policies without Stage 1 fields as incomplete, but never demo policies", () => {
     const live = snapshotWith({ tenant: { ...MOCK_TENANT_DATA["tenant-woodgrove-fsi"].tenant, isDemo: false } });
@@ -92,6 +109,18 @@ describe("detectLikelyBreakGlassAccounts", () => {
     const found = detectLikelyBreakGlassAccounts(MOCK_TENANT_DATA["tenant-woodgrove-fsi"]);
     expect(found[0].ref).toBe("upn:emergency-wg-breakglass@woodgrovefinancial.com");
     expect(found[0].reasons.length).toBe(2);
+  });
+
+  it("judges against enforced policies too, since report-only ones don't need the exclusion (regression: 3 of 3 enforced read as 3 of 10)", () => {
+    const template = MOCK_TENANT_DATA["tenant-woodgrove-fsi"].conditionalAccess.policies[1];
+    const policies = Array.from({ length: 10 }, (_, i) => ({
+      ...template,
+      id: `p${i}`,
+      state: (i < 3 ? "enabled" : "enabledForReportingButNotEnforced") as "enabled" | "enabledForReportingButNotEnforced",
+      conditions: { ...template.conditions, users: { include: ["All"], exclude: i < 3 ? ["55555555-5555-5555-5555-555555555555"] : [] } },
+    }));
+    const snap = snapshotWith({ conditionalAccess: { ...MOCK_TENANT_DATA["tenant-woodgrove-fsi"].conditionalAccess, policies }, mfaAudit: [] });
+    expect(detectLikelyBreakGlassAccounts(snap)[0].reasons).toEqual(["Excluded from 3 of 3 enforced policies"]);
   });
 
   it("flags a GUID excluded from most policies even without a telling name", () => {

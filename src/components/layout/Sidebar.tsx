@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   LayoutDashboard,
   ShieldAlert,
@@ -35,11 +35,15 @@ import {
   FileSearch,
   Radar,
   ShieldEllipsis,
+  LogIn,
+  Grid3x3,
 } from "lucide-react";
 import { TenantSecuritySnapshot, FleetPostureSummary } from "@/lib/types";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
 import { evaluateMailflowBaseline } from "@/lib/services/mailflow-baseline-matcher";
 import { evaluateGroupsBaseline } from "@/lib/services/groups-baseline-matcher";
+import { analyzeCaGaps } from "@/lib/services/ca-gap-analyzer";
+import { detectHomeCountry } from "@/lib/services/signin-situation-runner";
 import { evaluateSharePointBaseline } from "@/lib/services/sharepoint-baseline-matcher";
 import { calculateTenantMonthlyWaste } from "@/lib/services/fleet-analyzer";
 import {
@@ -280,6 +284,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     : [];
   const groupsBaselineGapCount = groupsBaselineResults.filter((r) => !r.met).length;
 
+  // CA Gap Analysis badge: critical + high findings. Memoized because the
+  // analysis runs the CA simulation engine for every matrix cell.
+  const caGapSeverity = useMemo(
+    () => (snapshot ? analyzeCaGaps(snapshot, new Date(), detectHomeCountry(snapshot)).severityCounts : undefined),
+    [snapshot]
+  );
+  const caGapCriticalCount = caGapSeverity?.critical ?? 0;
+  const caGapUrgentCount = caGapCriticalCount + (caGapSeverity?.high ?? 0);
+
   const sharePointSitesCount = snapshot ? snapshot.sharePoint.sites.length : 0;
   const sharePointBaselineResults = snapshot
     ? evaluateSharePointBaseline({
@@ -471,6 +484,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: Crown,
           badgeCount: unprotectedAdminsCount > 0 ? unprotectedAdminsCount : undefined,
           badgeStatus: "fail",
+        },
+      ],
+    },
+    {
+      // Security Simulations (ai-context-vault/Optimization/Security
+      // Simulations Plan.md). Scenarios and CA Gap Analysis join this group
+      // as their stages ship.
+      label: "Security Simulations",
+      items: [
+        {
+          id: "sim_signin",
+          label: "Sign-in Situations",
+          icon: LogIn,
+        },
+        {
+          id: "sim_ca_gaps",
+          label: "CA Gap Analysis",
+          icon: Grid3x3,
+          badgeCount: caGapUrgentCount > 0 ? caGapUrgentCount : undefined,
+          badgeStatus: caGapCriticalCount > 0 ? "fail" : "warn",
+          badgeDetail: caGapUrgentCount > 0 ? `${caGapCriticalCount} critical, ${caGapUrgentCount - caGapCriticalCount} high finding(s)` : undefined,
         },
       ],
     },

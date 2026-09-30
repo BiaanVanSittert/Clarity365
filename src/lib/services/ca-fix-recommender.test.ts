@@ -85,6 +85,40 @@ describe("recommendFixes", () => {
   });
 });
 
+describe("targeted vs broad fixes", () => {
+  const compliantForAll: CAPolicyRule = {
+    ...countryBlock(),
+    id: "ca09",
+    name: "CA09: Require compliant device",
+    baselineCode: "CA09",
+    state: "enabledForReportingButNotEnforced",
+    grantControls: ["compliantDevice"],
+    conditions: { users: { include: ["All"], exclude: [] }, applications: { include: ["All"], exclude: [] }, clientAppTypes: ["all"] },
+  };
+  const reportOnlyCountryBlock = countryBlock({ state: "enabledForReportingButNotEnforced" });
+  const normalContext: SignInContext = { ...foreignSignIn, location: { country: "ZA", ipNamedLocationIds: [] } };
+
+  it("flags a fix that would also block normal sign-ins and lists it after the targeted one (regression: CA09 offered for everything)", () => {
+    const fixes = recommendFixes(foreignSignIn, env([compliantForAll, reportOnlyCountryBlock]), "block", { ...options, normalContext });
+    const enables = fixes.filter((f) => f.kind === "enableReportOnly");
+    expect(enables.map((f) => f.policyIds![0])).toEqual(["ca08", "ca09"]);
+    expect(enables[0].sideEffect).toBeUndefined();
+    expect(enables[1].sideEffect).toMatch(/normal sign-ins/);
+  });
+
+  it("still suggests a new policy when only broad fixes exist", () => {
+    const fixes = recommendFixes(foreignSignIn, env([compliantForAll]), "block", { ...options, baselineCode: undefined, normalContext });
+    expect(fixes.map((f) => f.kind)).toEqual(["createPolicy", "enableReportOnly"]);
+  });
+
+  it("leads with licensing for risk situations when Entra ID P2 is missing", () => {
+    const risky: SignInContext = { ...normalContext, userRisk: "high" };
+    const fixes = recommendFixes(risky, { ...env([]), entraP2Licensed: false }, "passwordChange", { ...options, baselineCode: "CA07" });
+    expect(fixes[0].kind).toBe("licence");
+    expect(fixes.map((f) => f.kind)).not.toContain("createPolicy");
+  });
+});
+
 describe("meetsDesiredOutcome", () => {
   const challenged = (kinds: any[]) => ({ outcome: "challenged" as const, blockedBy: [], requirements: [], requirementKinds: kinds, sessionControls: [], uncertainPolicies: [] });
   it("MFA meets strongAuth but not block or phishingResistant", () => {
