@@ -37,12 +37,14 @@ import {
   ShieldEllipsis,
   LogIn,
   Grid3x3,
+  Swords,
 } from "lucide-react";
 import { TenantSecuritySnapshot, FleetPostureSummary } from "@/lib/types";
 import { evaluateMdoBaseline } from "@/lib/services/mdo-baseline-matcher";
 import { evaluateMailflowBaseline } from "@/lib/services/mailflow-baseline-matcher";
 import { evaluateGroupsBaseline } from "@/lib/services/groups-baseline-matcher";
 import { analyzeCaGaps } from "@/lib/services/ca-gap-analyzer";
+import { evaluateScenarios } from "@/lib/services/security-scenarios";
 import { detectHomeCountry } from "@/lib/services/signin-situation-runner";
 import { evaluateSharePointBaseline } from "@/lib/services/sharepoint-baseline-matcher";
 import { calculateTenantMonthlyWaste } from "@/lib/services/fleet-analyzer";
@@ -291,6 +293,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     [snapshot]
   );
   const caGapCriticalCount = caGapSeverity?.critical ?? 0;
+  // Security Scenarios badge: scenarios with at least one open path (red).
+  const redScenarioCount = useMemo(
+    () => (snapshot ? evaluateScenarios(snapshot).filter((r) => r.verdict === "notPrevented").length : 0),
+    [snapshot]
+  );
   const caGapUrgentCount = caGapCriticalCount + (caGapSeverity?.high ?? 0);
 
   const sharePointSitesCount = snapshot ? snapshot.sharePoint.sites.length : 0;
@@ -493,6 +500,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       // as their stages ship.
       label: "Security Simulations",
       items: [
+        {
+          id: "sim_scenarios",
+          label: "Scenarios",
+          icon: Swords,
+          badgeCount: redScenarioCount > 0 ? redScenarioCount : undefined,
+          badgeStatus: "fail",
+          badgeDetail: redScenarioCount > 0 ? `${redScenarioCount} attack scenario(s) not prevented` : undefined,
+        },
         {
           id: "sim_signin",
           label: "Sign-in Situations",

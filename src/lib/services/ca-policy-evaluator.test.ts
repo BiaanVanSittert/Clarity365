@@ -140,6 +140,12 @@ describe("users condition", () => {
     expect(tracePolicy(p, ctx(), env([p])).applies).toBe("unknown");
   });
 
+  it("but for a synthetic persona user (member of no special group) it's a definite no", () => {
+    const p = policy({ conditions: { users: { include: [], exclude: [], includeGroupIds: ["grp-not-synced"] } } });
+    const typical = { ...standardUser, groupMembershipComplete: true };
+    expect(tracePolicy(p, ctx({ user: typical }), env([p])).applies).toBe("no");
+  });
+
   it("never applies a workload-identity policy to a user sign-in", () => {
     const p = policy({ conditions: { users: { include: [], exclude: [] }, clientApplications: { includeServicePrincipals: ["All"], excludeServicePrincipals: [] } } });
     expect(tracePolicy(p, ctx(), env([p])).reason).toMatch(/workload identities/);
@@ -373,8 +379,15 @@ describe("policies synced before simulation support", () => {
 });
 
 describe("real Exchange/SharePoint app ids", () => {
-  it("an Exchange-only block still blocks an Office 365 sign-in", () => {
+  it("an Exchange-only block is partial coverage, not a block of the whole Office 365 sign-in (regression: SharePoint-only policy read as a full block)", () => {
     const p = policy({ grantControls: ["block"], conditions: { applications: { include: [EXCHANGE], exclude: [] } } });
+    const r = evaluateSignIn(ctx(), env([p]));
+    expect(r.enforced.outcome).toBe("allowed");
+    expect(r.enforced.partialCoverage).toEqual([{ policyId: "p", policyName: "Test policy", coverage: "Exchange Online", effect: "block" }]);
+  });
+
+  it("a policy covering Office 365 as a whole still blocks", () => {
+    const p = policy({ grantControls: ["block"], conditions: { applications: { include: ["Office365"], exclude: [] } } });
     expect(evaluateSignIn(ctx(), env([p])).enforced.outcome).toBe("blocked");
   });
 });

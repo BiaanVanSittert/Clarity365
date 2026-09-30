@@ -14,7 +14,10 @@
 //   (absent) - before this stamp existed
 //   2        - Security Simulations Stages 1-2: extended CA policy fields,
 //              named locations, identity settings, role template ids
-export const SNAPSHOT_SYNC_SCHEMA_VERSION = 2;
+//   3        - Security Simulations Stage 5: SharePoint security settings,
+//              Exchange audit/protocol settings, PIM role assignments,
+//              OAuth consent grants
+export const SNAPSHOT_SYNC_SCHEMA_VERSION = 3;
 
 export function storedSchemaVersion(snapshot: { syncSchemaVersion?: number } | undefined): number {
   return typeof snapshot?.syncSchemaVersion === "number" ? snapshot.syncSchemaVersion : 0;

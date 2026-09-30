@@ -218,7 +218,8 @@ function evaluateUserCell(
     };
     const result = evaluateSignIn(ctx, env);
     const matching = (states: CAPolicyRule["state"][], applies: CaPolicyTrace["applies"]) =>
-      result.trace.filter((t) => t.source === "policy" && t.applies === applies && states.includes(t.state) && probe.provides(byId.get(t.policyId)!, t));
+      // A policy covering only part of Office 365 doesn't cover the persona.
+      result.trace.filter((t) => t.source === "policy" && t.applies === applies && !t.partialResource && states.includes(t.state) && probe.provides(byId.get(t.policyId)!, t));
     // Security defaults count as enforced protection for MFA / legacy.
     const defaults = result.trace.filter((t) => t.source === "securityDefaults" && t.applies === "yes" && probe.provides(byId.get(t.policyId)!, t));
     return {

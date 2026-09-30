@@ -10,7 +10,7 @@ Modules never render each other directly :  every navigation is a spoke through 
 
 - Wires up: `AddTenantModal`, `DeleteTenantModal`, `SettingsModal`, `PermissionsModal`, `RemediationDrawer`, `SearchDialog`, `GlobalFleetSearchDialog` :  see [[Modals]], [[Common Components]]
 - Wraps content in `ErrorBoundary`
-- Sidebar group **Security Simulations** (after Identity & Access): `sim_signin` → [[Sign-in Situations]], `sim_ca_gaps` → [[CA Gap Analysis]] (badge: critical + high findings). Scenarios joins it when built. AppShell holds `simPersona` so a gap can open Sign-in Situations on the right persona
+- Sidebar group **Security Simulations** (after Identity & Access): `sim_scenarios` → [[Security Scenarios]] (badge: red scenarios), `sim_signin` → [[Sign-in Situations]], `sim_ca_gaps` → [[CA Gap Analysis]] (badge: critical + high findings). AppShell holds `simPersona` so a scenario check or a gap can open Sign-in Situations on the right persona
 - Used by: `Header.tsx` (tenant switcher, global search trigger Ctrl+K) and `Sidebar.tsx` (nav list grouped e.g. "Operations & Governance", "Cost & Optimization"; drives `activeView` changes; shows alert/badge counts)
 
 Part of [[Clarity365 MOC]].

@@ -50,4 +50,8 @@ Run read-only against all nine synced tenants. Findings that shaped the code: a 
 - `securityDefaultsPolicies()` exported so [[CA Gap Analysis]] can read the synthetic policies' controls.
 - Break-glass detection also flags accounts excluded from at least 60% of **enforced** policies (Microsoft: report-only policies don't need the exclusion).
 
-Consumers: [[Sign-in Situations]], [[CA Gap Analysis]] (built); Scenarios (planned). Part of [[Clarity365 MOC]].
+## Stage 6 additions
+- **Partial resource coverage:** a policy that covers only part of the target (e.g. SharePoint only, for an Office 365 sign-in) is reported in `CaOutcomeSummary.partialCoverage` (and `CaPolicyTrace.partialResource`) instead of `blockedBy` / `requirements`. It no longer makes the whole sign-in "blocked".
+- **`CaSimUser.groupMembershipComplete`:** set on synthetic persona users; a group missing from the capped synced list is then "no" rather than "unknown". Real accounts leave it unset.
+
+Consumers: [[Security Scenarios]], [[Sign-in Situations]], [[CA Gap Analysis]]. Part of [[Clarity365 MOC]].

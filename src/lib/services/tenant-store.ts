@@ -493,6 +493,11 @@ class TenantStore {
       },
       identitySettings:
         snapshot.tenant.isDemo && mockSnap?.identitySettings ? mockSnap.identitySettings : snapshot.identitySettings,
+      // Security Simulations Stage 5: same demo refresh rule. These are never
+      // written locally, so the mock value simply wins for demo tenants.
+      exchangeSecurity: snapshot.tenant.isDemo && mockSnap ? mockSnap.exchangeSecurity : snapshot.exchangeSecurity,
+      privilegedRoleAssignments: snapshot.tenant.isDemo && mockSnap ? mockSnap.privilegedRoleAssignments : snapshot.privilegedRoleAssignments,
+      oauthConsentGrants: snapshot.tenant.isDemo && mockSnap ? mockSnap.oauthConsentGrants : snapshot.oauthConsentGrants,
       accountClassification: {
         ...blank.accountClassification,
         ...snapshot.accountClassification,
@@ -506,7 +511,25 @@ class TenantStore {
         ...snapshot.intune,
         devices,
       },
-      sharePoint: { ...blank.sharePoint, ...snapshot.sharePoint },
+      sharePoint: {
+        ...blank.sharePoint,
+        ...snapshot.sharePoint,
+        // Demo tenants: only the Security Simulations Stage 5 setting fields
+        // come from mock-tenants.ts - sites stay as stored, since the
+        // SharePoint module can change them locally.
+        ...(snapshot.tenant.isDemo && mockSnap?.sharePoint
+          ? {
+              linkDefaultsReported: mockSnap.sharePoint.linkDefaultsReported,
+              resharingByExternalUsersEnabled: mockSnap.sharePoint.resharingByExternalUsersEnabled,
+              unmanagedSyncAppRestricted: mockSnap.sharePoint.unmanagedSyncAppRestricted,
+              syncAllowedDomainCount: mockSnap.sharePoint.syncAllowedDomainCount,
+              sharingDomainRestrictionMode: mockSnap.sharePoint.sharingDomainRestrictionMode,
+              legacyAuthProtocolsEnabled: mockSnap.sharePoint.legacyAuthProtocolsEnabled,
+              idleSessionSignOutEnabled: mockSnap.sharePoint.idleSessionSignOutEnabled,
+              requireAcceptingUserToMatchInvitedUser: mockSnap.sharePoint.requireAcceptingUserToMatchInvitedUser,
+            }
+          : {}),
+      },
       incidents,
       highRiskThreatIndicators: { ...blank.highRiskThreatIndicators, ...snapshot.highRiskThreatIndicators },
     };

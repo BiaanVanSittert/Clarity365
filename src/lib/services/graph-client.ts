@@ -1,4 +1,4 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability, TenantLicenseSku, SecurityIncidentItem, AsrRuleMode, AsrRuleState, AsrRuleActivitySummary, AsrDetectionEvent, MdeConnectorSettings, AtpOnboardingDeviceState, DefenderAvPolicySettings, IntuneAssignmentTarget, AsrDetectionTimeRange, EdrPolicySettings, BitLockerPolicySettings, DeviceComplianceReason, CaNamedLocation, CaSessionControls, TenantIdentitySettings } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability, TenantLicenseSku, SecurityIncidentItem, AsrRuleMode, AsrRuleState, AsrRuleActivitySummary, AsrDetectionEvent, MdeConnectorSettings, AtpOnboardingDeviceState, DefenderAvPolicySettings, IntuneAssignmentTarget, AsrDetectionTimeRange, EdrPolicySettings, BitLockerPolicySettings, DeviceComplianceReason, CaNamedLocation, CaSessionControls, TenantIdentitySettings, ExchangeSecuritySettings, PrivilegedRoleAssignments, OAuthConsentGrantSummary } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { classifyPolicyBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
@@ -7,7 +7,8 @@ import { classifyUserAuthMethods } from "./mfa-classifier";
 import { mapManagedDeviceToIntuneDevice, mapMdeConnectorSettings, mapAtpOnboardingDeviceState, applyRealEdrOnboardingStates, mapDeviceComplianceSettingStateRow, applyDeviceComplianceReasons } from "./intune-mapper";
 import { mapSecureScoreControl, buildSecureScoreHistory, computeScoreDelta, extractIndustryBenchmark } from "./secure-score-mapper";
 import { buildCompanyBrandingControl } from "./company-branding-analyzer";
-import { fetchMdoPoliciesAndTabl, fetchMailflowData, fetchAcceptedDomainsAndDkim } from "./exo-client";
+import { fetchMdoPoliciesAndTabl, fetchMailflowData, fetchAcceptedDomainsAndDkim, fetchExchangeSecuritySettings } from "./exo-client";
+import { mapSharePointSecuritySettings, mapPimAssignments, mapRoleAssignmentsFallback, aggregateOAuthGrants, ServicePrincipalInfo } from "./security-posture-mapper";
 import { mapMdoAlert } from "./mdo-alert-mapper";
 import { checkSpfRecord, checkDmarcRecord } from "./domain-dns-checker";
 import {
@@ -459,6 +460,15 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
       // permission itself is granted, never a downstream license/table gap.
       body: JSON.stringify({ Query: "print ClarityPermissionProbe = 1", Timespan: "P1D" }),
       requiredFor: "Optional: ASR Rules detection activity (event counts and event detail)",
+      optional: true,
+    },
+    {
+      permission: "DelegatedPermissionGrant.Read.All / Directory.Read.All",
+      scope: "Application",
+      description:
+        "Optional - read which apps users and admins have consented to (oauth2PermissionGrants) and with which delegated permissions, for the Security Simulations \"malicious OAuth app consent\" scenario. DelegatedPermissionGrant.Read.All is the least-privileged choice; Directory.Read.All also covers it. Without either, that one check shows as not assessed.",
+      endpoint: "https://graph.microsoft.com/v1.0/oauth2PermissionGrants?$top=1",
+      requiredFor: "Optional: Security Simulations - OAuth app consent scenario",
       optional: true,
     },
     {
@@ -2127,7 +2137,7 @@ function extractIntentAsrProperties(definitionValues: any[]): { propertyName: st
 // hand-maintained duplicate count would. Steps 9/10 (local computation,
 // snapshot assembly) aren't included - they're fast enough that reaching
 // 100% right at the last Graph fetch reads correctly.
-export const TOTAL_SYNC_STEPS = 22;
+export const TOTAL_SYNC_STEPS = 25;
 
 // Maps one raw Graph conditionalAccessPolicy into Clarity365's CAPolicyRule
 // shape. Pulled out of fetchLiveTenantSnapshot's inline .map() so this
@@ -2971,11 +2981,16 @@ export async function fetchLiveTenantSnapshot(
     let tenantSharingLevel: SharePointTenantPolicy["tenantSharingLevel"] = "NewAndExistingGuests";
     let defaultLinkType: SharePointTenantPolicy["defaultLinkType"] = "Internal";
     let anonymousLinkExpirationDays = 0;
+    // Security Simulations Stage 5: the rest of the same settings response
+    // (resharing, unmanaged sync, domain restrictions, legacy auth, idle
+    // sign-out) - no extra call.
+    let sharePointSecurity: ReturnType<typeof mapSharePointSecuritySettings> = {};
 
     const settingsRes = await graphFetch("https://graph.microsoft.com/v1.0/admin/sharepoint/settings", { headers });
     if (settingsRes.ok) {
       const settingsRaw = await settingsRes.json();
       ({ tenantSharingLevel, defaultLinkType, anonymousLinkExpirationDays } = mapTenantSharingSettings(settingsRaw));
+      sharePointSecurity = mapSharePointSecuritySettings(settingsRaw);
     } else {
       syncErrors.push(`SharePoint Settings: HTTP ${settingsRes.status} while reading tenant sharing settings.`);
     }
@@ -3010,6 +3025,7 @@ export async function fetchLiveTenantSnapshot(
       tenantSharingLevel,
       defaultLinkType,
       anonymousLinkExpirationDays,
+      ...sharePointSecurity,
       totalStorageAllocatedTB,
       totalStorageUsedTB,
       sites,
@@ -3275,6 +3291,107 @@ export async function fetchLiveTenantSnapshot(
     }
   }
 
+  onProgress?.("Exchange audit & legacy protocol settings", 23, TOTAL_SYNC_STEPS);
+  // 8.998. Security Simulations Stage 5 - unified audit log ingestion, the
+  // org-wide SMTP AUTH switch, and per-mailbox POP/IMAP/ActiveSync/SMTP
+  // AUTH. Only when Exchange is connected; otherwise left undefined ("not
+  // assessed"), never false.
+  let exchangeSecurityLive: ExchangeSecuritySettings | null = null;
+  if (tenant.credentials.exoRefreshToken) {
+    try {
+      const { settings, errors } = await fetchExchangeSecuritySettings(tenant, onExoRefreshRotated);
+      errors.forEach((e) => syncErrors.push(`Exchange security settings: ${e}`));
+      exchangeSecurityLive = settings;
+    } catch (err: any) {
+      console.error("[Graph Client] Error fetching Exchange security settings:", err);
+      syncErrors.push(`Exchange security settings: ${err.message || "Unexpected error."}`);
+    }
+  }
+
+  onProgress?.("Privileged role assignments (PIM)", 24, TOTAL_SYNC_STEPS);
+  // 8.999. Directory role assignments with their PIM state. PIM's schedule
+  // instances need Entra ID P2; without it the call fails and the plain
+  // roleAssignments list (active only, no schedule) is used instead, and
+  // labelled as such. RoleManagement.Read.Directory covers both.
+  let privilegedRolesLive: PrivilegedRoleAssignments | null = null;
+  try {
+    // No $expand=principal on the PIM calls: the first live sync (2026-09-30)
+    // fell back to the non-PIM list on every tenant, P2 or not, and the
+    // expansion was the likeliest cause. Principals are resolved below from
+    // the users and groups this sync already fetched.
+    const [eligible, active] = await Promise.all([
+      fetchAllPages<any>("https://graph.microsoft.com/v1.0/roleManagement/directory/roleEligibilityScheduleInstances", headers),
+      fetchAllPages<any>("https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignmentScheduleInstances", headers),
+    ]);
+    if (!eligible.error && !active.error) {
+      privilegedRolesLive = { source: "pim", assignments: mapPimAssignments(eligible.items, active.items) };
+    } else {
+      const pimUnavailableReason = eligible.error || active.error;
+      const fallback = await fetchAllPages<any>("https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments?$expand=principal", headers);
+      if (fallback.error) {
+        syncErrors.push(`Privileged role assignments: ${fallback.error}`);
+      } else {
+        privilegedRolesLive = { source: "roleAssignments", assignments: mapRoleAssignmentsFallback(fallback.items), pimUnavailableReason };
+      }
+    }
+    // Fill in principals the API didn't expand, from data already fetched.
+    if (privilegedRolesLive) {
+      const usersById = new Map(usersList.map((u) => [u.id, u]));
+      const groupsById = new Map((groupsLive || []).map((g) => [g.id, g]));
+      privilegedRolesLive.assignments = privilegedRolesLive.assignments.map((a) => {
+        if (a.principalType !== "unknown") return a;
+        const user = usersById.get(a.principalId);
+        if (user) return { ...a, principalType: "user", principalDisplayName: user.displayName, principalUserPrincipalName: user.userPrincipalName };
+        const group = groupsById.get(a.principalId);
+        if (group) return { ...a, principalType: "group", principalDisplayName: group.displayName };
+        return a;
+      });
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching privileged role assignments:", err);
+    syncErrors.push(`Privileged role assignments: ${err.message || "Unexpected error."}`);
+  }
+
+  onProgress?.("OAuth consent grants", 25, TOTAL_SYNC_STEPS);
+  // 8.9995. Delegated permission grants: which apps users (or admins) have
+  // consented to, and with which scopes. Needs Directory.Read.All (or
+  // DelegatedPermissionGrant.Read.All); a tenant that granted only
+  // Organization.Read.All gets an error here and the data stays "not
+  // assessed". Capped at 20 pages; app details resolved for up to 60 apps.
+  let oauthGrantsLive: OAuthConsentGrantSummary | null = null;
+  try {
+    const OAUTH_GRANT_PAGE_CAP = 20;
+    const grantsResult = await fetchAllPages<any>("https://graph.microsoft.com/v1.0/oauth2PermissionGrants", headers, OAUTH_GRANT_PAGE_CAP);
+    if (grantsResult.error && grantsResult.items.length === 0) {
+      // A missing optional permission isn't a sync failure - record it on the
+      // data (so the scenario says exactly what to grant) instead of marking
+      // the tenant degraded. Anything else is a real error.
+      const missingPermission = /insufficient privileges|authorization_requestdenied|forbidden|403/i.test(grantsResult.error);
+      oauthGrantsLive = { grants: [], truncated: false, unavailable: missingPermission ? "missingPermission" : "error", unavailableDetail: grantsResult.error };
+      if (!missingPermission) syncErrors.push(`OAuth consent grants: ${grantsResult.error}`);
+    } else {
+      const clientIds = [...new Set(grantsResult.items.map((g: any) => g.clientId).filter(Boolean))].slice(0, 60) as string[];
+      const servicePrincipals = new Map<string, ServicePrincipalInfo>();
+      await Promise.all(
+        clientIds.map(async (id) => {
+          const res = await graphFetch(
+            `https://graph.microsoft.com/v1.0/servicePrincipals/${id}?$select=id,displayName,publisherName,verifiedPublisher,appOwnerOrganizationId`,
+            { headers },
+            { maxRetries: 1 }
+          );
+          if (res.ok) servicePrincipals.set(id, await res.json());
+        })
+      );
+      oauthGrantsLive = {
+        grants: aggregateOAuthGrants(grantsResult.items, servicePrincipals),
+        truncated: !!grantsResult.error,
+      };
+    }
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching OAuth consent grants:", err);
+    syncErrors.push(`OAuth consent grants: ${err.message || "Unexpected error."}`);
+  }
+
   // 9. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = computeBaselineCoveragePercent(deployedBaselineCodes.size, CA_BASELINE_STANDARDS.length);
@@ -3305,6 +3422,15 @@ export async function fetchLiveTenantSnapshot(
   };
   if (identitySettingsLive !== null) {
     base.identitySettings = identitySettingsLive;
+  }
+  if (exchangeSecurityLive !== null) {
+    base.exchangeSecurity = exchangeSecurityLive;
+  }
+  if (privilegedRolesLive !== null) {
+    base.privilegedRoleAssignments = privilegedRolesLive;
+  }
+  if (oauthGrantsLive !== null) {
+    base.oauthConsentGrants = oauthGrantsLive;
   }
 
   if (mfaProfilesList.length > 0) {

@@ -102,6 +102,9 @@ function explainNotBlocked(result: CaEvaluationResult): string[] {
   for (const t of result.trace) {
     if (t.state === "enabled" && t.applies === "no" && /P2|home organization/.test(t.reason)) out.push(`"${t.policyName}": ${t.reason}`);
   }
+  for (const x of result.enforced.partialCoverage) {
+    out.push(`"${x.policyName}" ${x.effect === "block" ? "blocks" : "adds checks for"} ${x.coverage} only, so the rest of Office 365 isn't covered`);
+  }
   if (out.length === 0) out.push("No enabled policy targets this situation");
   return out;
 }
@@ -119,11 +122,16 @@ export function classifySituation(situation: SigninSituation, result: CaEvaluati
     const text = `Blocked by ${e.blockedBy.map((b) => `"${b.policyName}"${b.reason !== "Blocks access" ? ` (${b.reason.replace(/^Policy /, "")})` : ""}`).join(", ")}`;
     return situation.goodPath ? { verdict: "partial", label: "Blocked", text: `${text}. Guests can't collaborate in this situation.` } : { verdict: "prevented", label: "Blocked", text };
   }
+  const partial = e.partialCoverage.filter((x) => x.effect === "block");
+  const partialText = partial.length > 0 ? ` ${partial.map((x) => `"${x.policyName}" blocks ${x.coverage} only`).join("; ")}.` : "";
   if (e.outcome === "challenged") {
     const strongest = (["phishingResistantMfa", "passwordChange", "appProtection", "authenticationStrength", "mfa", "other"] as const).find((k) => e.requirementKinds.includes(k))!;
     const label = REQUIREMENT_VERDICT_LABEL[strongest];
-    const text = `Allowed after ${describeRequirements(result)}`;
+    const text = `Allowed after ${describeRequirements(result)}.${partialText}`;
     return situation.goodPath ? { verdict: "prevented", label: "Working as intended", text } : { verdict: "partial", label, text };
+  }
+  if (partial.length > 0 && !situation.goodPath) {
+    return { verdict: "partial", label: "Partly blocked", text: `Partly blocked:${partialText} The rest of Office 365 stays reachable.` };
   }
   return { verdict: "notPrevented", label: "Allowed", text: "Allowed: nothing stops this sign-in" };
 }

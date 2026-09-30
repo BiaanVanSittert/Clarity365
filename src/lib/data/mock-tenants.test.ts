@@ -15,6 +15,17 @@ describe("demo tenant Conditional Access data", () => {
     }
   });
 
+  it("gives each demo tenant its intended Stage 5 posture", () => {
+    const d = MOCK_TENANT_DATA;
+    // Woodgrove strict, Northwind weak ("silent tenant"), Fabrikam never connected Exchange.
+    expect(d["tenant-woodgrove-fsi"].exchangeSecurity?.unifiedAuditLogIngestionEnabled).toBe(true);
+    expect(d["tenant-woodgrove-fsi"].sharePoint.unmanagedSyncAppRestricted).toBe(true);
+    expect(d["tenant-northwind-health"].exchangeSecurity?.unifiedAuditLogIngestionEnabled).toBe(false);
+    expect(d["tenant-northwind-health"].privilegedRoleAssignments?.source).toBe("roleAssignments");
+    expect(d["tenant-fabrikam-logistics"].exchangeSecurity).toBeUndefined();
+    expect(d["tenant-contoso-corp"].oauthConsentGrants?.grants[0].highRiskScopes.length).toBeGreaterThan(0);
+  });
+
   it("every demo tenant carries named locations and identity settings", () => {
     for (const [tenantId, snap] of Object.entries(MOCK_TENANT_DATA)) {
       expect(snap.conditionalAccess.namedLocations, tenantId).toBeDefined();

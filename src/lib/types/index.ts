@@ -171,6 +171,83 @@ export interface CaSessionControls {
   continuousAccessEvaluation?: "disabled" | "strictEnforcement" | "strictLocation";
 }
 
+// Exchange Online settings the Security Simulations scenarios need (Stage 5).
+// Every field optional: undefined = that EXO read didn't happen or failed.
+export interface ExchangeSecuritySettings {
+  // Get-AdminAuditLogConfig UnifiedAuditLogIngestionEnabled. Only accurate
+  // when read through Exchange Online (it's always False in Security &
+  // Compliance PowerShell) - Clarity365 reads it through EXO.
+  unifiedAuditLogIngestionEnabled?: boolean;
+  // Get-TransportConfig SmtpClientAuthenticationDisabled (org-wide default).
+  smtpClientAuthDisabledOrgWide?: boolean;
+  // Get-CASMailbox, capped like the mailbox scan.
+  casMailboxes?: CasMailboxProtocols[];
+  casMailboxesTruncated?: boolean;
+}
+
+export interface CasMailboxProtocols {
+  primarySmtpAddress: string;
+  popEnabled: boolean;
+  imapEnabled: boolean;
+  activeSyncEnabled: boolean;
+  // Per-mailbox override; null = follows the org-wide setting.
+  smtpClientAuthDisabled: boolean | null;
+}
+
+// Directory role assignments with their PIM state (Stage 5).
+export interface PrivilegedRoleAssignments {
+  // "pim": roleEligibility/roleAssignmentScheduleInstances (needs Entra ID
+  // P2). "roleAssignments": the non-PIM fallback, which only lists active
+  // assignments and can't tell permanent from time-bound.
+  source: "pim" | "roleAssignments";
+  assignments: PrivilegedRoleAssignment[];
+  // Why PIM data wasn't used when source is "roleAssignments" (Graph's error).
+  pimUnavailableReason?: string;
+}
+
+export interface PrivilegedRoleAssignment {
+  principalId: string;
+  principalType: "user" | "group" | "servicePrincipal" | "unknown";
+  principalDisplayName?: string;
+  principalUserPrincipalName?: string;
+  // Lower-case role template id (roleDefinitionId for built-in roles).
+  roleTemplateId: string;
+  // eligible: must activate through PIM. activated: a PIM activation in
+  // progress. activePermanent / activeTimeBound: standing assignments.
+  kind: "eligible" | "activated" | "activePermanent" | "activeTimeBound";
+  endDateTime?: string;
+}
+
+// Delegated permission grants (oauth2PermissionGrants), aggregated per app
+// and consent type (Stage 5).
+export interface OAuthConsentGrantSummary {
+  grants: OAuthConsentGrant[];
+  // True when the grant list hit the page cap.
+  truncated: boolean;
+  // Set when grants couldn't be read at all (grants is then empty and means
+  // "unknown", not "none"). "missingPermission": the app registration lacks
+  // DelegatedPermissionGrant.Read.All / Directory.Read.All - found on every
+  // live tenant at first sync, so it's reported here rather than as a sync
+  // error that would mark every tenant "degraded".
+  unavailable?: "missingPermission" | "error";
+  unavailableDetail?: string;
+}
+
+export interface OAuthConsentGrant {
+  servicePrincipalId: string;
+  appDisplayName?: string;
+  publisherName?: string;
+  publisherVerified?: boolean;
+  // Published by Microsoft itself.
+  isMicrosoftApp?: boolean;
+  // AllPrincipals = admin consented for everyone; Principal = user consent.
+  consentType: "AllPrincipals" | "Principal";
+  scopes: string[];
+  highRiskScopes: string[];
+  // Users who consented (Principal grants only).
+  userCount: number;
+}
+
 // identity/conditionalAccess/namedLocations - resolves the location GUIDs a
 // CAPolicyRule references into countries or IP ranges.
 export interface CaNamedLocation {
@@ -1045,6 +1122,21 @@ export interface SharePointTenantPolicy {
   tenantSharingLevel: "Anyone" | "NewAndExistingGuests" | "ExistingGuests" | "OnlyPeopleInOrg";
   defaultLinkType: "SpecificPeople" | "Internal" | "Anyone";
   anonymousLinkExpirationDays: number;
+  // False when Graph didn't report the two fields above. v1.0's
+  // sharepointSettings has neither a default link type nor an Anyone-link
+  // expiry (confirmed on Microsoft Learn 2026-09-30), so on live tenants
+  // they have always been placeholders ("Internal" / 0). Undefined on
+  // snapshots from before Security Simulations Stage 5.
+  linkDefaultsReported?: boolean;
+  // Security Simulations Stage 5 - the rest of admin/sharepoint/settings.
+  // Undefined = not synced.
+  resharingByExternalUsersEnabled?: boolean;
+  unmanagedSyncAppRestricted?: boolean;
+  syncAllowedDomainCount?: number;
+  sharingDomainRestrictionMode?: "none" | "allowList" | "blockList";
+  legacyAuthProtocolsEnabled?: boolean;
+  idleSessionSignOutEnabled?: boolean;
+  requireAcceptingUserToMatchInvitedUser?: boolean;
   totalStorageAllocatedTB: number;
   totalStorageUsedTB: number;
   sites: SharePointSiteItem[];
@@ -1113,6 +1205,10 @@ export interface TenantSecuritySnapshot {
   };
   // Undefined until a sync has fetched them (Security Simulations Stage 1).
   identitySettings?: TenantIdentitySettings;
+  // Security Simulations Stage 5. Each undefined until a sync fetched it.
+  exchangeSecurity?: ExchangeSecuritySettings;
+  privilegedRoleAssignments?: PrivilegedRoleAssignments;
+  oauthConsentGrants?: OAuthConsentGrantSummary;
   signIns: SignInEvent[];
   mfaAudit: UserMfaProfile[];
   accountClassification: TenantAccountSummary;

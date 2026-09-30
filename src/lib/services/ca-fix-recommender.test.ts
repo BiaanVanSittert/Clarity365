@@ -120,7 +120,7 @@ describe("targeted vs broad fixes", () => {
 });
 
 describe("meetsDesiredOutcome", () => {
-  const challenged = (kinds: any[]) => ({ outcome: "challenged" as const, blockedBy: [], requirements: [], requirementKinds: kinds, sessionControls: [], uncertainPolicies: [] });
+  const challenged = (kinds: any[]) => ({ outcome: "challenged" as const, blockedBy: [], requirements: [], requirementKinds: kinds, sessionControls: [], uncertainPolicies: [], partialCoverage: [] });
   it("MFA meets strongAuth but not block or phishingResistant", () => {
     expect(meetsDesiredOutcome(challenged(["mfa"]), "strongAuth")).toBe(true);
     expect(meetsDesiredOutcome(challenged(["mfa"]), "block")).toBe(false);

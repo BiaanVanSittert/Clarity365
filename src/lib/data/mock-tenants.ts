@@ -502,6 +502,53 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       guestInviteSetting: "everyone",
       adminConsentWorkflowEnabled: false,
     },
+    exchangeSecurity: {
+      unifiedAuditLogIngestionEnabled: true,
+      smtpClientAuthDisabledOrgWide: false,
+      casMailboxes: [
+        { primarySmtpAddress: "sarah.chen@contosopharm.com", popEnabled: false, imapEnabled: false, activeSyncEnabled: true, smtpClientAuthDisabled: null },
+        { primarySmtpAddress: "clinicaltrials-inquiries@contosopharm.com", popEnabled: true, imapEnabled: true, activeSyncEnabled: false, smtpClientAuthDisabled: false },
+        { primarySmtpAddress: "pharma-security-alerts@contosopharm.com", popEnabled: false, imapEnabled: false, activeSyncEnabled: false, smtpClientAuthDisabled: true },
+      ],
+      casMailboxesTruncated: false,
+    },
+    privilegedRoleAssignments: {
+      source: "pim",
+      assignments: [
+        { principalId: "mfa-usr-01", principalType: "user", principalDisplayName: "Alex Admin", principalUserPrincipalName: "admin-alex@contosopharm.com", roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", kind: "activePermanent" },
+        { principalId: "mfa-usr-01", principalType: "user", principalDisplayName: "Alex Admin", principalUserPrincipalName: "admin-alex@contosopharm.com", roleTemplateId: "e8611ab8-c189-46e8-94e1-60213ab1f814", kind: "activePermanent" },
+        { principalId: "usr-ct-bg01", principalType: "user", principalDisplayName: "Break Glass 01", principalUserPrincipalName: "breakglass01@contosopharm.com", roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", kind: "activePermanent" },
+        { principalId: "usr-ct-secops", principalType: "user", principalDisplayName: "SecOps Lead", principalUserPrincipalName: "secops-lead@contosopharm.com", roleTemplateId: "194ae4cb-b126-40b2-bd5b-6091b380977d", kind: "eligible", endDateTime: "2027-03-31T00:00:00Z" },
+        { principalId: "grp-01", principalType: "group", principalDisplayName: "Global Cloud Security Engineers", roleTemplateId: "29232cdf-9323-42fd-ade2-1d097af3e4de", kind: "activePermanent" },
+      ],
+    },
+    oauthConsentGrants: {
+      truncated: false,
+      grants: [
+        {
+          servicePrincipalId: "sp-ct-pdfsign",
+          appDisplayName: "QuickSign PDF",
+          publisherName: "QuickSign Apps LLC",
+          publisherVerified: false,
+          isMicrosoftApp: false,
+          consentType: "Principal",
+          scopes: ["Files.ReadWrite.All", "Mail.Read", "offline_access", "openid", "profile"],
+          highRiskScopes: ["Files.ReadWrite.All", "Mail.Read"],
+          userCount: 4,
+        },
+        {
+          servicePrincipalId: "sp-ct-graphexplorer",
+          appDisplayName: "Graph Explorer",
+          publisherName: "Microsoft",
+          publisherVerified: true,
+          isMicrosoftApp: true,
+          consentType: "Principal",
+          scopes: ["openid", "profile", "User.Read"],
+          highRiskScopes: [],
+          userCount: 2,
+        },
+      ],
+    },
     signIns: [
       {
         id: "sgn-9901",
@@ -1362,6 +1409,15 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       },
     ],
     sharePoint: {
+      // Security Simulations Stage 5 fields (see types SharePointTenantPolicy).
+      linkDefaultsReported: true,
+      resharingByExternalUsersEnabled: true,
+      unmanagedSyncAppRestricted: false,
+      syncAllowedDomainCount: 0,
+      sharingDomainRestrictionMode: "none",
+      legacyAuthProtocolsEnabled: false,
+      idleSessionSignOutEnabled: false,
+      requireAcceptingUserToMatchInvitedUser: true,
       tenantSharingLevel: "NewAndExistingGuests",
       defaultLinkType: "Internal",
       anonymousLinkExpirationDays: 30,
@@ -1728,6 +1784,41 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       guestInviteSetting: "everyone",
       adminConsentWorkflowEnabled: false,
     },
+    exchangeSecurity: {
+      unifiedAuditLogIngestionEnabled: false,
+      smtpClientAuthDisabledOrgWide: false,
+      casMailboxes: [
+        { primarySmtpAddress: "billing@northwindhealth.org", popEnabled: true, imapEnabled: true, activeSyncEnabled: true, smtpClientAuthDisabled: null },
+      ],
+      casMailboxesTruncated: false,
+    },
+    privilegedRoleAssignments: {
+      source: "roleAssignments",
+      assignments: [
+        { principalId: "mfa-nh-01", principalType: "user", principalDisplayName: "CISO", principalUserPrincipalName: "ciso@northwindhealth.org", roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", kind: "activePermanent" },
+        { principalId: "usr-nh-itmgr", principalType: "user", principalDisplayName: "IT Manager", principalUserPrincipalName: "it.manager@northwindhealth.org", roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", kind: "activePermanent" },
+        { principalId: "usr-nh-helpdesk", principalType: "user", principalDisplayName: "Helpdesk", principalUserPrincipalName: "helpdesk@northwindhealth.org", roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", kind: "activePermanent" },
+        { principalId: "usr-nh-msp", principalType: "user", principalDisplayName: "MSP Support", principalUserPrincipalName: "msp.support@northwindhealth.org", roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", kind: "activePermanent" },
+        { principalId: "usr-nh-owner", principalType: "user", principalDisplayName: "Practice Owner", principalUserPrincipalName: "owner@northwindhealth.org", roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", kind: "activePermanent" },
+        { principalId: "usr-nh-reception", principalType: "user", principalDisplayName: "Reception", principalUserPrincipalName: "reception@northwindhealth.org", roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", kind: "activePermanent" },
+      ],
+    },
+    oauthConsentGrants: {
+      truncated: false,
+      grants: [
+        {
+          servicePrincipalId: "sp-nh-mailsync",
+          appDisplayName: "Mail Backup Pro",
+          publisherName: "Unknown",
+          publisherVerified: false,
+          isMicrosoftApp: false,
+          consentType: "Principal",
+          scopes: ["Mail.ReadWrite", "MailboxSettings.ReadWrite", "offline_access"],
+          highRiskScopes: ["Mail.ReadWrite", "MailboxSettings.ReadWrite"],
+          userCount: 7,
+        },
+      ],
+    },
     signIns: [
       {
         id: "sgn-nh-01",
@@ -2017,6 +2108,15 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       },
     ],
     sharePoint: {
+      // Security Simulations Stage 5 fields (see types SharePointTenantPolicy).
+      linkDefaultsReported: true,
+      resharingByExternalUsersEnabled: true,
+      unmanagedSyncAppRestricted: false,
+      syncAllowedDomainCount: 0,
+      sharingDomainRestrictionMode: "none",
+      legacyAuthProtocolsEnabled: true,
+      idleSessionSignOutEnabled: false,
+      requireAcceptingUserToMatchInvitedUser: false,
       tenantSharingLevel: "ExistingGuests",
       defaultLinkType: "Internal",
       anonymousLinkExpirationDays: 14,
@@ -2162,6 +2262,13 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       guestAccessLevel: "limited",
       guestInviteSetting: "adminsGuestInvitersAndAllMembers",
       adminConsentWorkflowEnabled: false,
+    },
+    privilegedRoleAssignments: {
+      source: "roleAssignments",
+      assignments: [
+        { principalId: "mfa-fab-01", principalType: "user", principalDisplayName: "IT Ops", principalUserPrincipalName: "it-ops@fabrikamlogistics.com", roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", kind: "activePermanent" },
+        { principalId: "usr-fab-exadmin", principalType: "user", principalDisplayName: "Exchange Admin", principalUserPrincipalName: "exchange-admin@fabrikamlogistics.com", roleTemplateId: "29232cdf-9323-42fd-ade2-1d097af3e4de", kind: "activePermanent" },
+      ],
     },
     signIns: [
       {
@@ -2333,6 +2440,15 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
     ],
     groups: [],
     sharePoint: {
+      // Security Simulations Stage 5 fields (see types SharePointTenantPolicy).
+      linkDefaultsReported: true,
+      resharingByExternalUsersEnabled: false,
+      unmanagedSyncAppRestricted: false,
+      syncAllowedDomainCount: 0,
+      sharingDomainRestrictionMode: "blockList",
+      legacyAuthProtocolsEnabled: true,
+      idleSessionSignOutEnabled: false,
+      requireAcceptingUserToMatchInvitedUser: true,
       tenantSharingLevel: "Anyone",
       defaultLinkType: "Anyone",
       anonymousLinkExpirationDays: 0,
@@ -2494,6 +2610,39 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
       guestAccessLevel: "restricted",
       guestInviteSetting: "adminsAndGuestInviters",
       adminConsentWorkflowEnabled: true,
+    },
+    exchangeSecurity: {
+      unifiedAuditLogIngestionEnabled: true,
+      smtpClientAuthDisabledOrgWide: true,
+      casMailboxes: [
+        { primarySmtpAddress: "infosec-audit@woodgrovefsi.com", popEnabled: false, imapEnabled: false, activeSyncEnabled: false, smtpClientAuthDisabled: null },
+      ],
+      casMailboxesTruncated: false,
+    },
+    privilegedRoleAssignments: {
+      source: "pim",
+      assignments: [
+        { principalId: "mfa-wg-01", principalType: "user", principalDisplayName: "Audit Officer", principalUserPrincipalName: "infosec-audit@woodgrovefsi.com", roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", kind: "eligible", endDateTime: "2027-06-30T00:00:00Z" },
+        { principalId: "mfa-wg-01", principalType: "user", principalDisplayName: "Audit Officer", principalUserPrincipalName: "infosec-audit@woodgrovefsi.com", roleTemplateId: "194ae4cb-b126-40b2-bd5b-6091b380977d", kind: "eligible", endDateTime: "2027-06-30T00:00:00Z" },
+        { principalId: "usr-wg-bg01", principalType: "user", principalDisplayName: "Emergency Access 01", principalUserPrincipalName: "emergency-wg-breakglass@woodgrovefinancial.com", roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", kind: "activePermanent" },
+        { principalId: "usr-wg-bg02", principalType: "user", principalDisplayName: "Emergency Access 02", principalUserPrincipalName: "emergency-wg-breakglass02@woodgrovefinancial.com", roleTemplateId: "62e90394-69f5-4237-9190-012177145e10", kind: "activePermanent" },
+      ],
+    },
+    oauthConsentGrants: {
+      truncated: false,
+      grants: [
+        {
+          servicePrincipalId: "sp-wg-crm",
+          appDisplayName: "Woodgrove CRM Connector",
+          publisherName: "Woodgrove Financial",
+          publisherVerified: true,
+          isMicrosoftApp: false,
+          consentType: "AllPrincipals",
+          scopes: ["openid", "profile", "User.Read"],
+          highRiskScopes: [],
+          userCount: 0,
+        },
+      ],
     },
     signIns: [
       {
@@ -2672,6 +2821,15 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
     ],
     groups: [],
     sharePoint: {
+      // Security Simulations Stage 5 fields (see types SharePointTenantPolicy).
+      linkDefaultsReported: true,
+      resharingByExternalUsersEnabled: false,
+      unmanagedSyncAppRestricted: true,
+      syncAllowedDomainCount: 1,
+      sharingDomainRestrictionMode: "allowList",
+      legacyAuthProtocolsEnabled: false,
+      idleSessionSignOutEnabled: true,
+      requireAcceptingUserToMatchInvitedUser: true,
       tenantSharingLevel: "OnlyPeopleInOrg",
       defaultLinkType: "Internal",
       anonymousLinkExpirationDays: 1,

@@ -48,9 +48,12 @@ All use `Policy.Read.All`, which is already requested and self-tested, so no new
 
 Stage 2 follow-ups: the directory-roles step now also records each member's role **template id** (`UserMfaProfile.adminRoleTemplateIds`), because CA targets roles by template GUID. And `applyCaBetaSessionExtras` sets `tokenProtection: false` explicitly for every policy the beta read returned, so `undefined` only ever means "beta not read".
 
+**Security Simulations Stage 5 (2026-09-30):** three more steps (23 Exchange audit & legacy protocol settings, 24 privileged role assignments with PIM state, 25 OAuth consent grants), `TOTAL_SYNC_STEPS` = 25, and the SharePoint step now keeps the rest of `admin/sharepoint/settings` (see [[Security Simulations Plan]] Stage 5 record). Snapshot schema version 3. Post-verification fixes: PIM calls no longer use `$expand=principal` (principals resolved from synced users/groups, `pimUnavailableReason` recorded), and a missing OAuth-grant permission is stored as `oauthConsentGrants.unavailable` rather than a sync error. The permission self-test gained an optional **"DelegatedPermissionGrant.Read.All / Directory.Read.All"** row. Note: v1.0 `sharepointSettings` has no default link type or Anyone-link expiry, so `mapTenantSharingSettings`'s values for those two have always been placeholders on live tenants (`linkDefaultsReported: false`).
+
 ## exo-client.ts :  Exchange Online
-OAuth device-code flow + `invokeExoCommand`, `fetchMdoPoliciesAndTabl`, `fetchMailflowData`, `fetchAcceptedDomainsAndDkim`, TABL writes, `disableForwardingRule`, `removeMailboxDelegation`, `setMailboxAuditingEnabled`.
-**No test file** :  handles live EXO writes and the device-code auth flow. See [[Testing]].
+OAuth device-code flow + `invokeExoCommand`, `fetchMdoPoliciesAndTabl`, `fetchMailflowData`, `fetchAcceptedDomainsAndDkim`, `fetchExchangeSecuritySettings` (Stage 5), TABL writes, `disableForwardingRule`, `removeMailboxDelegation`, `setMailboxAuditingEnabled`.
+
+**Refresh-token rotation (2026-09-30):** `getExoAccessToken` records each rotation old → new (`resolveLatestExoRefreshToken`) so a caller holding a stale tenant object still uses the newest token, and de-duplicates concurrent refreshes per tenant. A brand-new token from reconnecting is used as-is. `exo-client.test.ts` covers this (the file's first tests); the live EXO writes and device-code flow remain untested. See [[Testing]].
 
 ## graph-fetch.ts
 `graphFetch` :  retry/backoff HTTP wrapper. No local imports (leaf). Used by graph-client, graph-pagination, exo-client, and [[Tenant Store]] directly. Has a test.

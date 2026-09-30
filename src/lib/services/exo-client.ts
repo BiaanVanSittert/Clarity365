@@ -1,4 +1,5 @@
-import { Tenant, MdoThreatPolicy, TablEntry, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthCheck, MailflowConnector } from "../types";
+import { Tenant, MdoThreatPolicy, TablEntry, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthCheck, MailflowConnector, ExchangeSecuritySettings, CasMailboxProtocols } from "../types";
+import { mapCasMailbox, readBooleanSetting } from "./security-posture-mapper";
 import { graphFetch } from "./graph-fetch";
 import { mapMdoPolicy, mapTablEntry, TablListType } from "./mdo-mapper";
 import {
@@ -65,6 +66,43 @@ if (!exoTokenCacheGlobal.clarity365ExoTokenCache) {
 }
 const exoTokenCache = exoTokenCacheGlobal.clarity365ExoTokenCache;
 
+// Refresh tokens rotate on every use and the old one stops working, but a
+// caller can still be holding a Tenant object with the old token (the sync
+// threads one tenant object through every EXO step - see the "stale
+// in-memory EXO refresh token" gap in ai-context-vault/Optimization/
+// Optimization Plan.md). This records each rotation old -> new so any
+// holder of an older token in the chain is forwarded to the newest one.
+// Keyed by the token itself rather than by tenant, so reconnecting Exchange
+// (a brand-new token that was never rotated here) is never overridden.
+interface ExoRotationGlobal {
+  clarity365ExoRefreshRotations?: Map<string, string>;
+  clarity365ExoRefreshInFlight?: Map<string, Promise<{ token?: string; error?: string }>>;
+}
+const exoRotationGlobal = globalThis as unknown as ExoRotationGlobal;
+if (!exoRotationGlobal.clarity365ExoRefreshRotations) exoRotationGlobal.clarity365ExoRefreshRotations = new Map<string, string>();
+if (!exoRotationGlobal.clarity365ExoRefreshInFlight) exoRotationGlobal.clarity365ExoRefreshInFlight = new Map();
+const exoRefreshRotations = exoRotationGlobal.clarity365ExoRefreshRotations;
+// One refresh per tenant at a time: fetchMailflowData fires four EXO calls in
+// parallel, and after the access token expires all four would otherwise try
+// to redeem the same single-use refresh token.
+const exoRefreshInFlight = exoRotationGlobal.clarity365ExoRefreshInFlight;
+
+// Follows the rotation chain from the token a caller holds to the newest one.
+export function resolveLatestExoRefreshToken(refreshToken: string): string {
+  let current = refreshToken;
+  for (let hops = 0; hops < 50 && exoRefreshRotations.has(current); hops++) {
+    current = exoRefreshRotations.get(current)!;
+  }
+  return current;
+}
+
+// Test-only: clears token caches between tests.
+export function resetExoTokenStateForTests(): void {
+  exoTokenCache.clear();
+  exoRefreshRotations.clear();
+  exoRefreshInFlight.clear();
+}
+
 function tokenEndpoint(azureTenantId: string): string {
   return `https://login.microsoftonline.com/${encodeURIComponent(azureTenantId)}/oauth2/v2.0/token`;
 }
@@ -83,10 +121,29 @@ export async function getExoAccessToken(
     return { token: cached.token };
   }
 
+  const inFlight = exoRefreshInFlight.get(cacheKey);
+  if (inFlight) return inFlight;
+
+  const refresh = redeemExoRefreshToken(credentials, cacheKey, onRefreshRotated);
+  exoRefreshInFlight.set(cacheKey, refresh);
+  try {
+    return await refresh;
+  } finally {
+    exoRefreshInFlight.delete(cacheKey);
+  }
+}
+
+async function redeemExoRefreshToken(
+  credentials: Tenant["credentials"],
+  cacheKey: string,
+  onRefreshRotated?: ExoRefreshRotatedCallback
+): Promise<{ token?: string; error?: string }> {
+  const refreshToken = resolveLatestExoRefreshToken(credentials.exoRefreshToken!);
+
   const body = new URLSearchParams();
   body.append("client_id", EXO_POWERSHELL_CLIENT_ID);
   body.append("grant_type", "refresh_token");
-  body.append("refresh_token", credentials.exoRefreshToken);
+  body.append("refresh_token", refreshToken);
   body.append("scope", EXO_SCOPE);
 
   try {
@@ -113,7 +170,8 @@ export async function getExoAccessToken(
     // Public-client refresh tokens rotate on every use - the old one becomes
     // invalid the moment a new one is issued, so this MUST be persisted every
     // time or the connection silently breaks after the very next sync.
-    if (data.refresh_token && data.refresh_token !== credentials.exoRefreshToken) {
+    if (data.refresh_token && data.refresh_token !== refreshToken) {
+      exoRefreshRotations.set(refreshToken, data.refresh_token);
       onRefreshRotated?.(data.refresh_token);
     }
 
@@ -428,6 +486,37 @@ export async function fetchMailflowData(
 }
 
 export type DelegationAccessRight = "FullAccess" | "SendAs" | "SendOnBehalf";
+
+// Security Simulations Stage 5: audit and legacy-protocol settings. Three
+// independent reads - one failing leaves only its own fields undefined.
+export async function fetchExchangeSecuritySettings(
+  tenant: Tenant,
+  onRefreshRotated?: ExoRefreshRotatedCallback
+): Promise<{ settings: ExchangeSecuritySettings; errors: string[] }> {
+  const errors: string[] = [];
+  const settings: ExchangeSecuritySettings = {};
+
+  const [auditResult, transportResult, casResult] = await Promise.all([
+    invokeExoCommand(tenant, "Get-AdminAuditLogConfig", {}, onRefreshRotated),
+    invokeExoCommand(tenant, "Get-TransportConfig", {}, onRefreshRotated),
+    invokeExoCommand(tenant, "Get-CASMailbox", { ResultSize: MAX_MAILBOXES_FOR_MAILFLOW_SCAN }, onRefreshRotated),
+  ]);
+
+  if (auditResult.error) errors.push(`Get-AdminAuditLogConfig: ${auditResult.error}`);
+  else settings.unifiedAuditLogIngestionEnabled = readBooleanSetting(auditResult.items[0], "UnifiedAuditLogIngestionEnabled");
+
+  if (transportResult.error) errors.push(`Get-TransportConfig: ${transportResult.error}`);
+  else settings.smtpClientAuthDisabledOrgWide = readBooleanSetting(transportResult.items[0], "SmtpClientAuthenticationDisabled");
+
+  if (casResult.error) {
+    errors.push(`Get-CASMailbox: ${casResult.error}`);
+  } else {
+    settings.casMailboxes = casResult.items.map(mapCasMailbox).filter((m): m is CasMailboxProtocols => m !== null);
+    settings.casMailboxesTruncated = casResult.items.length >= MAX_MAILBOXES_FOR_MAILFLOW_SCAN;
+  }
+
+  return { settings, errors };
+}
 
 export async function removeMailboxDelegation(
   tenant: Tenant,

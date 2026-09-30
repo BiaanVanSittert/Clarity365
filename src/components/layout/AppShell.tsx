@@ -55,6 +55,7 @@ const ExecutiveReportingModule = lazy(() => import("../modules/ExecutiveReportin
 const ComplianceMatrixModule = lazy(() => import("../modules/ComplianceMatrixModule").then(m => ({ default: m.ComplianceMatrixModule })));
 const DataProtectionModule = lazy(() => import("../modules/DataProtectionModule").then(m => ({ default: m.DataProtectionModule })));
 const FleetDataProtectionModule = lazy(() => import("../modules/FleetDataProtectionModule").then(m => ({ default: m.FleetDataProtectionModule })));
+const SecurityScenariosModule = lazy(() => import("../modules/SecurityScenariosModule").then(m => ({ default: m.SecurityScenariosModule })));
 const CaGapAnalysisModule = lazy(() => import("../modules/CaGapAnalysisModule").then(m => ({ default: m.CaGapAnalysisModule })));
 const SignInSituationsModule = lazy(() => import("../modules/SignInSituationsModule").then(m => ({ default: m.SignInSituationsModule })));
 const AuditLogInvestigatorModule = lazy(() => import("../modules/AuditLogInvestigatorModule").then(m => ({ default: m.AuditLogInvestigatorModule })));
@@ -756,6 +757,19 @@ export const AppShell: React.FC = () => {
                 <AsrRulesModule snapshot={snapshot} onNavigate={(view) => setActiveView(view)} />
               )}
               {activeView === "asr_rules" && !snapshot && <SkeletonLoader />}
+            </ErrorBoundary>
+
+            <ErrorBoundary moduleName="Security Scenarios" key={`eb-sim-scenarios-${activeTenantId}`}>
+              {activeView === "sim_scenarios" && snapshot && (
+                <SecurityScenariosModule
+                  snapshot={snapshot}
+                  onOpenSituations={(persona) => {
+                    setSimPersona(persona);
+                    setActiveView("sim_signin");
+                  }}
+                />
+              )}
+              {activeView === "sim_scenarios" && !snapshot && <SkeletonLoader />}
             </ErrorBoundary>
 
             <ErrorBoundary moduleName="Sign-in Situations" key={`eb-sim-signin-${activeTenantId}`}>

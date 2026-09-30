@@ -183,6 +183,7 @@ export function buildSyntheticSimUser(kind: "globalAdmin" | "user" | "guest"): C
     roleTemplateIds: kind === "globalAdmin" ? [GLOBAL_ADMIN_TEMPLATE_ID] : [],
     roleTemplateIdsComplete: true,
     groupIds: [],
+    groupMembershipComplete: true,
   };
 }
 

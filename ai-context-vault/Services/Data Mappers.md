@@ -18,6 +18,7 @@ Eleven files that translate raw Graph/EXO/DNS API responses into the app's [[Dom
 - `secure-score-mapper` → [[Secure Score & Timeline]]
 - `sharepoint-mapper` → [[SharePoint & Storage Policies]]
 - `ca-environment-mapper` :  the CA policy fields `mapConditionalAccessPolicy()` used to drop, v1.0 and beta session controls, named locations, and tenant identity settings (security defaults, user consent mode, guest access level, guest invites, admin consent workflow). Added for [[Security Simulations Plan]] Stage 1. Undefined always means "not synced", never "off"
+- `security-posture-mapper` :  Stage 5 of [[Security Simulations Plan]]: SharePoint security settings, Exchange boolean settings and CAS mailbox protocols (`smtpAuthEnabledFor` resolves per-mailbox overrides against the org default), PIM / role assignments (tenant-wide only; AU-scoped skipped), and OAuth grant aggregation with `HIGH_RISK_DELEGATED_SCOPES`
 - `domain-dns-checker` :  the only file that queries public DNS directly (Node `dns` module) instead of Graph/EXO → [[Domain Authentication]]
 
 All are invoked from [[Core Graph Layer]]'s `fetchLiveTenantSnapshot` during a sync.

@@ -29,6 +29,11 @@ export interface CaSimUser {
   roleTemplateIdsComplete: boolean;
   // Ids of groups the user is a direct member of.
   groupIds: string[];
+  // True for synthetic persona users ("a typical member of no special
+  // group"): a group missing from the synced list is then a definite "no"
+  // rather than "unknown". Found live: a tenant with more groups than the
+  // sync fetches read "can't confirm" on nearly every tenant-wide question.
+  groupMembershipComplete?: boolean;
 }
 
 export type CaSimClientAppType = "browser" | "mobileAppsAndDesktopClients" | "exchangeActiveSync" | "other";
@@ -117,6 +122,9 @@ export interface CaPolicyTrace {
   excludedBy?: CaExclusionHit[];
   // Set when applies !== "no".
   grant?: CaGrantResult;
+  // Set when the policy covers only part of the target, e.g. "Only covers
+  // SharePoint Online" - see CaOutcomeSummary.partialCoverage.
+  partialResource?: string;
   sessionControls: string[];
   notes: string[];
 }
@@ -134,6 +142,13 @@ export interface CaOutcomeSummary {
   // Policies whose applicability is unknown and that would block or
   // challenge if they applied.
   uncertainPolicies: { policyId: string; policyName: string; reason: string }[];
+  // Policies that apply to only PART of the target (e.g. SharePoint only,
+  // when the sign-in is to Office 365). They don't block or challenge the
+  // sign-in as a whole - the rest of the target stays reachable - so they're
+  // reported here instead of in blockedBy/requirements. Found live: a
+  // SharePoint-only compliant-device policy read as "guests from abroad are
+  // blocked" while Exchange and Teams stayed open.
+  partialCoverage: { policyId: string; policyName: string; coverage: string; effect: "block" | "requires" }[];
 }
 
 export interface CaEvaluationResult {
@@ -223,7 +238,7 @@ function userEntryMatches(entry: string, user: CaSimUser, groups: TenantGroup[],
 
   if (el.startsWith("group:")) {
     const group = findGroup(e.slice(6), groups);
-    if (!group) return { hit: "unknown", kind: "group" };
+    if (!group) return { hit: user.groupMembershipComplete ? "no" : "unknown", kind: "group" };
     return { hit: groupContainsUser(group, user) ? "yes" : "no", kind: "group" };
   }
 
@@ -249,7 +264,7 @@ function groupIdMatches(groupId: string, user: CaSimUser, groups: TenantGroup[])
   // A group missing from the synced list (the groups fetch is capped - two
   // live tenants hit exactly 250) can't be answered either way.
   const group = findGroup(groupId, groups);
-  if (!group) return "unknown";
+  if (!group) return user.groupMembershipComplete ? "no" : "unknown";
   return groupContainsUser(group, user) ? "yes" : "no";
 }
 
@@ -604,6 +619,7 @@ export function tracePolicy(policy: CAPolicyRule, ctx: SignInContext, env: CaEnv
     applies: unknown ? "unknown" : "yes",
     reason: unknown ? unknown.reason : "All conditions match",
     grant,
+    partialResource: apps.notes.find((n) => n.startsWith("Only covers")),
     sessionControls: describeSessionControls(policy),
     notes: [...notes, ...grantNotes],
   };
@@ -657,12 +673,22 @@ function summarize(traces: CaPolicyTrace[]): CaOutcomeSummary {
     requirementKinds: [],
     sessionControls: [],
     uncertainPolicies: [],
+    partialCoverage: [],
   };
 
   for (const t of traces) {
     if (t.applies === "no" || !t.grant) continue;
     if (t.applies === "unknown") {
       if (t.grant.kind !== "satisfied") summary.uncertainPolicies.push({ policyId: t.policyId, policyName: t.policyName, reason: t.reason });
+      continue;
+    }
+    if (t.partialResource && t.grant.kind !== "satisfied") {
+      summary.partialCoverage.push({
+        policyId: t.policyId,
+        policyName: t.policyName,
+        coverage: t.partialResource.replace(/^Only covers /, ""),
+        effect: t.grant.kind === "requires" ? "requires" : "block",
+      });
       continue;
     }
     if (t.grant.kind === "block") summary.blockedBy.push({ policyId: t.policyId, policyName: t.policyName, reason: "Blocks access" });

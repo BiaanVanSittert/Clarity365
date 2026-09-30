@@ -32,7 +32,7 @@ Start here, then follow links outward :  every note links back to this one, so y
 [[Conditional Access Policy Scanner]] · [[Sign-In Logs & CA Diagnostics]] · [[Secure Score & Timeline]] · [[MFA Enforcement & Auth Audit]] · [[User & Account Classification]] · [[Privileged Access Review]] · [[Exchange Mailbox Permissions]] · [[Email Forwarding Rules Audit]] · [[Mailflow Rules & Transport Hygiene]] · [[Defender for Office 365 & TABL]] · [[App Registrations & Connected Services]] · [[Intune Endpoint Security]] · [[Attack Surface Reduction Rules]] · [[Defender Configuration & Onboarding]] · [[Groups & Distribution Management]] · [[SharePoint & Storage Policies]] · [[Domain Authentication]]
 
 **Security Simulations:**
-[[Sign-in Situations]] · [[CA Gap Analysis]]
+[[Security Scenarios]] · [[Sign-in Situations]] · [[CA Gap Analysis]]
 
 **System & agent-facing:**
 [[Audit Log Viewer]] · [[Audit Log Investigator]] · [[MCP Tools Playground]] · [[Event Response (Incident Response)]]
@@ -46,7 +46,7 @@ Start here, then follow links outward :  every note links back to this one, so y
 ## Where this goes next
 [[Optimization Plan]] :  prioritized findings from this scan (security gaps, test coverage, structural risk)
 [[Prompting & Obsidian Workflow]] :  how to prompt Claude Code against this vault, and how to keep the vault from going stale
-[[DLP & Sensitivity Labels Plan]] :  multi-stage plan for Purview DLP and sensitivity labels (planning only) · [[DLP Stage 1 - Data Model & Licensing]] :  in-depth Stage 1 · [[DLP Stage 3 - Remaining Data Categories]] :  in-depth plan for the last four data categories · [[DLP Stage 5 - Fleet Rollout]] :  next stage, generating guided packs across many tenants · [[Compliance Readiness Checklist Plan]] :  technical + organizational readiness for POPIA/GDPR/HIPAA, not just DLP · [[Sensitivity Labels Catalog Plan]] :  the still-missing label half of "DLP & Sensitivity Labels" · [[Security Simulations Plan]] :  planned Security Simulations category (attack scenarios, sign-in situation simulator, CA gap analysis), awaiting review
+[[DLP & Sensitivity Labels Plan]] :  multi-stage plan for Purview DLP and sensitivity labels (planning only) · [[DLP Stage 1 - Data Model & Licensing]] :  in-depth Stage 1 · [[DLP Stage 3 - Remaining Data Categories]] :  in-depth plan for the last four data categories · [[DLP Stage 5 - Fleet Rollout]] :  next stage, generating guided packs across many tenants · [[Compliance Readiness Checklist Plan]] :  technical + organizational readiness for POPIA/GDPR/HIPAA, not just DLP · [[Sensitivity Labels Catalog Plan]] :  the still-missing label half of "DLP & Sensitivity Labels" · [[Security Simulations Plan]] :  Security Simulations category (attack scenarios, sign-in situation simulator, CA gap analysis), stages 1-6 built · [[Exchange App-Only Access Plan]] :  replacing the Connect Exchange Online device-code sign-in with certificate-based app-only access, awaiting review
 
 ## A note on repo history
 This vault was built immediately after discovering the local working copy was **203 commits behind `origin/main`** :  an entire auth system, fleet operations layer, incident response, compliance frameworks, and executive reporting existed on GitHub but not in the checked-out code. The repo was fast-forwarded to match before this scan ran, so everything above reflects the current, real state of the app :  not the stale one. See [[Optimization Plan]] for how to stop this from recurring silently.

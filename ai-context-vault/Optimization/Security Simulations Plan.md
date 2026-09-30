@@ -4,7 +4,7 @@ tags: [optimization, plan, ca, simulation]
 
 # Security Simulations - Plan
 
-Status: **reviewed 2026-09-29. Stages 1-3 built 2026-09-29, Stage 4 built 2026-09-30; Stage 5 (extra data for the non-CA scenarios) next, then the booked lint item last.**
+Status: **reviewed 2026-09-29. Stages 1-6 built 2026-09-29/30; the booked lint cleanup done 2026-09-30. Remaining: Stage 7 (optional polish, pick and choose).**
 
 ## Decisions (user review, 2026-09-29)
 1. **Colours**: green (prevented) and red (not prevented) are the main states. **Orange** is used only where needed: partial coverage, report-only, and "not assessed" states.
@@ -230,6 +230,15 @@ Earlier-stage changes: the Stage 1 mapper now accepts lower-case grant operators
 
 EXO steps only run when EXO is connected. Otherwise the related checks show grey "Exchange not connected", never red or green. Also fix the stale in-memory EXO refresh token issue from [[Optimization Plan]]'s "Planned feature work" before adding more EXO steps to the sync, since each added EXO call raises its odds of surfacing.
 
+### Stage 5 build record (2026-09-30)
+Built, all pending one live sync to verify:
+- **Stale EXO refresh token, fixed first** (as the plan required). `getExoAccessToken` now records every rotation old → new and forwards any holder of an older token in the chain to the newest; reconnecting Exchange (a token never rotated here) is never overridden. It also shares one in-flight refresh per tenant, closing a race where `fetchMailflowData`'s four parallel EXO calls could each redeem the same single-use token. `exo-client.ts`'s first tests.
+- **SharePoint** (no extra call; same `admin/sharepoint/settings` response): resharing by guests, unmanaged-device sync restriction (+ allowed-domain count), sharing domain restriction mode, SharePoint legacy auth, idle session sign-out, invitee-must-match. **Found:** the existing mapper's default link type and Anyone-link expiry fields don't exist in v1.0, so those have always been placeholders on live tenants; `linkDefaultsReported: false` now says so.
+- **Exchange** (only when EXO is connected): unified audit log ingestion (Microsoft: accurate only when read through Exchange Online, which is how Clarity365 reads it), org-wide SMTP AUTH, per-mailbox POP/IMAP/ActiveSync/SMTP AUTH (capped at 250 like the mailbox scan).
+- **PIM:** eligible vs active (permanent / time-bound / activated) tenant-wide role assignments with principals; falls back to the non-PIM `roleAssignments` list (labelled `source: "roleAssignments"`) when PIM data isn't available (no P2).
+- **OAuth consent grants:** `oauth2PermissionGrants` aggregated per app and consent type, with consenting-user counts, publisher verification, Microsoft-first-party flag and high-risk delegated scopes. Capped at 20 pages / 60 apps. Needs Directory.Read.All; otherwise "not assessed".
+- Sync steps 22 → 25; **`SNAPSHOT_SYNC_SCHEMA_VERSION` bumped to 3**. Demo data for all four tenants (Woodgrove strict, Northwind the "silent tenant" with auditing off, Fabrikam without Exchange connected, Contoso mixed); demo refresh in `backfillSnapshot()` extended.
+
 ## Stage 6 : Scenarios view
 
 `SecurityScenariosModule.tsx` plus `security-scenario-evaluator.ts`, with scenario definitions as data in `src/lib/data/security-scenario-definitions.ts`. Each scenario is a list of **checks** (defensive layers); each check returns prevented / not prevented / partial / not assessed, with evidence and a fix. A scenario's header shows "4 checks: 3 prevented, 1 not prevented", and each section header totals its scenarios.
@@ -259,6 +268,16 @@ EXO steps only run when EXO is connected. Otherwise the related checks show grey
 - **Anyone link on a sensitive site**: tenant sharing level; sites allowing Anyone; Anyone-link expiry (existing). "Sensitive" needs a definition. *(Open question 6.)*
 - **Guest re-share sprawl**: external resharing disabled; guest link expiry; sharing domain allow/deny list.
 
+### Stage 5 live verification (2026-09-30)
+Verified on the first sync: Exchange audit/protocol data on the two Exchange-connected tenants, SharePoint settings everywhere, schema version 3. Two fixes followed:
+- **PIM fell back to the non-PIM list on every tenant**, P2 or not. Dropped `$expand=principal` from the PIM schedule calls (principals are now resolved from already-synced users and groups) and recorded `pimUnavailableReason` when PIM still isn't available. **Needs one more sync to confirm.**
+- **OAuth grants failed on every tenant with "Insufficient privileges"** (the app registrations have Organization.Read.All, not Directory.Read.All), and the sync error marked every tenant degraded. Now recorded as `unavailable: "missingPermission"` without a sync error, and **"DelegatedPermissionGrant.Read.All / Directory.Read.All" was added as an optional row in the Permissions check** so the gap is visible and fixable.
+
+### Stage 6 build record (2026-09-30)
+Built: [[Security Scenarios]] (17 scenarios, 4 sections), wired as the first entry of the Security Simulations sidebar group with a red-scenario badge. 743 tests pass; verified read-only against 11 tenants. Also changed during this stage: the engine's partial-resource coverage and synthetic-user group membership (see the module note), and the stricter verdict roll-up (red if any check is not prevented).
+
+**For review:** with the strict roll-up, 10-16 of 17 scenarios are red on real tenants, largely from checks few tenants pass yet (token protection, device-registration policy, protected actions, manual alert checks). Alternatives if that's too stark: weight checks (core vs hardening), or make hardening-only gaps orange.
+
 ## Stage 7 : Integration and polish (optional, pick and choose)
 
 - Sidebar: a new **Security Simulations** group in the per-tenant section (after Identity & Access) with three entries, `sim_scenarios`, `sim_signin` and `sim_ca_gaps`; badge = count of red scenarios.
@@ -269,6 +288,10 @@ EXO steps only run when EXO is connected. Otherwise the related checks show grey
 - **Live What If cross-check**: Microsoft Graph has a Conditional Access What If evaluation API in **beta** (`POST /identity/conditionalAccess/evaluate`). **Unverified: confirm on Microsoft Learn before building.** If it exists, a "verify with Microsoft" button per situation would give ground truth (including nested groups and device filters the local engine marks indeterminate) through a read-only, single-tenant route. The local engine stays primary, because it works for demo tenants, offline, and explains *why*.
 
 ## Final item (after all Security Simulations work) : pre-existing lint errors
+
+**Done 2026-09-30** (brought forward at the user's request, ahead of Stage 7). All 33 `react/no-unescaped-entities` errors escaped (`&apos;` / `&quot;`, by exact lint position). The three hook warnings were each reviewed rather than silenced: Defender Config's `onboardingStates` fallback is now memoized; Fleet Baseline Rollout's `getTenantBaselineStatus` is a `useCallback` on `snapshotMap` (it already only read that, so no behaviour change); MCP Playground's effect uses a functional state update. **Adding `selectedTenantId` to that effect's dependencies, as lint suggested, would have been a bug** - it would snap a manually picked tenant back to the current one. Result: `next lint` clean across `src`, and **`next build` succeeds** (verified on a scratch copy so the running dev server's `.next` wasn't touched). 743 tests pass.
+
+Original booking:
 Booked 2026-09-30 at the user's request, to do once every stage above is finished. **Scope corrected the same day:** the first count (2 errors in `IntuneSecurityModule.tsx`) came from a lint run piped through `tail`, which hid all but the last file. The real state of `npx next lint --dir src`: **33 errors, all `react/no-unescaped-entities`** (unescaped `'` / `"` in JSX text), plus 3 `react-hooks/exhaustive-deps` warnings, in 8 files that predate this feature:
 
 | File | Errors | Warnings |
