@@ -394,7 +394,7 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot, onNavi
               <span className="font-semibold">Defender Config &amp; Onboarding</span>
             )}{" "}
             module (plus the <code className="mx-1 px-1 bg-sky-100 dark:bg-sky-900 rounded font-mono">DeviceManagementConfiguration.ReadWrite.All</code>
-            permission) to deploy ASR rules directly - until then, use each rule's PowerShell/portal guidance below.
+            permission) to deploy ASR rules directly - until then, use each rule&apos;s PowerShell/portal guidance below.
           </span>
         </div>
       )}
@@ -509,7 +509,7 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot, onNavi
       <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">
         <div className="px-4 py-2.5 bg-[#F8FAFC] dark:bg-slate-900/50 border-b border-[#CBD5E1] dark:border-slate-700">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">Standard Protection Rules</h3>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Microsoft's own recommended starting set: low friction, high value.</p>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Microsoft&apos;s own recommended starting set: low friction, high value.</p>
         </div>
         {standardRules.length === 0 ? (
           <div className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">No rules match the current filter.</div>
@@ -555,7 +555,7 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot, onNavi
                 <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                 <div className="text-[11px] text-amber-800 dark:text-amber-300">
                   Conflicting configuration: {selected.sourcePolicyNames?.length || 0} sources set this rule to different modes
-                  ({selected.sourcePolicyNames?.join(", ")}). Per Intune's policy merge behavior, none of these settings are
+                  ({selected.sourcePolicyNames?.join(", ")}). Per Intune&apos;s policy merge behavior, none of these settings are
                   actually being enforced on the device until the conflict is resolved.
                 </div>
               </div>
@@ -577,7 +577,7 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot, onNavi
                 <div className="text-[11px] text-amber-800 dark:text-amber-300">
                   {!selected.def.supportsWarnMode && <div>This rule does not support Warn mode - only Audit and Block.</div>}
                   {!selected.def.hasAdvancedHuntingTelemetry && (
-                    <div>This rule produces no Advanced Hunting telemetry - detection activity can't be reported for it.</div>
+                    <div>This rule produces no Advanced Hunting telemetry - detection activity can&apos;t be reported for it.</div>
                   )}
                 </div>
               </div>
@@ -720,7 +720,7 @@ export const AsrRulesModule: React.FC<AsrRulesModuleProps> = ({ snapshot, onNavi
           <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-sm p-2.5 flex items-start gap-2">
             <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div className="text-[11px] text-amber-800 dark:text-amber-300">
-              Creates one Settings Catalog policy covering every rule set below (anything left "Not Configured" is
+              Creates one Settings Catalog policy covering every rule set below (anything left &quot;Not Configured&quot; is
               excluded entirely). New rules default to Audit, not Block - review activity for 7-14 days before
               promoting any rule to Block.
             </div>

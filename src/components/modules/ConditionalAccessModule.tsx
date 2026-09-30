@@ -267,8 +267,8 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
 
       <SyncErrorBanner errors={caSyncErrors} title="Conditional Access sync error - everything below may be stale">
         <p className="text-[11px] leading-snug">
-          The last sync couldn't fetch current Conditional Access policies from this tenant. Baseline compliance and policy
-          status below reflect the last successful sync, not necessarily the tenant's real current state - a recently deleted
+          The last sync couldn&apos;t fetch current Conditional Access policies from this tenant. Baseline compliance and policy
+          status below reflect the last successful sync, not necessarily the tenant&apos;s real current state - a recently deleted
           or changed policy may not be reflected yet. Re-sync once the error below clears.
         </p>
       </SyncErrorBanner>

@@ -119,7 +119,7 @@ export const DataProtectionModule: React.FC<DataProtectionModuleProps> = ({ tena
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-2xl">
             DLP policies and sensitivity labels, by regulation and data type. Every recommendation here is applied by hand
-            in the Microsoft Purview compliance portal - this module never reads or writes a tenant's real DLP/label
+            in the Microsoft Purview compliance portal - this module never reads or writes a tenant&apos;s real DLP/label
             configuration.
           </p>
         </div>
@@ -537,7 +537,7 @@ export const DataProtectionModule: React.FC<DataProtectionModuleProps> = ({ tena
               <div className="flex items-start gap-2 text-[11px] text-amber-800 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-sm px-2.5 py-2 mt-3 leading-relaxed">
                 <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" />
                 <span>
-                  Not verified against a live deploy - this app's live connectivity check for the
+                  Not verified against a live deploy - this app&apos;s live connectivity check for the
                   compliance API was inconclusive. Review every line before running it.
                 </span>
               </div>

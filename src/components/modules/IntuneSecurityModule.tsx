@@ -399,7 +399,7 @@ export const IntuneSecurityModule: React.FC<IntuneSecurityModuleProps> = ({
                     </div>
                   ) : (
                     <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                      No specific setting failures reported by Microsoft for this device - check the compliance policy's own configuration, or sync this tenant if it hasn't been re-synced since this feature was added.
+                      No specific setting failures reported by Microsoft for this device - check the compliance policy&apos;s own configuration, or sync this tenant if it hasn&apos;t been re-synced since this feature was added.
                     </div>
                   )}
                 </div>

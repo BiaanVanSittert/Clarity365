@@ -379,7 +379,7 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               <div className={`text-lg font-bold mt-0.5 ${threatsAndHygieneSection.anonymousSharePointLinksCount > 0 ? "text-rose-600" : "text-emerald-600"}`}>
                 {threatsAndHygieneSection.anonymousSharePointLinksCount}
               </div>
-              <div className="text-[10px] text-slate-400">'Anyone with link' public shares</div>
+              <div className="text-[10px] text-slate-400">&apos;Anyone with link&apos; public shares</div>
             </div>
           </div>
         </div>
@@ -423,7 +423,7 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               <div>
                 <span className="font-bold text-slate-800 dark:text-slate-200">
                   {dataProtectionSection.eligibleRecommendationsCount} of {dataProtectionSection.totalRecommendationsCount} catalog
-                  recommendations available on this tenant's licence ({dataProtectionSection.tenantTier})
+                  recommendations available on this tenant&apos;s licence ({dataProtectionSection.tenantTier})
                 </span>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                   Guidance only - applied by hand in the Microsoft Purview portal, not deployed by Clarity365.

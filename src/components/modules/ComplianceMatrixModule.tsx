@@ -355,8 +355,8 @@ export const ComplianceMatrixModule: React.FC<ComplianceMatrixModuleProps> = ({
         <div className="flex items-start gap-2 text-[11px] text-indigo-800 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900 rounded-sm px-3 py-2">
           <Info size={13} className="flex-shrink-0 mt-0.5" />
           <span>
-            Readiness, not a compliance certificate. Section 1 is computed from this tenant's live configuration; section 2 is
-            organizational/legal and can only be confirmed by a human (see each item's "Attest" control) - Clarity365 cannot
+            Readiness, not a compliance certificate. Section 1 is computed from this tenant&apos;s live configuration; section 2 is
+            organizational/legal and can only be confirmed by a human (see each item&apos;s &quot;Attest&quot; control) - Clarity365 cannot
             verify a contract was signed or a registration was filed. Technical-to-legal mapping, not legal advice.
           </span>
         </div>

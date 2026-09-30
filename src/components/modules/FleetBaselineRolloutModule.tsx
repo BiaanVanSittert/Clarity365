@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { Tenant, TenantSecuritySnapshot, CAPolicyRule } from "@/lib/types";
 import { CA_BASELINE_STANDARDS, CABaselinePolicyDefinition } from "@/lib/data/baseline-definitions";
 import {
@@ -69,7 +69,9 @@ export const FleetBaselineRolloutModule: React.FC<FleetBaselineRolloutModuleProp
   }, [tenants, searchQuery, tierFilter]);
 
   // Evaluates a tenant's status for a given baseline
-  const getTenantBaselineStatus = (
+  // useCallback so the stats memo below can list it as a dependency; it only
+  // reads snapshotMap, so it changes exactly when the snapshots do.
+  const getTenantBaselineStatus = useCallback((
     tenantId: string,
     baseline: CABaselinePolicyDefinition
   ): {
@@ -103,7 +105,7 @@ export const FleetBaselineRolloutModule: React.FC<FleetBaselineRolloutModuleProp
     }
 
     return { status: "missing" };
-  };
+  }, [snapshotMap]);
 
   // Rollout statistics
   const stats = useMemo(() => {
@@ -131,7 +133,7 @@ export const FleetBaselineRolloutModule: React.FC<FleetBaselineRolloutModuleProp
       missingCells,
       fleetCoveragePercentage,
     };
-  }, [tenants, snapshots, snapshotMap]);
+  }, [tenants, getTenantBaselineStatus]);
 
   const toggleSelectAllBaselines = () => {
     if (selectedBaselineCodes.length === CA_BASELINE_STANDARDS.length) {

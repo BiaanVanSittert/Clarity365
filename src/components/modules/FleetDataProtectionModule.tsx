@@ -199,7 +199,7 @@ export const FleetDataProtectionModule: React.FC<FleetDataProtectionModuleProps>
       </div>
 
       <div className="text-[11px] text-slate-500 dark:text-slate-400 px-1 leading-relaxed">
-        Tier eligibility is estimated from each tenant's own licence tier label, not a live-verified Purview
+        Tier eligibility is estimated from each tenant&apos;s own licence tier label, not a live-verified Purview
         entitlement check - confirm real licensing before treating a tenant as ineligible or eligible on this basis
         alone. See <span className="font-mono">DLP Stage 5 - Fleet Rollout</span> in the vault for the full caveat.
       </div>

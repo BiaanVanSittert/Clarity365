@@ -22,8 +22,10 @@ export const McpPlaygroundModule: React.FC<McpPlaygroundModuleProps> = ({
   useEffect(() => {
     if (snapshot?.tenant?.id) {
       setSelectedTenantId(snapshot.tenant.id);
-    } else if (tenants.length > 0 && !selectedTenantId) {
-      setSelectedTenantId(tenants[0].id);
+    } else if (tenants.length > 0) {
+      // Functional update: only fill in a default when nothing is selected,
+      // without the effect depending on (and re-running for) the selection.
+      setSelectedTenantId((current) => current || tenants[0].id);
     }
   }, [snapshot, tenants]);
 

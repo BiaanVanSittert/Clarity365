@@ -174,7 +174,9 @@ export const DefenderConfigurationModule: React.FC<DefenderConfigurationModulePr
     "Intune devices:",
   ]);
   const connector = intune.mdeConnectorSettings;
-  const onboardingStates = intune.onboardingStates || [];
+  // Memoized so the empty-array fallback is stable between renders (a fresh
+  // [] each render made filteredOnboarding's useMemo recompute every time).
+  const onboardingStates = useMemo(() => intune.onboardingStates || [], [intune.onboardingStates]);
 
   const [onboardingSearch, setOnboardingSearch] = useState("");
   const [onboardingStatusFilter, setOnboardingStatusFilter] = useState<string>("all");
@@ -636,8 +638,8 @@ export const DefenderConfigurationModule: React.FC<DefenderConfigurationModulePr
               </div>
               <div className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed space-y-1.5">
                 <div>
-                  <strong className="text-slate-700 dark:text-slate-300">Microsoft Defender for Endpoint client configuration package type</strong> ("Auto
-                  from connector") and <strong className="text-slate-700 dark:text-slate-300">Sample Sharing</strong> are real, deployable Intune
+                  <strong className="text-slate-700 dark:text-slate-300">Microsoft Defender for Endpoint client configuration package type</strong> (&quot;Auto
+                  from connector&quot;) and <strong className="text-slate-700 dark:text-slate-300">Sample Sharing</strong> are real, deployable Intune
                   settings after all - see the <strong className="text-slate-700 dark:text-slate-300">EDR Policy</strong> section below. (An earlier
                   version of this module said both were non-configurable via Graph - that was wrong, corrected after a live catalog lookup.)
                 </div>
@@ -779,7 +781,7 @@ export const DefenderConfigurationModule: React.FC<DefenderConfigurationModulePr
                 <span className="block">Microsoft Defender for Endpoint client configuration package type: Auto from connector</span>
                 <span className="block text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
                   Onboards Windows devices using the automatic package from the connected Defender for Endpoint tenant - the
-                  recommended option. "Onboard"/"Offboard" (a manually pasted blob file) aren't supported here; use the Intune
+                  recommended option. &quot;Onboard&quot;/&quot;Offboard&quot; (a manually pasted blob file) aren&apos;t supported here; use the Intune
                   admin center directly for those.
                 </span>
               </span>
@@ -915,8 +917,8 @@ export const DefenderConfigurationModule: React.FC<DefenderConfigurationModulePr
                 <span className="block">Allow Standard User Encryption</span>
                 <span className="block text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
                   Lets Require Device Encryption succeed even when the currently signed-in user is a standard (non-admin)
-                  user. Per Microsoft's own documentation this only takes effect when "Allow Warning For Other Disk
-                  Encryption" below is also unchecked (silent encryption) - the two are functionally paired.
+                  user. Per Microsoft&apos;s own documentation this only takes effect when &quot;Allow Warning For Other Disk
+                  Encryption&quot; below is also unchecked (silent encryption) - the two are functionally paired.
                 </span>
               </span>
             </label>
@@ -931,9 +933,9 @@ export const DefenderConfigurationModule: React.FC<DefenderConfigurationModulePr
               <span>
                 <span className="block">Allow Warning For Other Disk Encryption</span>
                 <span className="block text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-                  Checked (Microsoft's own default when unset) shows the encryption notification/warning prompt to the user.
-                  Leave unchecked for silent encryption with no user-facing prompts - required for "Allow Standard User
-                  Encryption" above to actually work.
+                  Checked (Microsoft&apos;s own default when unset) shows the encryption notification/warning prompt to the user.
+                  Leave unchecked for silent encryption with no user-facing prompts - required for &quot;Allow Standard User
+                  Encryption&quot; above to actually work.
                 </span>
               </span>
             </label>
