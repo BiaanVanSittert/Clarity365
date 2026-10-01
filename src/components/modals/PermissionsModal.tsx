@@ -3,7 +3,8 @@ import { Modal } from "../common/Modal";
 import { StatusPill } from "../common/StatusPill";
 import { Tenant } from "@/lib/types";
 import { TenantPermissionReport } from "@/lib/services/graph-client";
-import { DeviceCodeStart } from "@/lib/services/exo-client";
+import { DeviceCodeStart, ExoConnectivityResult } from "@/lib/services/exo-client";
+import { EXCHANGE_ROLE_LABEL, getExchangeAccess } from "@/lib/utils/exchange-access";
 import { ShieldCheck, RefreshCw, AlertTriangle, CheckCircle, ExternalLink, Key, Mail, Copy, Check, Info } from "lucide-react";
 
 interface PermissionsModalProps {
@@ -21,16 +22,17 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
   const [report, setReport] = useState<TenantPermissionReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Exchange Online (MDO Policies) - separate delegated device-code auth flow
-  // from the Graph client secret above, so it gets its own connectivity
-  // check and connect flow rather than living in the permissions table.
-  const [exoConnected, setExoConnected] = useState(!!tenant.credentials.exoRefreshToken);
+  // Exchange Online: app-only access through this app registration
+  // (Exchange.ManageAsApp + an Entra role, no sign-in) is the normal path; the
+  // older device-code admin sign-in stays as an optional fallback. See
+  // ai-context-vault/Optimization/Exchange App-Only Access Plan.md.
   const [exoDeviceInfo, setExoDeviceInfo] = useState<DeviceCodeStart | null>(null);
   const [exoPollStatus, setExoPollStatus] = useState<"idle" | "starting" | "pending" | "error" | "expired" | "declined">("idle");
   const [exoPollError, setExoPollError] = useState<string | null>(null);
   const [exoCodeCopied, setExoCodeCopied] = useState(false);
   const [exoTesting, setExoTesting] = useState(false);
-  const [exoResult, setExoResult] = useState<{ connected: boolean; error?: string; testedAt: string } | null>(null);
+  const [exoResult, setExoResult] = useState<ExoConnectivityResult | null>(null);
+  const [showSignInFallback, setShowSignInFallback] = useState(false);
   // Off by default even when connected - see types/index.ts's TenantCredentials.exoWriteEnabled
   // comment for why this needs to be an explicit, separately-persisted opt-in
   // rather than something that turns on automatically once EXO is connected.
@@ -72,10 +74,10 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
       if (data.success && data.result) {
         setExoResult(data.result);
       } else {
-        setExoResult({ connected: false, error: data.error || "Failed to test Exchange Online connectivity", testedAt: new Date().toISOString() });
+        setExoResult({ connected: false, mode: "none", error: data.error || "Failed to check Exchange Online access", testedAt: new Date().toISOString() });
       }
     } catch (err: any) {
-      setExoResult({ connected: false, error: err.message || "Network error while testing Exchange Online connectivity", testedAt: new Date().toISOString() });
+      setExoResult({ connected: false, mode: "none", error: err.message || "Network error while checking Exchange Online access", testedAt: new Date().toISOString() });
     } finally {
       setExoTesting(false);
     }
@@ -101,7 +103,7 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
         stopPolling();
         setExoPollStatus("idle");
         setExoDeviceInfo(null);
-        setExoConnected(true);
+        setShowSignInFallback(false);
         await testExoConnectivity();
       } else if (status === "pending") {
         setExoPollStatus("pending");
@@ -172,13 +174,13 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       fetchPermissions();
-      setExoConnected(!!tenant.credentials.exoRefreshToken);
       setExoWriteEnabled(!!tenant.credentials.exoWriteEnabled);
       setExoDeviceInfo(null);
       setExoPollStatus("idle");
       setExoPollError(null);
       setExoResult(null);
-      if (tenant.credentials.exoRefreshToken) {
+      setShowSignInFallback(false);
+      if (tenant.credentials.authMode !== "mock") {
         testExoConnectivity();
       }
     } else {
@@ -424,154 +426,131 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
           );
         })()}
 
-        {/* Exchange Online (MDO Policies) - delegated device-code auth flow */}
-        <div className="border border-slate-200 dark:border-slate-700 p-3 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
-              <Mail className="w-4 h-4 text-slate-600 dark:text-slate-400" />
-              <span>Exchange Online (MDO Policies)</span>
-            </div>
-            {exoConnected && exoPollStatus === "idle" && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={testExoConnectivity}
-                  disabled={exoTesting}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium rounded-sm disabled:opacity-50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${exoTesting ? "animate-spin" : ""}`} />
-                  {exoTesting ? "Testing..." : "Test Connection"}
-                </button>
-                <button
-                  onClick={startExoConnect}
-                  className="flex items-center gap-1 px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium rounded-sm"
-                >
-                  Reconnect
-                </button>
-              </div>
-            )}
-          </div>
-
-          {exoPollStatus === "idle" ? (
-            !exoConnected ? (
-              <div className="space-y-2.5">
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Optional - required only to sync Defender for Office 365 policies (anti-phish, anti-spam, Safe
-                  Links, Safe Attachments) and the Tenant Allow/Block List. Exchange admin APIs don&apos;t accept the
-                  client secret above, so this uses a one-time sign-in instead - no certificate or app registration
-                  changes needed.
-                </p>
-                <button
-                  onClick={startExoConnect}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-sm"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  Connect Exchange Online
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {exoResult ? (
-                  exoResult.connected ? (
-                    <StatusPill status="pass" label="Connected" />
-                  ) : (
-                    <div className="space-y-1">
-                      <StatusPill status="fail" label="Connection Failed" />
-                      {exoResult.error && (
-                        <div className="text-[10px] font-mono text-rose-700 dark:text-red-400 bg-rose-50 dark:bg-red-950 p-1.5 border border-rose-200 dark:border-red-800">
-                          {exoResult.error}
-                        </div>
-                      )}
-                    </div>
-                  )
-                ) : (
-                  <span className="text-[11px] text-slate-400 dark:text-slate-500">Testing connection...</span>
+        {/* Exchange Online - app-only access first, admin sign-in as a fallback */}
+        {(() => {
+          const access = exoResult
+            ? getExchangeAccess({ exoAppAccess: exoResult.appAccess, exoRefreshToken: exoResult.mode === "delegated" ? "set" : undefined })
+            : getExchangeAccess(tenant.credentials);
+          const app = exoResult?.appAccess;
+          const appOk = access.mode === "appOnly";
+          const signInActive = exoPollStatus !== "idle";
+          const btn =
+            "flex items-center gap-1 px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium rounded-sm disabled:opacity-50";
+          return (
+            <div className="border border-slate-200 dark:border-slate-700 p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                  <Mail className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                  <span>Exchange Online</span>
+                </div>
+                {tenant.credentials.authMode !== "mock" && !signInActive && (
+                  <button onClick={testExoConnectivity} disabled={exoTesting} className={btn}>
+                    <RefreshCw className={`w-3.5 h-3.5 ${exoTesting ? "animate-spin" : ""}`} />
+                    {exoTesting ? "Checking..." : "Check again"}
+                  </button>
                 )}
+              </div>
 
-                <div className="border-t border-[#E2E8F0] dark:border-slate-700 pt-3">
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={exoWriteEnabled}
-                      disabled={exoWriteSaving}
-                      onChange={(e) => toggleExoWrite(e.target.checked)}
-                      className="mt-0.5"
-                    />
-                    <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                      Allow Clarity365 to write changes to Exchange Online
+              {!exoResult && exoTesting ? (
+                <span className="text-[11px] text-slate-400 dark:text-slate-500">Checking Exchange access...</span>
+              ) : appOk ? (
+                <div className="space-y-1.5">
+                  <StatusPill status="pass" label="Connected - no sign-in needed" />
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                    Role: <strong>{EXCHANGE_ROLE_LABEL[access.role || "otherRole"]}</strong>
+                    {access.canWrite
+                      ? " - reports and one-click fixes."
+                      : " - reports only. For one-click fixes, assign Exchange Administrator to the app instead."}
+                  </p>
+                  {exoResult && !exoResult.connected && exoResult.error && (
+                    <p className="text-[11px] text-rose-700 dark:text-red-400">Test command failed: {exoResult.error}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {access.mode === "delegated" && <StatusPill status="warn" label="Connected through an admin sign-in (older method)" />}
+                  <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                    {access.mode === "delegated"
+                      ? "Switch to access with no sign-in, in two steps:"
+                      : "Set up in two steps (Entra admin center, on this app registration):"}
+                  </p>
+                  <ol className="list-decimal pl-5 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+                    <li>
+                      <strong>API permissions</strong> → Add a permission → Office 365 Exchange Online → Application →{" "}
+                      <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded font-mono">Exchange.ManageAsApp</code> → Grant admin consent.
+                    </li>
+                    <li>
+                      <strong>Roles and administrators</strong> → <strong>Exchange Administrator</strong> (or Global Reader for reports only) → Add
+                      assignment → this app.
+                    </li>
+                  </ol>
+                  {app && app.status !== "ok" && app.detail && <p className="text-[11px] text-amber-800 dark:text-amber-400">Missing: {app.detail}</p>}
+                  {access.mode === "none" && !signInActive && (
+                    <button onClick={() => setShowSignInFallback((v) => !v)} className="text-[11px] text-slate-500 dark:text-slate-400 underline">
+                      Or connect with an admin sign-in instead
+                    </button>
+                  )}
+                  {showSignInFallback && !signInActive && (
+                    <button
+                      onClick={startExoConnect}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-sm"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Sign in to Exchange Online
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {exoPollStatus === "starting" && <span className="text-[11px] text-slate-400 dark:text-slate-500">Starting sign-in...</span>}
+              {exoPollStatus === "pending" && exoDeviceInfo && (
+                <div className="space-y-2.5">
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Go to{" "}
+                    <a href={exoDeviceInfo.verificationUri} target="_blank" rel="noopener noreferrer" className="text-slate-800 dark:text-slate-200 underline font-medium">
+                      {exoDeviceInfo.verificationUri}
+                    </a>{" "}
+                    and enter this code as an Exchange admin:
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-sm text-sm font-mono font-semibold tracking-widest text-slate-900 dark:text-slate-100">
+                      {exoDeviceInfo.userCode}
                     </span>
-                  </label>
-                  <div className="mt-2 p-2.5 bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-400 text-[11px] rounded-sm space-y-1">
-                    <div className="flex items-center gap-1.5 font-semibold text-amber-900 dark:text-amber-400">
-                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span>What enabling this means</span>
-                    </div>
-                    <p className="leading-relaxed">
-                      {exoWriteEnabled ? (
-                        <>
-                          Enabled - adding or removing a Tenant Allow/Block List entry from MDO Policies will create or
-                          delete it directly in Exchange Online, using the same permissions as the account you
-                          connected with. Changes take effect immediately, with no undo.
-                        </>
-                      ) : (
-                        <>
-                          Currently off (default). Add/Remove entries in MDO Policies are tracked in Clarity365 only -
-                          nothing is sent to Microsoft 365. Enabling this lets Clarity365 create/remove real Tenant
-                          Allow/Block List entries directly in Exchange Online, using the same permissions as the
-                          connected account. If you&apos;re not sure, leave this off.
-                        </>
-                      )}
-                    </p>
+                    <button onClick={copyExoCode} title="Copy code" className={btn}>
+                      {exoCodeCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    Waiting for you to approve access...
                   </div>
                 </div>
-              </div>
-            )
-          ) : exoPollStatus === "starting" ? (
-            <span className="text-[11px] text-slate-400 dark:text-slate-500">Starting sign-in...</span>
-          ) : exoPollStatus === "pending" && exoDeviceInfo ? (
-            <div className="space-y-2.5">
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Go to{" "}
-                <a
-                  href={exoDeviceInfo.verificationUri}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-slate-800 dark:text-slate-200 underline font-medium"
-                >
-                  {exoDeviceInfo.verificationUri}
-                </a>{" "}
-                and enter this code, signed in as an account with Exchange admin / Security admin rights:
-              </p>
-              <div className="flex items-center gap-2">
-                <span className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-sm text-sm font-mono font-semibold tracking-widest text-slate-900 dark:text-slate-100">
-                  {exoDeviceInfo.userCode}
-                </span>
-                <button
-                  onClick={copyExoCode}
-                  title="Copy code"
-                  className="flex items-center gap-1 px-2 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium rounded-sm"
-                >
-                  {exoCodeCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                <RefreshCw className="w-3 h-3 animate-spin" />
-                Waiting for you to approve access...
-              </div>
+              )}
+              {(exoPollStatus === "error" || exoPollStatus === "expired" || exoPollStatus === "declined") && (
+                <div className="space-y-2">
+                  <div className="p-2 bg-rose-50 dark:bg-red-950 border border-rose-200 dark:border-red-800 text-rose-800 dark:text-red-400 text-[11px]">
+                    {exoPollError || "Exchange Online sign-in failed."}
+                  </div>
+                  <button onClick={startExoConnect} className="px-3.5 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-sm">
+                    Try again
+                  </button>
+                </div>
+              )}
+
+              {access.available && access.canWrite && !signInActive && (
+                <div className="border-t border-[#E2E8F0] dark:border-slate-700 pt-3">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input type="checkbox" checked={exoWriteEnabled} disabled={exoWriteSaving} onChange={(e) => toggleExoWrite(e.target.checked)} className="mt-0.5" />
+                    <span className="text-xs text-slate-700 dark:text-slate-300">
+                      <span className="font-medium">Allow Clarity365 to make changes in Exchange</span> (one-click fixes and Allow/Block List entries).
+                      <span className="block text-[11px] text-slate-500 dark:text-slate-400">Off by default. When on, changes apply in Exchange immediately.</span>
+                    </span>
+                  </label>
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="space-y-2">
-              <div className="p-2 bg-rose-50 dark:bg-red-950 border border-rose-200 dark:border-red-800 text-rose-800 dark:text-red-400 text-[11px]">
-                {exoPollError || "Exchange Online sign-in failed."}
-              </div>
-              <button
-                onClick={startExoConnect}
-                className="px-3.5 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-sm"
-              >
-                Try Again
-              </button>
-            </div>
-          )}
-        </div>
+          );
+        })()}
 
         <div className="flex justify-end pt-2">
           <button

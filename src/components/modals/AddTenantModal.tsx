@@ -22,6 +22,32 @@ const INITIAL_STATE = {
   clientSecret: "",
 };
 
+// Required Microsoft Graph application permissions (read-only).
+const REQUIRED_GRAPH_PERMISSIONS = [
+  "Policy.Read.All",
+  "User.Read.All",
+  "AuditLog.Read.All",
+  "Reports.Read.All",
+  "UserAuthenticationMethod.Read.All",
+  "Organization.Read.All",
+  "RoleManagement.Read.Directory",
+  "DeviceManagementManagedDevices.Read.All",
+  "DeviceManagementConfiguration.Read.All",
+  "SecurityEvents.Read.All",
+  "SecurityAlert.Read.All",
+  "Group.Read.All",
+  "Sites.Read.All",
+  "SharePointTenantSettings.Read.All",
+];
+
+// Optional extras, one line each. The Permissions check explains each in more detail.
+const OPTIONAL_GRAPH_PERMISSIONS = [
+  { permission: "Policy.ReadWrite.ConditionalAccess", purpose: "deploy CA baseline policies from Clarity365 (plus Application.Read.All for CA05)." },
+  { permission: "DeviceManagementConfiguration.ReadWrite.All", purpose: "deploy Defender, EDR and ASR policies from Clarity365." },
+  { permission: "ThreatHunting.Read.All", purpose: "ASR rule detection activity (needs Defender for Endpoint P2)." },
+  { permission: "DelegatedPermissionGrant.Read.All", purpose: "the OAuth app consent check in Security Scenarios." },
+];
+
 export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose, onTenantAdded }) => {
   const [mode, setMode] = useState(INITIAL_STATE.mode);
   const [displayName, setDisplayName] = useState(INITIAL_STATE.displayName);
@@ -255,68 +281,46 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
               </div>
             </div>
 
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Required Graph Application Permissions (read-only - full audit &amp; reporting, no write access):{" "}
-              {[
-                "Policy.Read.All",
-                "User.Read.All",
-                "AuditLog.Read.All",
-                "Reports.Read.All",
-                "UserAuthenticationMethod.Read.All",
-                "Organization.Read.All",
-                "RoleManagement.Read.Directory",
-                "DeviceManagementManagedDevices.Read.All",
-                "DeviceManagementConfiguration.Read.All",
-                "SecurityEvents.Read.All",
-                "SecurityAlert.Read.All",
-                "Group.Read.All",
-                "Sites.Read.All",
-                "SharePointTenantSettings.Read.All",
-              ].map((perm, i, arr) => (
-                <React.Fragment key={perm}>
-                  <code className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono">{perm}</code>
-                  {i < arr.length - 1 ? ", " : "."}
-                </React.Fragment>
-              ))}
-              {" "}Use the Permissions check after adding this tenant to confirm every scope is granted.
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              <code className="bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-400 border border-amber-400 dark:border-amber-800 px-1 py-0.5 rounded font-mono font-semibold">
-                Policy.ReadWrite.ConditionalAccess
-              </code>{" "}
-              - <strong>optional, write access.</strong> Only grant this if you want Clarity365 to auto-deploy CA
-              baseline policies directly from the app. Without it, the read-only permissions above still give full
-              CA policy audit/reporting, and Clarity365 generates a PowerShell script you can run manually instead.
-              One baseline, CA05, also needs <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded font-mono">Application.Read.All</code> granted
-              alongside this - it references a specific application (Microsoft Azure Management) by ID rather than
-              &quot;All&quot;, and Graph needs to read that application object to create a policy referencing it. If
-              a CA05 deploy specifically fails while every other baseline works, that&apos;s why - the deploy attempt
-              itself will say so and tell you what to grant.
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              <code className="bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-400 border border-amber-400 dark:border-amber-800 px-1 py-0.5 rounded font-mono font-semibold">
-                ThreatHunting.Read.All
-              </code>{" "}
-              - <strong>optional, read-only.</strong> Only needed for ASR Rules detection activity (event counts and
-              detail) - a separately-consented permission that typically also needs a Defender for Endpoint P2 (or
-              equivalent Business Premium) license. Without it, ASR rule configuration reporting (Block/Audit/Warn/Not
-              Configured per rule) still works fully.
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              <code className="bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-400 border border-amber-400 dark:border-amber-800 px-1 py-0.5 rounded font-mono font-semibold">
-                DeviceManagementConfiguration.ReadWrite.All
-              </code>{" "}
-              - <strong>optional, write access.</strong> Only needed for Endpoint Security&apos;s write-enabled deploy
-              actions (MDE connector setting changes, Defender Antivirus policy deployment, ASR rule deployment) - also
-              gated by a separate per-tenant toggle in the Defender Config module itself, so granting this alone
-              doesn&apos;t enable anything by itself. Without it, DeviceManagementConfiguration.Read.All above still
-              gives full read-only reporting for all three.
-            </p>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Defender for Office 365 policy sync (MDO Policies) needs a separate one-time Exchange Online sign-in, not a
-              Graph permission - connect it from the Permissions check after adding this tenant. There, a similar
-              off-by-default toggle controls whether it can write (Tenant Allow/Block List changes) or stays read-only.
-            </p>
+            {/* Setup checklist - kept deliberately short. Everything is done once,
+                in the Entra admin center, on the same app registration; nothing
+                needs a sign-in afterwards (Exchange included - see
+                ai-context-vault/Optimization/Exchange App-Only Access Plan.md). */}
+            <div className="text-[11px] text-slate-600 dark:text-slate-300 space-y-1.5">
+              <div className="font-semibold text-slate-700 dark:text-slate-200">Setup (Entra admin center, on this app registration)</div>
+              <ol className="list-decimal pl-5 space-y-1">
+                <li>Create a client secret and paste the three values above.</li>
+                <li>
+                  <strong>API permissions</strong>: add the Microsoft Graph permissions below plus{" "}
+                  <strong>Office 365 Exchange Online → Exchange.ManageAsApp</strong> (all Application type), then{" "}
+                  <strong>Grant admin consent</strong>.
+                </li>
+                <li>
+                  <strong>Roles and administrators</strong>: assign <strong>Exchange Administrator</strong> to the app (or Global Reader for reports
+                  only).
+                </li>
+              </ol>
+              <details className="pt-0.5">
+                <summary className="cursor-pointer text-slate-500 dark:text-slate-400">Microsoft Graph permissions ({REQUIRED_GRAPH_PERMISSIONS.length})</summary>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {REQUIRED_GRAPH_PERMISSIONS.map((perm) => (
+                    <code key={perm} className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono">
+                      {perm}
+                    </code>
+                  ))}
+                </div>
+              </details>
+              <details>
+                <summary className="cursor-pointer text-slate-500 dark:text-slate-400">Optional permissions for extra features</summary>
+                <ul className="mt-1 space-y-0.5 list-disc pl-5">
+                  {OPTIONAL_GRAPH_PERMISSIONS.map((o) => (
+                    <li key={o.permission}>
+                      <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded font-mono">{o.permission}</code> - {o.purpose}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+              <div className="text-slate-500 dark:text-slate-400">After adding the tenant, the Permissions check confirms each step.</div>
+            </div>
           </div>
         )}
 

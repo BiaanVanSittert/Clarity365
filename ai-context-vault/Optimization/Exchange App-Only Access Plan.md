@@ -4,7 +4,22 @@ tags: [optimization, plan, exchange]
 
 # Exchange App-Only Access - Plan
 
-Status: **reviewed 2026-09-30; Phase 0 next.** Nothing built yet.
+Status: **Phase 0 passed and option C built, 2026-09-30.** Exchange now works through the app registration with the tenant's existing client secret (no sign-in, no certificate needed to start). The certificate is an optional later upgrade.
+
+## Decision (user, 2026-09-30): option C, simplest possible setup
+- **App-only via the existing client secret first**, falling back to the older device-code sign-in only when app-only isn't set up. A certificate becomes an optional upgrade later (Microsoft's documented method).
+- **Per-tenant setup is two Entra portal steps**: add Office 365 Exchange Online → Exchange.ManageAsApp (Application) with admin consent, and assign **Exchange Administrator** (all features) or **Global Reader** (reports only) to the app.
+- **Onboarding must stay short and plain.** One checklist, optional details folded away, no paragraphs of caveats.
+
+## Built (2026-09-30)
+- `src/lib/utils/exchange-access.ts` (+ test): `getExchangeAccess()`, `canWriteToExchange()`, `classifyExoAppToken()`, the one answer to "can Clarity365 use / write to Exchange for this tenant", replacing ~20 separate `exoRefreshToken` checks (4 sync gates, 9 tenant-store write gates, 5 modules, the Permissions check, the connectivity test).
+- `exo-client.ts`: `getExoAppOnlyAccess()` gets an Exchange token with the client secret, decodes `roles`/`wids` to record status, role and whether it can write (cached; "not set up" re-checked after 5 minutes). `invokeExoCommand` uses app-only first, delegated second. `testExoConnectivity` reports the mode and app-only status.
+- `TenantCredentials.exoAppAccess` records the result; the sync and the Permissions check save it, so every module shows the current state.
+- Writes need the tenant's write switch **and** a role that can write (Exchange Administrator / Global Administrator, or the delegated sign-in). Global Reader tenants get a clear message instead of a failure at Microsoft.
+- **Onboarding:** `AddTenantModal` is now a 3-step checklist (secret → API permissions incl. Exchange.ManageAsApp → assign the role), with the Graph list and optional permissions folded away. The Permissions check's Exchange section shows "Connected - no sign-in needed" plus the role, or the same two steps, with the admin sign-in behind a small "use an admin sign-in instead" link.
+- Tests: `exchange-access.test.ts`, app-only cases in `exo-client.test.ts`. Verified live on Crimson Line with the app's own code and the delegated token removed in memory: connectivity, Exchange security settings (20 mailboxes), 6 MDO policies + TABL, and domains/DKIM all through app-only, matching the earlier delegated sync.
+
+**Still to do:** writes under Exchange Administrator haven't been exercised live yet (Crimson Line has Global Reader). The first real one-click fix on an Exchange Administrator tenant is the verification. Phases 1 (certificate), 3's certificate-expiry warnings and the later items below remain optional.
 
 ## Requirement (user, 2026-09-30): no sign-in, ever
 After setup, Clarity365 must reach Exchange with **no interactive sign-in of any kind**: no device code, no admin account, no Exchange PowerShell session. Setup is done once per tenant **in the Entra admin portal only**, alongside the existing app registration and Graph consent:
@@ -58,6 +73,19 @@ A throwaway script against one test tenant (Crimson Line Live Demo) to confirm:
 - Microsoft's "CNG certificates aren't supported" note is about the Windows certificate store the PowerShell module uses. Confirm a Node-generated RSA key signs a working assertion.
 
 **Done when** the spike's findings are written into this note, and anything that contradicts the plan is changed here before Phase 1.
+
+#### Phase 0 results (2026-09-30, Crimson Line Live Demo, read-only)
+Setup: the user did the three portal steps (uploaded a 30-day spike certificate, added Exchange.ManageAsApp + consent, assigned Global Reader to the app). Script: `scratchpad/exo-spike/spike.js` (outside the repo; RS256 client assertion with `x5t` + `x5t#S256` headers from a Node/OpenSSL RSA key, so Microsoft's CNG note doesn't apply).
+- **Certificate token issued, no sign-in.** Audience `https://outlook.office365.com`.
+- **Token claims are enough to verify setup:** `roles` = `["Exchange.ManageAsApp"]`; `wids` contains Global Reader `f2ef992c-3afb-46b9-b7cf-a126ee74c451` plus `0997a1d0-0d1d-4acb-b408-d5ca73121e90`, which is **not** a directory role template (Graph returns 404 for it) - an ID Microsoft adds to app tokens. The permission check should match known role ids only.
+- **No `X-AnchorMailbox` header needed:** the same `adminapi/beta/{tenant}/InvokeCommand` call works as-is with the app-only token.
+- **22 of 22 read cmdlets work under Global Reader**: every cmdlet in the inventory above, including all six MDO policy reads, `Get-TenantAllowBlockListItems`, and per-mailbox `Get-MailboxPermission` / `Get-RecipientPermission` / `Get-MailboxStatistics` / `Get-InboxRule`. Latency 0.3-1.4 s per call, similar to delegated.
+- **Values match the delegated sync:** UnifiedAuditLogIngestionEnabled = true, SmtpClientAuthenticationDisabled = true, as stored by the existing device-code connection.
+- **Surprise - a client secret works too.** Once the app had Exchange.ManageAsApp and a role, a token from the tenant's *existing client secret* also ran `Get-OrganizationConfig` successfully. The old `TenantCredentials` comment ("Exchange admin APIs don't accept the client-secret flow") was wrong in practice; it most likely failed then because the app had neither the permission nor a role. **Microsoft still documents only certificates for this**, so the secret path is undocumented and could be blocked without notice.
+- **The certificate also works for Graph** (a Graph token with the same 15 app roles as the secret), confirming the "Graph on the same certificate" follow-up is possible.
+- Not tested (deliberately, read-only spike): write cmdlets and their error shapes under Global Reader. Do this in Phase 4, on a tenant where writes are wanted.
+
+**Decision this raises (for the user):** use the **certificate** (Microsoft's documented path; needs the extra upload step and renewal) or the **existing client secret** (works today with just the permission and the role, zero extra setup, but undocumented). Recommended: build the certificate path as the supported default, and fall back automatically to the existing client secret when no certificate is uploaded, labelling that in the Permissions check as "working, not Microsoft-supported". If Microsoft ever blocks secrets here, the fallback degrades to "not assessed" rather than breaking anything.
 
 ### Phase 1 : Certificate credential
 - `TenantCredentials` gains optional `exoAppCertificate?: { thumbprintSha1: string; thumbprintSha256: string; publicCertPem: string; encryptedPrivateKey: string; notBefore: string; notAfter: string; createdAt: string }` and `exoAuthMode?: "appOnly" | "delegated"`. The private key is encrypted with `CLARITY365_ENCRYPTION_KEY` like client secrets, is never shown or exported again, and is stripped by `sanitizeSnapshot`-style helpers everywhere a tenant leaves the server.

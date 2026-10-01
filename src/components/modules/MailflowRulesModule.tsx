@@ -7,6 +7,7 @@ import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 import { evaluateMailflowBaseline } from "@/lib/services/mailflow-baseline-matcher";
 import { MAILFLOW_BASELINE_STANDARDS } from "@/lib/data/mailflow-baseline-definitions";
 import { GitBranch, AlertTriangle, Wrench, ExternalLink, Mail } from "lucide-react";
+import { canWriteToExchange, getExchangeAccess } from "@/lib/utils/exchange-access";
 
 interface MailflowRulesModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -21,8 +22,10 @@ export const MailflowRulesModule: React.FC<MailflowRulesModuleProps> = ({
 }) => {
   const { mailflowTransportRules, mailflowConnectors, mdoThreat, tenant, remoteDomainAutoForwardBlocked, externalSenderTagEnabled } = snapshot;
 
-  const exoConnected = !!tenant.credentials.exoRefreshToken;
-  const exoWriteEnabled = !!tenant.credentials.exoWriteEnabled;
+  const exoConnected = getExchangeAccess(tenant.credentials).available;
+  // Writes need the tenant's write switch AND Exchange access that can write
+  // (Global Reader can't) - see exchange-access.ts.
+  const exoWriteEnabled = canWriteToExchange(tenant.credentials);
   const mailflowSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Mailflow:"]);
 
   const { results, coveragePercent } = evaluateMailflowBaseline({
@@ -82,7 +85,7 @@ export const MailflowRulesModule: React.FC<MailflowRulesModuleProps> = ({
       return (
         <button
           onClick={onOpenPermissions}
-          title="Connect Exchange Online to enable one-click fixes"
+          title="Set up Exchange access in the Permissions check to enable one-click fixes"
           className="text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 inline-flex items-center gap-1 underline decoration-dotted"
         >
           <ExternalLink size={11} />
@@ -92,7 +95,7 @@ export const MailflowRulesModule: React.FC<MailflowRulesModuleProps> = ({
     }
     if (!exoWriteEnabled) {
       return (
-        <span className="text-[11px] text-slate-400 dark:text-slate-500" title="Enable live Exchange Online writes in the Permissions check to use one-click fixes">
+        <span className="text-[11px] text-slate-400 dark:text-slate-500" title="Turn on Exchange writes in the Permissions check (needs the Exchange Administrator role) to use one-click fixes">
           Enable write access to fix
         </span>
       );
@@ -191,13 +194,13 @@ export const MailflowRulesModule: React.FC<MailflowRulesModuleProps> = ({
         {!exoConnected ? (
           <div className="p-6 text-center space-y-2">
             <Mail className="w-6 h-6 text-slate-300 mx-auto" />
-            <p className="text-xs text-slate-500 dark:text-slate-400">Connect Exchange Online to score your tenant&apos;s mail flow rule configuration.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Set up Exchange access to score your tenant&apos;s mail flow rule configuration.</p>
             <button
               onClick={onOpenPermissions}
               className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm inline-flex items-center gap-1.5"
             >
               <ExternalLink size={13} />
-              <span>Connect Exchange Online</span>
+              <span>Set up Exchange access</span>
             </button>
           </div>
         ) : (

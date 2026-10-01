@@ -1,5 +1,6 @@
-import { Tenant, MdoThreatPolicy, TablEntry, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthCheck, MailflowConnector, ExchangeSecuritySettings, CasMailboxProtocols } from "../types";
+import { Tenant, MdoThreatPolicy, TablEntry, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthCheck, MailflowConnector, ExchangeSecuritySettings, CasMailboxProtocols, ExoAppAccess } from "../types";
 import { mapCasMailbox, readBooleanSetting } from "./security-posture-mapper";
+import { classifyExoAppToken, getExchangeAccess } from "../utils/exchange-access";
 import { graphFetch } from "./graph-fetch";
 import { mapMdoPolicy, mapTablEntry, TablListType } from "./mdo-mapper";
 import {
@@ -181,6 +182,104 @@ async function redeemExoRefreshToken(
   }
 }
 
+// ---- App-only access (no sign-in) ------------------------------------------
+// The app registration's own identity: Office 365 Exchange Online
+// "Exchange.ManageAsApp" + an Entra role on the app. Proven in the Phase 0
+// spike (ai-context-vault/Optimization/Exchange App-Only Access Plan.md): all
+// 22 read cmdlets work under Global Reader, no X-AnchorMailbox header needed.
+// Authenticates with the tenant's existing client secret - works, though
+// Microsoft documents certificates for this (the plan's option C).
+
+interface CachedAppAccess {
+  token?: string;
+  access: ExoAppAccess;
+  expiresAt: number;
+}
+interface ExoAppCacheGlobal {
+  clarity365ExoAppCache?: Map<string, CachedAppAccess>;
+}
+const exoAppCacheGlobal = globalThis as unknown as ExoAppCacheGlobal;
+if (!exoAppCacheGlobal.clarity365ExoAppCache) exoAppCacheGlobal.clarity365ExoAppCache = new Map();
+const exoAppCache = exoAppCacheGlobal.clarity365ExoAppCache;
+// A "not set up" result is re-checked after this long, so granting the
+// permission or role takes effect without a restart.
+const EXO_APP_NEGATIVE_CACHE_MS = 5 * 60_000;
+
+function decodeTokenClaims(token: string): { roles?: string[]; wids?: string[] } {
+  try {
+    const payload = token.split(".")[1];
+    return JSON.parse(Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+  } catch {
+    return {};
+  }
+}
+
+// Returns undefined when the tenant has no client secret to try with.
+export async function getExoAppOnlyAccess(
+  credentials: Tenant["credentials"],
+  options: { force?: boolean } = {}
+): Promise<{ token?: string; access?: ExoAppAccess }> {
+  if (!credentials.tenantId || !credentials.clientId || !credentials.clientSecret) return {};
+  const cacheKey = `exo-app:${credentials.tenantId}:${credentials.clientId}`;
+  const cached = exoAppCache.get(cacheKey);
+  if (!options.force && cached && cached.expiresAt > Date.now()) return { token: cached.token, access: cached.access };
+
+  const checkedAt = new Date().toISOString();
+  const body = new URLSearchParams({
+    client_id: credentials.clientId,
+    client_secret: credentials.clientSecret,
+    grant_type: "client_credentials",
+    scope: "https://outlook.office365.com/.default",
+  });
+  try {
+    const res = await graphFetch(
+      tokenEndpoint(credentials.tenantId),
+      { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body },
+      { timeoutMs: 10_000 }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.access_token) {
+      const access: ExoAppAccess = {
+        status: "error",
+        hasPermission: false,
+        canWrite: false,
+        method: "clientSecret",
+        checkedAt,
+        detail: (data.error_description || data.error || `Token request failed (${res.status})`).split("\r\n")[0],
+      };
+      exoAppCache.set(cacheKey, { access, expiresAt: Date.now() + EXO_APP_NEGATIVE_CACHE_MS });
+      return { access };
+    }
+    const access = classifyExoAppToken(decodeTokenClaims(data.access_token), "clientSecret", checkedAt);
+    const expiresInSeconds = typeof data.expires_in === "number" ? data.expires_in : 3600;
+    exoAppCache.set(cacheKey, {
+      token: access.status === "ok" ? data.access_token : undefined,
+      access,
+      expiresAt: access.status === "ok" ? Date.now() + expiresInSeconds * 1000 - EXO_TOKEN_SAFETY_MARGIN_MS : Date.now() + EXO_APP_NEGATIVE_CACHE_MS,
+    });
+    return { token: access.status === "ok" ? data.access_token : undefined, access };
+  } catch (err: any) {
+    return { access: { status: "error", hasPermission: false, canWrite: false, method: "clientSecret", checkedAt, detail: err.message || "Couldn't reach Microsoft Entra ID." } };
+  }
+}
+
+// Drops the cached app-only result, e.g. after credentials change.
+export function invalidateExoAppAccessCache(credentials: Pick<Tenant["credentials"], "tenantId" | "clientId">): void {
+  exoAppCache.delete(`exo-app:${credentials.tenantId}:${credentials.clientId}`);
+}
+
+// App-only first; the older delegated sign-in only when app-only isn't set up.
+async function resolveExoToken(tenant: Tenant, onRefreshRotated?: ExoRefreshRotatedCallback): Promise<{ token?: string; error?: string }> {
+  const app = await getExoAppOnlyAccess(tenant.credentials);
+  if (app.token && app.access?.status === "ok") return { token: app.token };
+  if (tenant.credentials.exoRefreshToken) return getExoAccessToken(tenant.credentials, onRefreshRotated);
+  return {
+    error:
+      app.access?.detail ||
+      "Exchange Online isn't set up for this tenant. Add Exchange.ManageAsApp and a role to the app registration (see the Permissions check).",
+  };
+}
+
 // Runs one Exchange Online cmdlet via the InvokeCommand REST surface.
 // Response shape mirrors Graph's list convention closely enough that we
 // normalize the same way (an array directly, or a `.value` array) - worth
@@ -192,7 +291,7 @@ export async function invokeExoCommand(
   parameters: Record<string, any> = {},
   onRefreshRotated?: ExoRefreshRotatedCallback
 ): Promise<{ items: any[]; error?: string }> {
-  const { token, error } = await getExoAccessToken(tenant.credentials, onRefreshRotated);
+  const { token, error } = await resolveExoToken(tenant, onRefreshRotated);
   if (error || !token) return { items: [], error };
 
   try {
@@ -637,6 +736,10 @@ export async function fetchAcceptedDomainsAndDkim(
 
 export interface ExoConnectivityResult {
   connected: boolean;
+  // Which path answered: app-only (no sign-in), the older delegated sign-in, or none.
+  mode: "appOnly" | "delegated" | "none";
+  // App-only check result, when the tenant has a client secret to try with.
+  appAccess?: ExoAppAccess;
   error?: string;
   testedAt: string;
 }
@@ -644,16 +747,22 @@ export interface ExoConnectivityResult {
 // Lightweight connectivity check for the Permissions modal - confirms the
 // stored refresh token is still valid and can run at least one read-only
 // Exchange Online cmdlet, without pulling all six policy types.
+// Checks app-only access (recording its status) and then runs one read
+// cmdlet through whichever path is available. The returned appAccess is
+// persisted on the tenant by tenant-store.ts.
 export async function testExoConnectivity(
   tenant: Tenant,
   onRefreshRotated?: ExoRefreshRotatedCallback
 ): Promise<ExoConnectivityResult> {
   const testedAt = new Date().toISOString();
-  if (!tenant.credentials.exoRefreshToken) {
-    return { connected: false, error: "Exchange Online isn't connected for this tenant yet.", testedAt };
+  const app = await getExoAppOnlyAccess(tenant.credentials, { force: true });
+  const checkedTenant: Tenant = app.access ? { ...tenant, credentials: { ...tenant.credentials, exoAppAccess: app.access } } : tenant;
+  const access = getExchangeAccess(checkedTenant.credentials);
+  if (!access.available) {
+    return { connected: false, mode: "none", appAccess: app.access, error: app.access?.detail || "Exchange Online isn't set up for this tenant yet.", testedAt };
   }
-  const result = await invokeExoCommand(tenant, "Get-OrganizationConfig", {}, onRefreshRotated);
-  return { connected: !result.error, error: result.error, testedAt };
+  const result = await invokeExoCommand(checkedTenant, "Get-OrganizationConfig", {}, onRefreshRotated);
+  return { connected: !result.error, mode: access.mode, appAccess: app.access, error: result.error, testedAt };
 }
 
 // ---- Device-code sign-in flow ---------------------------------------------

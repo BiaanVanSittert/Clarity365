@@ -7,6 +7,7 @@ import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { EmptyStateRow } from "../common/EmptyStateRow";
 import { SyncErrorBanner } from "../common/SyncErrorBanner";
 import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
+import { canWriteToExchange, getExchangeAccess } from "@/lib/utils/exchange-access";
 
 interface MailboxPermissionsModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -36,8 +37,10 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
     }
   }, [highlightEntityId]);
 
-  const exoConnected = !!tenant.credentials.exoRefreshToken;
-  const exoWriteEnabled = !!tenant.credentials.exoWriteEnabled;
+  const exoConnected = getExchangeAccess(tenant.credentials).available;
+  // Writes need the tenant's write switch AND Exchange access that can write
+  // (Global Reader can't) - see exchange-access.ts.
+  const exoWriteEnabled = canWriteToExchange(tenant.credentials);
 
   // ---- Revoke-delegation confirm modal -----------------------------------
   const [revokeTarget, setRevokeTarget] = useState<{ mailbox: MailboxItem; delegation: MailboxDelegation } | null>(null);
@@ -273,7 +276,7 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
                   className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm inline-flex items-center gap-1.5"
                 >
                   <ExternalLink size={13} />
-                  <span>Connect Exchange Online</span>
+                  <span>Set up Exchange access</span>
                 </button>
               ) : exoWriteEnabled ? (
                 <button
@@ -285,7 +288,7 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
                   <span>{isEnablingAudit ? "Enabling..." : "Enable Mailbox Auditing"}</span>
                 </button>
               ) : (
-                <span className="text-[11px] text-red-700 dark:text-red-400" title="Enable live Exchange Online writes in the Permissions check to use one-click fixes">
+                <span className="text-[11px] text-red-700 dark:text-red-400" title="Turn on Exchange writes in the Permissions check (needs the Exchange Administrator role) to use one-click fixes">
                   Enable write access in the Permissions check to fix this in one click.
                 </span>
               )}

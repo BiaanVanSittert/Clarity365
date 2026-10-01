@@ -45,7 +45,7 @@ Recommendation: write tests for these four before adding new fleet-wide features
 
 - **SharePoint link defaults were never real on live tenants** (found 2026-09-30): `mapTenantSharingSettings` reads `sharingLinkDefaultType` and `anonymousLinkExpirationRestrictionDays`, which v1.0 `sharepointSettings` doesn't have, so every live tenant showed "Internal" / 0 days regardless of its actual settings. Now flagged by `SharePointTenantPolicy.linkDefaultsReported: false`; the SharePoint module and baseline (SP checks using `defaultLinkType` / `anonymousLinkExpirationDays`) still treat the placeholders as real and should check that flag. Same bug class as the "mock data makes it look finished" variant.
 
-- **Exchange app-only access** (planned, awaiting review): see [[Exchange App-Only Access Plan]]. Also consolidates ten separate `!!exoRefreshToken` checks into one helper.
+- **Exchange app-only access** (built 2026-09-30, client-secret option): see [[Exchange App-Only Access Plan]]. Consolidated ~20 separate `exoRefreshToken` checks into `exchange-access.ts`. Remaining: first live write under Exchange Administrator, optional certificate upgrade.
 
 ## P3 :  Process (the thing that started this session)
 8. The outer working copy was **203 commits behind `origin/main`**, silently, with no warning beyond `git status` reporting "up to date" against a stale cached ref. Recommendation: `git fetch` (not pull) at the start of a work session is cheap and would have surfaced this immediately. Consider a one-line reminder in this repo's own `CLAUDE.md` telling future sessions to check `git fetch && git log HEAD..origin/main --oneline` before large scans or refactors.

@@ -15,6 +15,22 @@ export interface TenantCapability {
   description: string;
 }
 
+export interface ExoAppAccess {
+  // ok: token has Exchange.ManageAsApp and a usable role. notSetUp: the
+  // permission or the role is missing. error: the check itself failed.
+  status: "ok" | "notSetUp" | "error";
+  // Entra role found in the token's `wids` claim.
+  role?: "exchangeAdministrator" | "globalAdministrator" | "globalReader" | "otherRole";
+  // Exchange Administrator / Global Administrator can write; Global Reader can't.
+  canWrite: boolean;
+  hasPermission: boolean;
+  // How the app authenticated. "clientSecret" works but isn't Microsoft's
+  // documented method for Exchange (certificates are) - see the plan.
+  method: "clientSecret" | "certificate";
+  checkedAt: string;
+  detail?: string;
+}
+
 export interface TenantCredentials {
   tenantId: string;
   clientId?: string;
@@ -38,6 +54,13 @@ export interface TenantCredentials {
   // whether TABL Add/Remove actually calls New-/Remove-TenantAllowBlockListItems
   // against the live tenant, versus staying purely local-only tracking.
   exoWriteEnabled?: boolean;
+  // App-only Exchange Online access through this app registration: the
+  // Office 365 Exchange Online "Exchange.ManageAsApp" permission plus an
+  // Entra role assigned to the app. No sign-in involved - this replaces the
+  // device-code connection above whenever it's set up (see ai-context-vault/
+  // Optimization/Exchange App-Only Access Plan.md). Recorded by the sync and
+  // the Permissions check; undefined = never checked. Not a secret.
+  exoAppAccess?: ExoAppAccess;
   authMode: "mock" | "secret" | "certificate";
   verifiedAt?: string;
 }

@@ -42,6 +42,7 @@ import {
 } from "./fleet-analyzer";
 import { INITIAL_TENANTS, MOCK_TENANT_DATA } from "../data/mock-tenants";
 import { mergeDemoCaPolicies } from "../utils/demo-ca-policy-merge";
+import { canWriteToExchange } from "../utils/exchange-access";
 import { SNAPSHOT_SYNC_SCHEMA_VERSION, shouldRefuseSnapshotOverwrite, storedSchemaVersion } from "../utils/sync-schema-version";
 import { createBlankSnapshot } from "../data/default-snapshot";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
@@ -82,6 +83,7 @@ import {
   removeMailboxDelegation as removeMailboxDelegationExo,
   setMailboxAuditingEnabled as setMailboxAuditingEnabledExo,
   DelegationAccessRight,
+  invalidateExoAppAccessCache,
 } from "./exo-client";
 import { mapEntryTypeToListType } from "./mdo-mapper";
 import { MDO_BASELINE_STANDARDS } from "../data/mdo-baseline-definitions";
@@ -105,6 +107,12 @@ const DEFAULT_SETTINGS: SystemSettings = {
 // live Exchange Online Tenant Allow/Block List write. Both addTablEntry
 // callers (the /tabl API route and the manage_tabl MCP tool) funnel through
 // this one function, so validating here covers both.
+// Shown when an Exchange write is attempted but not allowed: either the
+// tenant's write switch is off, or its Exchange access can't write (for
+// example the app only has Global Reader).
+const EXCHANGE_WRITES_UNAVAILABLE =
+  "Exchange changes aren't available for this tenant. Turn on Exchange writes in the Permissions check, and make sure the app has the Exchange Administrator role.";
+
 const TABL_DOMAIN_RE = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 const TABL_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TABL_SHA256_RE = /^[a-f0-9]{64}$/i;
@@ -845,7 +853,15 @@ class TenantStore {
   public async testExoConnectivity(tenantId: string): Promise<ExoConnectivityResult | null> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return null;
-    return await testExoConnectivity(tenant, (newToken) => this.persistExoRefreshToken(tenantId, newToken));
+    const result = await testExoConnectivity(tenant, (newToken) => this.persistExoRefreshToken(tenantId, newToken));
+    // Save the app-only status so modules and the Permissions check reflect
+    // it straight away, without waiting for the next sync. Patches the raw
+    // row (never the decrypted tenant), like persistExoRefreshToken.
+    if (result.appAccess) {
+      const row = this.getTenantRow(tenantId);
+      if (row) this.putTenantRow({ ...row, credentials: { ...row.credentials, exoAppAccess: result.appAccess } });
+    }
+    return result;
   }
 
   public async startExoConnect(tenantId: string): Promise<{ result?: DeviceCodeStart; error?: string } | null> {
@@ -1302,6 +1318,9 @@ class TenantStore {
       // Clear both the old and new key in case tenantId/clientId changed too.
       invalidateGraphTokenCache(existing.credentials);
       invalidateGraphTokenCache(mergedCredentials);
+      // Same for the cached app-only Exchange check - new credentials must be re-checked.
+      invalidateExoAppAccessCache(existing.credentials);
+      invalidateExoAppAccessCache(mergedCredentials);
     }
 
     const updated: Tenant = {
@@ -1360,7 +1379,7 @@ class TenantStore {
     );
     if (isDuplicate) return { success: false, error: `A ${entry.listType} entry for '${value}' already exists.` };
 
-    if (tenant.credentials.exoRefreshToken && tenant.credentials.exoWriteEnabled) {
+    if (canWriteToExchange(tenant.credentials)) {
       const listType = mapEntryTypeToListType(entry.entryType);
       const result = await addTenantAllowBlockListItem(
         tenant,
@@ -1408,7 +1427,7 @@ class TenantStore {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return { success: false, error: "Tenant not found" };
 
-    if (tenant.credentials.exoRefreshToken && tenant.credentials.exoWriteEnabled) {
+    if (canWriteToExchange(tenant.credentials)) {
       const snap = this.getSnapshotRow(tenantId);
       const target = snap?.mdoThreat.tabl.find((e) => e.id === entryId);
       if (!target) return { success: false, error: "Entry not found." };
@@ -1447,7 +1466,7 @@ class TenantStore {
 
   // Runs the one-setting EXO fix for a single MDO baseline gap (see
   // MDO_BASELINE_STANDARDS' remediation descriptors) - same
-  // exoRefreshToken/exoWriteEnabled gate, audit logging, and post-write resync
+  // canWriteToExchange gate, audit logging, and post-write resync
   // pattern as addTablEntry/removeTablEntry above, just targeting a Set-*Policy
   // cmdlet instead of a TABL cmdlet.
   public async applyMdoBaselineFix(
@@ -1457,8 +1476,8 @@ class TenantStore {
   ): Promise<{ success: boolean; error?: string }> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return { success: false, error: "Tenant not found" };
-    if (!tenant.credentials.exoRefreshToken || !tenant.credentials.exoWriteEnabled) {
-      return { success: false, error: "Exchange Online writes are not enabled for this tenant." };
+    if (!canWriteToExchange(tenant.credentials)) {
+      return { success: false, error: EXCHANGE_WRITES_UNAVAILABLE };
     }
 
     const standard = MDO_BASELINE_STANDARDS.find((s) => s.code === code);
@@ -1511,13 +1530,13 @@ class TenantStore {
   }
 
   // Disables a detected forwarding vector (inbox rule, transport rule, or
-  // mailbox-level auto-forward) - same exoRefreshToken/exoWriteEnabled gate,
+  // mailbox-level auto-forward) - same canWriteToExchange gate,
   // audit logging, and post-write resync pattern as applyMdoBaselineFix above.
   public async disableForwardingRule(tenantId: string, ruleId: string): Promise<{ success: boolean; error?: string }> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return { success: false, error: "Tenant not found" };
-    if (!tenant.credentials.exoRefreshToken || !tenant.credentials.exoWriteEnabled) {
-      return { success: false, error: "Exchange Online writes are not enabled for this tenant." };
+    if (!canWriteToExchange(tenant.credentials)) {
+      return { success: false, error: EXCHANGE_WRITES_UNAVAILABLE };
     }
 
     const snap = this.getSnapshotRow(tenantId);
@@ -1555,8 +1574,8 @@ class TenantStore {
   ): Promise<{ success: boolean; error?: string }> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return { success: false, error: "Tenant not found" };
-    if (!tenant.credentials.exoRefreshToken || !tenant.credentials.exoWriteEnabled) {
-      return { success: false, error: "Exchange Online writes are not enabled for this tenant." };
+    if (!canWriteToExchange(tenant.credentials)) {
+      return { success: false, error: EXCHANGE_WRITES_UNAVAILABLE };
     }
 
     const snap = this.getSnapshotRow(tenantId);
@@ -1603,8 +1622,8 @@ class TenantStore {
   public async setMailboxAuditingEnabled(tenantId: string): Promise<{ success: boolean; error?: string }> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return { success: false, error: "Tenant not found" };
-    if (!tenant.credentials.exoRefreshToken || !tenant.credentials.exoWriteEnabled) {
-      return { success: false, error: "Exchange Online writes are not enabled for this tenant." };
+    if (!canWriteToExchange(tenant.credentials)) {
+      return { success: false, error: EXCHANGE_WRITES_UNAVAILABLE };
     }
 
     const result = await setMailboxAuditingEnabledExo(tenant, (newToken) => this.persistExoRefreshToken(tenantId, newToken));
@@ -1636,8 +1655,8 @@ class TenantStore {
   ): Promise<{ success: boolean; error?: string }> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return { success: false, error: "Tenant not found" };
-    if (!tenant.credentials.exoRefreshToken || !tenant.credentials.exoWriteEnabled) {
-      return { success: false, error: "Exchange Online writes are not enabled for this tenant." };
+    if (!canWriteToExchange(tenant.credentials)) {
+      return { success: false, error: EXCHANGE_WRITES_UNAVAILABLE };
     }
 
     const standard = MAILFLOW_BASELINE_STANDARDS.find((s) => s.code === code);
@@ -1892,7 +1911,7 @@ class TenantStore {
             r.mailboxOwner?.toLowerCase() === options.userId?.toLowerCase()
         );
         for (const rule of userRules) {
-          if (tenant.credentials?.exoRefreshToken && tenant.credentials?.exoWriteEnabled) {
+          if (canWriteToExchange(tenant.credentials)) {
             await disableForwardingRuleExo(
               tenant,
               { scope: rule.scope, name: rule.name, mailboxOwner: rule.mailboxOwner },

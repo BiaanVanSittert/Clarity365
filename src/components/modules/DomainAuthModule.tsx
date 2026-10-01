@@ -4,6 +4,7 @@ import { StatusPill } from "../common/StatusPill";
 import { SyncErrorBanner } from "../common/SyncErrorBanner";
 import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 import { Fingerprint, ExternalLink, Mail, AlertTriangle } from "lucide-react";
+import { getExchangeAccess } from "@/lib/utils/exchange-access";
 
 interface DomainAuthModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -33,7 +34,7 @@ const CheckCell: React.FC<{ check: DomainAuthCheck }> = ({ check }) => (
 
 export const DomainAuthModule: React.FC<DomainAuthModuleProps> = ({ snapshot, onOpenPermissions }) => {
   const { domainAuth, tenant } = snapshot;
-  const exoConnected = !!tenant.credentials.exoRefreshToken;
+  const exoConnected = getExchangeAccess(tenant.credentials).available;
   const domainAuthSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Domain Auth:"]);
 
   const fullyPassingCount = domainAuth.filter((d) => d.dkim.status === "pass" && d.spf.status === "pass" && d.dmarc.status === "pass").length;
@@ -76,14 +77,14 @@ export const DomainAuthModule: React.FC<DomainAuthModuleProps> = ({ snapshot, on
           <div className="p-6 text-center space-y-2">
             <Mail className="w-6 h-6 text-slate-300 mx-auto" />
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Connect Exchange Online to enumerate accepted domains and check their DKIM/SPF/DMARC status.
+              Set up Exchange access to enumerate accepted domains and check their DKIM/SPF/DMARC status.
             </p>
             <button
               onClick={onOpenPermissions}
               className="px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-sm inline-flex items-center gap-1.5"
             >
               <ExternalLink size={13} />
-              <span>Connect Exchange Online</span>
+              <span>Set up Exchange access</span>
             </button>
           </div>
         ) : (

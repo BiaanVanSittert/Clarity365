@@ -7,7 +7,8 @@ import { classifyUserAuthMethods } from "./mfa-classifier";
 import { mapManagedDeviceToIntuneDevice, mapMdeConnectorSettings, mapAtpOnboardingDeviceState, applyRealEdrOnboardingStates, mapDeviceComplianceSettingStateRow, applyDeviceComplianceReasons } from "./intune-mapper";
 import { mapSecureScoreControl, buildSecureScoreHistory, computeScoreDelta, extractIndustryBenchmark } from "./secure-score-mapper";
 import { buildCompanyBrandingControl } from "./company-branding-analyzer";
-import { fetchMdoPoliciesAndTabl, fetchMailflowData, fetchAcceptedDomainsAndDkim, fetchExchangeSecuritySettings } from "./exo-client";
+import { fetchMdoPoliciesAndTabl, fetchMailflowData, fetchAcceptedDomainsAndDkim, fetchExchangeSecuritySettings, getExoAppOnlyAccess } from "./exo-client";
+import { getExchangeAccess } from "../utils/exchange-access";
 import { mapSharePointSecuritySettings, mapPimAssignments, mapRoleAssignmentsFallback, aggregateOAuthGrants, ServicePrincipalInfo } from "./security-posture-mapper";
 import { mapMdoAlert } from "./mdo-alert-mapper";
 import { checkSpfRecord, checkDmarcRecord } from "./domain-dns-checker";
@@ -2260,6 +2261,15 @@ export async function fetchLiveTenantSnapshot(
   const headers = { Authorization: `Bearer ${token}` };
   const syncErrors: string[] = [];
 
+  // Exchange Online access, checked once per sync: app-only (Exchange.ManageAsApp
+  // + an Entra role, no sign-in) first, else the older delegated sign-in. The
+  // app-only result is saved on the tenant below so the modules and the
+  // Permissions check show the current status. See ai-context-vault/
+  // Optimization/Exchange App-Only Access Plan.md.
+  const exoApp = await getExoAppOnlyAccess(tenant.credentials);
+  const exoCredentials = exoApp.access ? { ...tenant.credentials, exoAppAccess: exoApp.access } : tenant.credentials;
+  const exoAvailable = getExchangeAccess(exoCredentials).available;
+
   // 1. Fetch Conditional Access Policies
   onProgress?.("Conditional Access policies", 1, TOTAL_SYNC_STEPS);
   let livePolicies: CAPolicyRule[] = [];
@@ -2805,7 +2815,7 @@ export async function fetchLiveTenantSnapshot(
   // failure IS surfaced as a real sync error.
   let mdoPolicies: MdoThreatPolicy[] | null = null;
   let mdoTabl: TablEntry[] | null = null;
-  if (tenant.credentials.exoRefreshToken) {
+  if (exoAvailable) {
     try {
       const { policies, tabl, policyErrors, tablErrors } = await fetchMdoPoliciesAndTabl(tenant, onExoRefreshRotated);
       policyErrors.forEach((e) => syncErrors.push(`MDO Policies: ${e}`));
@@ -2855,7 +2865,7 @@ export async function fetchLiveTenantSnapshot(
   let remoteDomainAutoForwardBlocked: boolean | null | undefined = undefined;
   let externalSenderTagEnabled: boolean | null | undefined = undefined;
   let mailboxAuditingEnabled: boolean | null | undefined = undefined;
-  if (tenant.credentials.exoRefreshToken) {
+  if (exoAvailable) {
     try {
       const result = await fetchMailflowData(tenant, onExoRefreshRotated);
       result.errors.forEach((e) => syncErrors.push(`Mailflow: ${e}`));
@@ -2889,7 +2899,7 @@ export async function fetchLiveTenantSnapshot(
   // Get-AcceptedDomain, so this whole step is gated the same way as the
   // rest of Exchange & Mailflow rather than running standalone.
   let domainAuthLive: DomainAuthStatus[] | null = null;
-  if (tenant.credentials.exoRefreshToken) {
+  if (exoAvailable) {
     try {
       const { domains, dkimByDomain, errors: domainErrors } = await fetchAcceptedDomainsAndDkim(tenant, onExoRefreshRotated);
       domainErrors.forEach((e) => syncErrors.push(`Domain Auth: ${e}`));
@@ -3297,7 +3307,7 @@ export async function fetchLiveTenantSnapshot(
   // AUTH. Only when Exchange is connected; otherwise left undefined ("not
   // assessed"), never false.
   let exchangeSecurityLive: ExchangeSecuritySettings | null = null;
-  if (tenant.credentials.exoRefreshToken) {
+  if (exoAvailable) {
     try {
       const { settings, errors } = await fetchExchangeSecuritySettings(tenant, onExoRefreshRotated);
       errors.forEach((e) => syncErrors.push(`Exchange security settings: ${e}`));
@@ -3409,6 +3419,7 @@ export async function fetchLiveTenantSnapshot(
 
   base.tenant = {
     ...tenant,
+    credentials: exoCredentials,
     lastSyncTimestamp: new Date().toISOString(),
     connectionStatus: syncHealth.isPartial ? "degraded" : "healthy",
   };

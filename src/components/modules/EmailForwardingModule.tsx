@@ -6,6 +6,7 @@ import { Share2, AlertTriangle, ShieldAlert, Search, Filter, Terminal, Shield, A
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { SyncErrorBanner } from "../common/SyncErrorBanner";
 import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
+import { canWriteToExchange, getExchangeAccess } from "@/lib/utils/exchange-access";
 
 interface EmailForwardingModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -37,8 +38,10 @@ export const EmailForwardingModule: React.FC<EmailForwardingModuleProps> = ({
     }
   }, [highlightEntityId]);
 
-  const exoConnected = !!tenant.credentials.exoRefreshToken;
-  const exoWriteEnabled = !!tenant.credentials.exoWriteEnabled;
+  const exoConnected = getExchangeAccess(tenant.credentials).available;
+  // Writes need the tenant's write switch AND Exchange access that can write
+  // (Global Reader can't) - see exchange-access.ts.
+  const exoWriteEnabled = canWriteToExchange(tenant.credentials);
 
   // ---- Disable-one-rule confirm modal ------------------------------------
   const [fixRuleId, setFixRuleId] = useState<string | null>(null);
@@ -291,7 +294,7 @@ export const EmailForwardingModule: React.FC<EmailForwardingModuleProps> = ({
                       ) : !exoConnected ? (
                         <button
                           onClick={onOpenPermissions}
-                          title="Connect Exchange Online to enable one-click fixes"
+                          title="Set up Exchange access in the Permissions check to enable one-click fixes"
                           className="text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 inline-flex items-center gap-1 underline decoration-dotted"
                         >
                           <ExternalLink size={11} />
@@ -311,7 +314,7 @@ export const EmailForwardingModule: React.FC<EmailForwardingModuleProps> = ({
                       ) : (
                         <span
                           className="text-[11px] text-slate-400 dark:text-slate-500"
-                          title="Enable live Exchange Online writes in the Permissions check to use one-click fixes"
+                          title="Turn on Exchange writes in the Permissions check (needs the Exchange Administrator role) to use one-click fixes"
                         >
                           Enable write access to fix
                         </span>

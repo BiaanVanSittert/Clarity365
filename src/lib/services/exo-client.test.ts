@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getExoAccessToken, resetExoTokenStateForTests, resolveLatestExoRefreshToken } from "./exo-client";
+import { getExoAccessToken, getExoAppOnlyAccess, invalidateExoAppAccessCache, invokeExoCommand, resetExoTokenStateForTests, resolveLatestExoRefreshToken, testExoConnectivity } from "./exo-client";
 import { Tenant } from "../types";
 
 // Refresh-token handling for Exchange Online (the "stale in-memory EXO
@@ -61,5 +61,67 @@ describe("getExoAccessToken refresh-token rotation", () => {
     await getExoAccessToken(creds("rt-z"));
 
     expect(sentRefreshToken(fetchMock.mock.calls[1])).toBe("rt-z");
+  });
+});
+
+// App-only access (Exchange.ManageAsApp + an Entra role, no sign-in) - see
+// ai-context-vault/Optimization/Exchange App-Only Access Plan.md.
+describe("app-only Exchange access", () => {
+  const originalFetch = global.fetch;
+  const GLOBAL_READER = "f2ef992c-3afb-46b9-b7cf-a126ee74c451";
+  const fakeJwt = (claims: object) => `x.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.y`;
+  const tenant = (extra: object = {}) =>
+    ({
+      id: "t1",
+      credentials: { tenantId: "tenant-app", clientId: "app-1", clientSecret: "secret", authMode: "secret", ...extra },
+    }) as any;
+  const tokenFor = (claims: object) => new Response(JSON.stringify({ access_token: fakeJwt(claims), expires_in: 3600 }), { status: 200 });
+  const cmdletOk = () => new Response(JSON.stringify({ value: [{ Name: "org" }] }), { status: 200 });
+
+  beforeEach(() => {
+    resetExoTokenStateForTests();
+    invalidateExoAppAccessCache({ tenantId: "tenant-app", clientId: "app-1" });
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("classifies the real Phase 0 token shape as read-only Global Reader access", async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce(tokenFor({ roles: ["Exchange.ManageAsApp"], wids: [GLOBAL_READER] })) as any;
+    const r = await getExoAppOnlyAccess(tenant().credentials);
+    expect(r.access).toMatchObject({ status: "ok", role: "globalReader", canWrite: false, method: "clientSecret" });
+    expect(r.token).toBeTruthy();
+  });
+
+  it("runs cmdlets with the app-only token when set up, never touching the sign-in token", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(tokenFor({ roles: ["Exchange.ManageAsApp"], wids: [GLOBAL_READER] })).mockResolvedValueOnce(cmdletOk());
+    global.fetch = fetchMock as any;
+    const result = await invokeExoCommand(tenant({ exoRefreshToken: "rt-a" }), "Get-OrganizationConfig");
+    expect(result.items).toHaveLength(1);
+    // Token request used the client secret with the Exchange scope - no refresh_token grant.
+    const tokenBody = new URLSearchParams(String((fetchMock.mock.calls[0][1] as RequestInit).body));
+    expect(tokenBody.get("grant_type")).toBe("client_credentials");
+    expect(tokenBody.get("scope")).toBe("https://outlook.office365.com/.default");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to the older sign-in when app-only isn't set up", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(tokenFor({ roles: [], wids: [] })) // app token without the permission
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "delegated", refresh_token: "rt-b", expires_in: 1 }), { status: 200 }))
+      .mockResolvedValueOnce(cmdletOk());
+    global.fetch = fetchMock as any;
+    const result = await invokeExoCommand(tenant({ exoRefreshToken: "rt-a" }), "Get-OrganizationConfig");
+    expect(result.error).toBeUndefined();
+    expect(new URLSearchParams(String((fetchMock.mock.calls[1][1] as RequestInit).body)).get("grant_type")).toBe("refresh_token");
+  });
+
+  it("explains what's missing when neither path is available", async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce(tokenFor({ roles: ["Exchange.ManageAsApp"], wids: [] })) as any;
+    const result = await testExoConnectivity(tenant());
+    expect(result).toMatchObject({ connected: false, mode: "none" });
+    expect(result.appAccess?.status).toBe("notSetUp");
+    expect(result.error).toMatch(/Assign Exchange Administrator/);
   });
 });
