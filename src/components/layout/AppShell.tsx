@@ -478,6 +478,7 @@ export const AppShell: React.FC = () => {
                   isLoading={isLoading}
                   onSelectTenant={handleSelectTenant}
                   onOpenUniversalSearch={() => setIsUniversalSearchOpen(true)}
+                  onRefresh={fetchFleetData}
                 />
               )}
             </ErrorBoundary>

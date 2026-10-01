@@ -9,6 +9,9 @@ export interface PagedFetchResult<T = any> {
   items: T[];
   isPartial: boolean;
   error?: string;
+  // True when the only reason the list is partial is the page limit - a
+  // deliberate cap, which callers may not want to report as a failure.
+  hitPageCap?: boolean;
 }
 
 const DEFAULT_MAX_PAGES = 50;
@@ -24,8 +27,11 @@ const DEFAULT_MAX_PAGES = 50;
 export async function fetchAllPages<T = any>(
   initialUrls: string | string[],
   headers: HeadersInit,
-  maxPages: number = DEFAULT_MAX_PAGES
+  maxPages: number = DEFAULT_MAX_PAGES,
+  // Per-request timeout override for endpoints known to answer slowly.
+  options: { timeoutMs?: number } = {}
 ): Promise<PagedFetchResult<T>> {
+  const fetchOptions = options.timeoutMs ? { timeoutMs: options.timeoutMs } : undefined;
   const candidates = Array.isArray(initialUrls) ? initialUrls : [initialUrls];
   const items: T[] = [];
   let nextUrl: string | undefined;
@@ -34,7 +40,7 @@ export async function fetchAllPages<T = any>(
 
   for (const candidate of candidates) {
     try {
-      const res = await graphFetch(candidate, { headers });
+      const res = await graphFetch(candidate, { headers }, fetchOptions);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.value)) items.push(...data.value);
@@ -59,11 +65,12 @@ export async function fetchAllPages<T = any>(
       return {
         items,
         isPartial: true,
+        hitPageCap: true,
         error: `Stopped after ${maxPages} pages (safety cap) - more records may exist.`,
       };
     }
     try {
-      const res = await graphFetch(nextUrl, { headers });
+      const res = await graphFetch(nextUrl, { headers }, fetchOptions);
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         const message = errJson?.error?.message || `HTTP ${res.status} ${res.statusText}`;

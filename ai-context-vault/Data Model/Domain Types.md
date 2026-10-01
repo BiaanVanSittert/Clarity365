@@ -50,6 +50,12 @@ tags: [data-model]
 | `ExchangeSecuritySettings` / `CasMailboxProtocols` / `PrivilegedRoleAssignments` / `OAuthConsentGrantSummary` | Security Simulations Stage 5, on the snapshot as `exchangeSecurity`, `privilegedRoleAssignments`, `oauthConsentGrants`. `SharePointTenantPolicy` gained resharing, unmanaged sync, domain restriction, legacy auth, idle sign-out and `linkDefaultsReported`. All optional: undefined = not synced |
 | `CaSessionControls` / `CaNamedLocation` / `TenantIdentitySettings` | Added for [[Security Simulations Plan]] Stage 1. `CAPolicyRule` also gained optional `includeGroupIds`, `excludeRoles`, guest types, `userActions`, `authenticationContexts`, `authenticationFlows`, `insiderRiskLevels`, `deviceFilter`, `clientApplications`, `servicePrincipalRiskLevels`, `grantOperator` and `sessionControls`. On the snapshot: `conditionalAccess.namedLocations` and top-level `identitySettings`. All optional: undefined means "not synced yet". |
 
+## Added 2026-10-01 (all optional)
+- `SignInEvent.authentication` (`SignInAuthentication`: `requirement`, `methods`, `fromExistingSession`), `userType`, `asn`: from the beta sign-in log. See [[Sign-in Report]].
+- `TenantSecuritySnapshot.signInCoverage` (`SignInCoverage`): period the synced sign-ins cover, `complete`, `incompleteReason`, `hasAuthDetails`. Read it through `getSignInCoverage()`.
+- `SyncHealth.missingPermissions`: required Graph permissions the app registration didn't have at sync time.
+- `TenantCredentials.secretExpiry` (`SecretExpiry`: `expiresAt`, `exact`, `checkedAt`) and `FleetTenantPosture.secretExpiry` (read-only fleet visibility).
+
 ## See also
 - [[Baseline Definitions & Mock Data]] :  the 39 baseline rules these types score against
 - [[API Surface]] :  every route that reads/writes these types

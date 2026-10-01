@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aggregateOAuthGrants,
+  buildAdminRoleMapsFromRoleAssignments,
   mapCasMailbox,
   mapPimAssignments,
   mapRoleAssignmentsFallback,
@@ -91,6 +92,25 @@ describe("role assignments", () => {
     expect(mapRoleAssignmentsFallback([{ principalId: "g1", roleDefinitionId: ga, principal: { "@odata.type": "#microsoft.graph.group" } }])).toEqual([
       { principalId: "g1", roleTemplateId: ga.toLowerCase(), kind: "activePermanent", principalType: "group", principalDisplayName: undefined, principalUserPrincipalName: undefined },
     ]);
+  });
+});
+
+describe("buildAdminRoleMapsFromRoleAssignments", () => {
+  const ga = "62E90394-69F5-4237-9190-012177145E10";
+  it("rebuilds who holds which role when directoryRoles is unavailable", () => {
+    const { rolesByPrincipal, templateIdsByPrincipal } = buildAdminRoleMapsFromRoleAssignments([
+      { principalId: "u1", roleDefinitionId: ga, directoryScopeId: "/" },
+      { principalId: "u1", roleDefinitionId: ga, directoryScopeId: "/" }, // duplicate row
+      { principalId: "u1", roleDefinitionId: "custom-1", directoryScopeId: "/", roleDefinition: { displayName: "Helpdesk Lite" } },
+      { principalId: "u2", roleDefinitionId: ga, directoryScopeId: "/administrativeUnits/au1" }, // scoped: not tenant-wide
+      { principalId: "u3", roleDefinitionId: "unknown-role" },
+      { roleDefinitionId: ga },
+    ]);
+    expect(rolesByPrincipal.get("u1")).toEqual(["Global Administrator", "Helpdesk Lite"]);
+    expect(templateIdsByPrincipal.get("u1")).toEqual([ga.toLowerCase(), "custom-1"]);
+    expect(rolesByPrincipal.has("u2")).toBe(false);
+    expect(rolesByPrincipal.get("u3")).toEqual(["Directory Role"]);
+    expect(rolesByPrincipal.size).toBe(2);
   });
 });
 

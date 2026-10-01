@@ -1321,6 +1321,8 @@ class TenantStore {
       // Same for the cached app-only Exchange check - new credentials must be re-checked.
       invalidateExoAppAccessCache(existing.credentials);
       invalidateExoAppAccessCache(mergedCredentials);
+      // A new secret has its own expiry date; forget the old one until the next sync reads it.
+      if (!keepExistingSecret) delete mergedCredentials.secretExpiry;
     }
 
     const updated: Tenant = {

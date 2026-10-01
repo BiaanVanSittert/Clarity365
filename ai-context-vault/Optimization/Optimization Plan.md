@@ -53,4 +53,6 @@ Recommendation: write tests for these four before adding new fleet-wide features
 8. The outer working copy was **203 commits behind `origin/main`**, silently, with no warning beyond `git status` reporting "up to date" against a stale cached ref. Recommendation: `git fetch` (not pull) at the start of a work session is cheap and would have surfaced this immediately. Consider a one-line reminder in this repo's own `CLAUDE.md` telling future sessions to check `git fetch && git log HEAD..origin/main --oneline` before large scans or refactors.
 9. Keep this vault itself from drifting the same way :  see [[Prompting & Obsidian Workflow]] for how to fold vault updates into normal Claude Code sessions instead of letting them lapse.
 
+**Closed 2026-10-01** (details in [[Recommendations Plan]]): permission lists unified into one catalogue; missing-permission sync errors explained and optional ones no longer degrade a tenant; sign-in coverage recorded and shown; directory-roles fallback; placeholder admin role label; client secret expiry warnings; sign-in report ([[Sign-in Report]]). **Opened:** the 5,000 sign-in limit covers only days on busy tenants.
+
 Part of [[Clarity365 MOC]].

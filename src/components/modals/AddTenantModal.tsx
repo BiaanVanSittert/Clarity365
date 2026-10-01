@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Modal } from "../common/Modal";
 import { TenantLicenseType } from "@/lib/types";
 import { ShieldCheck, Plus, Key, Globe, Server, Check } from "lucide-react";
+import { OPTIONAL_GRAPH_PERMISSIONS, REQUIRED_GRAPH_PERMISSION_NAMES } from "@/lib/data/graph-permissions";
 
 interface AddTenantModalProps {
   isOpen: boolean;
@@ -21,32 +22,6 @@ const INITIAL_STATE = {
   clientId: "",
   clientSecret: "",
 };
-
-// Required Microsoft Graph application permissions (read-only).
-const REQUIRED_GRAPH_PERMISSIONS = [
-  "Policy.Read.All",
-  "User.Read.All",
-  "AuditLog.Read.All",
-  "Reports.Read.All",
-  "UserAuthenticationMethod.Read.All",
-  "Organization.Read.All",
-  "RoleManagement.Read.Directory",
-  "DeviceManagementManagedDevices.Read.All",
-  "DeviceManagementConfiguration.Read.All",
-  "SecurityEvents.Read.All",
-  "SecurityAlert.Read.All",
-  "Group.Read.All",
-  "Sites.Read.All",
-  "SharePointTenantSettings.Read.All",
-];
-
-// Optional extras, one line each. The Permissions check explains each in more detail.
-const OPTIONAL_GRAPH_PERMISSIONS = [
-  { permission: "Policy.ReadWrite.ConditionalAccess", purpose: "deploy CA baseline policies from Clarity365 (plus Application.Read.All for CA05)." },
-  { permission: "DeviceManagementConfiguration.ReadWrite.All", purpose: "deploy Defender, EDR and ASR policies from Clarity365." },
-  { permission: "ThreatHunting.Read.All", purpose: "ASR rule detection activity (needs Defender for Endpoint P2)." },
-  { permission: "DelegatedPermissionGrant.Read.All", purpose: "the OAuth app consent check in Security Scenarios." },
-];
 
 export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose, onTenantAdded }) => {
   const [mode, setMode] = useState(INITIAL_STATE.mode);
@@ -300,9 +275,9 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
                 </li>
               </ol>
               <details className="pt-0.5">
-                <summary className="cursor-pointer text-slate-500 dark:text-slate-400">Microsoft Graph permissions ({REQUIRED_GRAPH_PERMISSIONS.length})</summary>
+                <summary className="cursor-pointer text-slate-500 dark:text-slate-400">Microsoft Graph permissions ({REQUIRED_GRAPH_PERMISSION_NAMES.length})</summary>
                 <div className="mt-1 flex flex-wrap gap-1">
-                  {REQUIRED_GRAPH_PERMISSIONS.map((perm) => (
+                  {REQUIRED_GRAPH_PERMISSION_NAMES.map((perm) => (
                     <code key={perm} className="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded font-mono">
                       {perm}
                     </code>
@@ -314,7 +289,7 @@ export const AddTenantModal: React.FC<AddTenantModalProps> = ({ isOpen, onClose,
                 <ul className="mt-1 space-y-0.5 list-disc pl-5">
                   {OPTIONAL_GRAPH_PERMISSIONS.map((o) => (
                     <li key={o.permission}>
-                      <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded font-mono">{o.permission}</code> - {o.purpose}
+                      <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded font-mono">{o.grant[0]}</code> - {o.purpose}
                     </li>
                   ))}
                 </ul>

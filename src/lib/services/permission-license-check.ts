@@ -27,6 +27,7 @@ export interface PermissionLicenseRequirement {
 export const PERMISSION_LICENSE_REQUIREMENT: Record<string, PermissionLicenseRequirement> = {
   "DeviceManagementManagedDevices.Read.All": { capabilityId: "cap-intune", friendlyName: "Microsoft Intune" },
   "DeviceManagementConfiguration.Read.All": { capabilityId: "cap-intune", friendlyName: "Microsoft Intune" },
+  "DeviceManagementServiceConfig.Read.All": { capabilityId: "cap-intune", friendlyName: "Microsoft Intune" },
   "ThreatHunting.Read.All": {
     capabilityId: "cap-mde",
     friendlyName: "Defender for Endpoint P2 (or Business Premium's Defender for Business)",

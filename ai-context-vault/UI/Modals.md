@@ -44,4 +44,10 @@ Print/PDF preview for Executive QBR reports. Used only by [[Executive Reporting 
 ### RemediationDrawer
 Shows a generated remediation plan from [[Analysis & Generation]]'s `remediation-generator`.
 
+### SignInReportModal (2026-10-01)
+Sign-in report for one tenant: period and user filter, headline numbers, findings, "Open report (print or save as PDF)", "Download report" (HTML) and one CSV per table. All numbers come from [[Sign-in Report]]'s `buildSignInReport`. Has a server-render smoke test.
+
+### Permission list (2026-10-01)
+`AddTenantModal` no longer keeps its own permission arrays; it reads `REQUIRED_GRAPH_PERMISSION_NAMES` and `OPTIONAL_GRAPH_PERMISSIONS` from `src/lib/data/graph-permissions.ts`, the same list the Permissions check tests. `PermissionsModal` shows the client secret's expiry next to the auth mode.
+
 Part of [[Clarity365 MOC]].

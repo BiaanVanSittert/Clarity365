@@ -6,6 +6,7 @@ import { TenantPermissionReport } from "@/lib/services/graph-client";
 import { DeviceCodeStart, ExoConnectivityResult } from "@/lib/services/exo-client";
 import { EXCHANGE_ROLE_LABEL, getExchangeAccess } from "@/lib/utils/exchange-access";
 import { ShieldCheck, RefreshCw, AlertTriangle, CheckCircle, ExternalLink, Key, Mail, Copy, Check, Info } from "lucide-react";
+import { getSecretExpiryStatus } from "@/lib/utils/credential-expiry";
 
 interface PermissionsModalProps {
   isOpen: boolean;
@@ -210,6 +211,19 @@ export const PermissionsModal: React.FC<PermissionsModalProps> = ({
               <span className="text-slate-400 dark:text-slate-500 mx-2">•</span>
               <span className="font-medium text-slate-700 dark:text-slate-300">Auth Mode: </span>
               <span className="uppercase text-slate-900 dark:text-slate-100 font-semibold">{tenant.credentials.authMode}</span>
+              {(() => {
+                const expiry = getSecretExpiryStatus(tenant.credentials);
+                if (!expiry) return null;
+                const tone = expiry.state === "expired" ? "text-rose-700 dark:text-red-400" : expiry.state === "expiring" ? "text-amber-700 dark:text-amber-400" : "text-slate-600 dark:text-slate-400";
+                return (
+                  <>
+                    <span className="text-slate-400 dark:text-slate-500 mx-2">•</span>
+                    <span title={expiry.detail} className={`font-medium ${tone}`}>
+                      {expiry.label}
+                    </span>
+                  </>
+                );
+              })()}
             </div>
           </div>
           <button

@@ -72,6 +72,7 @@ All four → [[Event Response (Incident Response)]].
 | `/api/fleet/drift` | GET/POST | `drift-analyzer.evaluateFleetDrift`, Fleet Operations (`realignTenantDrift`) |
 | `/api/fleet/bulk-deploy` | POST | Fleet Operations (`executeBulkCaDeployment`) |
 | `/api/fleet/sync-tabl` | GET/POST/DELETE | Fleet Operations |
+| `/api/fleet/sync-all` | GET/POST/DELETE | `sync-all.ts` via `scheduler.startManualSyncAll` (status / start / stop after the current tenant). Read-only towards tenants |
 
 ## Reports & system
 | Route | Calls |

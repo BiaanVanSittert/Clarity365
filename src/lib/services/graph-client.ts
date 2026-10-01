@@ -1,4 +1,4 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability, TenantLicenseSku, SecurityIncidentItem, AsrRuleMode, AsrRuleState, AsrRuleActivitySummary, AsrDetectionEvent, MdeConnectorSettings, AtpOnboardingDeviceState, DefenderAvPolicySettings, IntuneAssignmentTarget, AsrDetectionTimeRange, EdrPolicySettings, BitLockerPolicySettings, DeviceComplianceReason, CaNamedLocation, CaSessionControls, TenantIdentitySettings, ExchangeSecuritySettings, PrivilegedRoleAssignments, OAuthConsentGrantSummary } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SignInCoverage, SecretExpiry, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability, TenantLicenseSku, SecurityIncidentItem, AsrRuleMode, AsrRuleState, AsrRuleActivitySummary, AsrDetectionEvent, MdeConnectorSettings, AtpOnboardingDeviceState, DefenderAvPolicySettings, IntuneAssignmentTarget, AsrDetectionTimeRange, EdrPolicySettings, BitLockerPolicySettings, DeviceComplianceReason, CaNamedLocation, CaSessionControls, TenantIdentitySettings, ExchangeSecuritySettings, PrivilegedRoleAssignments, OAuthConsentGrantSummary } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { classifyPolicyBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
@@ -9,7 +9,7 @@ import { mapSecureScoreControl, buildSecureScoreHistory, computeScoreDelta, extr
 import { buildCompanyBrandingControl } from "./company-branding-analyzer";
 import { fetchMdoPoliciesAndTabl, fetchMailflowData, fetchAcceptedDomainsAndDkim, fetchExchangeSecuritySettings, getExoAppOnlyAccess } from "./exo-client";
 import { getExchangeAccess } from "../utils/exchange-access";
-import { mapSharePointSecuritySettings, mapPimAssignments, mapRoleAssignmentsFallback, aggregateOAuthGrants, ServicePrincipalInfo } from "./security-posture-mapper";
+import { mapSharePointSecuritySettings, mapPimAssignments, mapRoleAssignmentsFallback, buildAdminRoleMapsFromRoleAssignments, aggregateOAuthGrants, ServicePrincipalInfo } from "./security-posture-mapper";
 import { mapMdoAlert } from "./mdo-alert-mapper";
 import { checkSpfRecord, checkDmarcRecord } from "./domain-dns-checker";
 import {
@@ -36,6 +36,12 @@ import {
   mergeAsrRuleStates,
 } from "./asr-configuration-mapper";
 import { applyLicenseAwareStatus, PERMISSION_LICENSE_REQUIREMENT } from "./permission-license-check";
+import { GRAPH_PERMISSIONS, isPermissionGrantedByRoles } from "../data/graph-permissions";
+import { resolveSyncErrors } from "../utils/sync-permission-errors";
+import { SIGN_IN_WINDOW_DAYS, computeSignInCoverage } from "../utils/sign-in-coverage";
+import { mapSignInAuthentication } from "../utils/sign-in-authentication";
+import { resolveOwnAppSecretExpiry } from "../utils/credential-expiry";
+import { UNCONFIRMED_ADMIN_ROLE_LABEL } from "../utils/directory-role-templates";
 
 
 
@@ -185,13 +191,8 @@ export function decodeAppRolesFromToken(token: string): string[] | null {
   }
 }
 
-// Some rows in permissionsToTest below list two alternative Graph
-// permissions Microsoft accepts for the same call (e.g. "Reports.Read.All /
-// UserAuthenticationMethod.Read.All") rather than one canonical role string
-// - granted if EITHER alternative is present in the token's roles claim.
-export function isPermissionGrantedByRoles(permissionField: string, grantedRoles: string[]): boolean {
-  return permissionField.split("/").some((candidate) => grantedRoles.includes(candidate.trim()));
-}
+// Lives next to the permission list now; re-exported for existing callers.
+export { isPermissionGrantedByRoles };
 
 // Survived graphFetch()'s own short retry (see its comment) and still
 // carries this exact signature - real-world Microsoft behavior is that some
@@ -326,173 +327,10 @@ async function withFreshTokenOnLifetimeError<T extends { error?: string }>(
 }
 
 export async function testAppRegistrationPermissions(tenant: Tenant): Promise<TenantPermissionReport> {
-  // Ordered read-only first, optional last (write-capable last of all) -
-  // ThreatHunting.Read.All, Policy.ReadWrite.ConditionalAccess, and
-  // DeviceManagementConfiguration.ReadWrite.All are the only three optional
-  // permissions this app ever requests: every other permission below
-  // already gives Clarity365 full audit/reporting coverage without any of
-  // them (including generating a copy-pasteable PowerShell/portal script in
-  // place of each write permission). Granting ThreatHunting.Read.All
-  // additionally enables ASR rule detection-activity reporting; granting
-  // the CA write permission additionally enables in-app one-click CA
-  // auto-deployment; granting the Endpoint Security write permission
-  // additionally enables MDE connector/Defender AV/ASR rule deployment (see
-  // deployDefenderAvPolicy/deployAsrRulePolicy/updateMdeConnectorSettings
-  // below) - none of the three is required for the app to work.
-  //
-  // Deliberately NOT a separate checked permission here: CA05 also needs
-  // Application.Read.All (it references a specific application - Microsoft
-  // Azure Management - by ID rather than "All", and Graph needs to resolve
-  // that object to create the policy). That's a one-baseline-out-of-ten
-  // edge case, not worth its own row/explanation in every tenant's
-  // permissions report - deployConditionalAccessPolicy() surfaces it as an
-  // actionable error message at the moment a CA05 deploy actually needs it
-  // instead, which is also the more useful moment to learn about it.
-  const permissionsToTest: Omit<PermissionTestResult, "status">[] = [
-    {
-      permission: "Policy.Read.All",
-      scope: "Application",
-      description: "Read Conditional Access policies and tenant identity security baselines.",
-      endpoint: "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
-      requiredFor: "Module 1: Conditional Access Policy Scanner & Baseline Audit",
-    },
-    {
-      permission: "User.Read.All",
-      scope: "Application",
-      description: "Read user profiles, accountEnabled states, and license assignments.",
-      endpoint: "https://graph.microsoft.com/v1.0/users?$top=5&$select=id,displayName,userPrincipalName,accountEnabled",
-      requiredFor: "Module 4 & 5: MFA Audit & User Lifecycle Classification",
-    },
-    {
-      permission: "AuditLog.Read.All",
-      scope: "Application",
-      description: "Read Entra ID interactive & non-interactive sign-in logs and diagnostic results.",
-      endpoint: "https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=5",
-      requiredFor: "Module 2: Sign-In Logs & CA Diagnostic Engine",
-    },
-    {
-      permission: "Reports.Read.All / UserAuthenticationMethod.Read.All",
-      scope: "Application",
-      description: "Read user authentication method registration details and MFA enrollment status.",
-      endpoint: "https://graph.microsoft.com/v1.0/reports/authenticationMethods/userRegistrationDetails?$top=5",
-      requiredFor: "Module 4: MFA Enforcement & Authentication Method Audit",
-    },
-    {
-      permission: "Organization.Read.All / Directory.Read.All",
-      scope: "Application",
-      description: "Read tenant SKU subscriptions, license tiers (e.g. Entra ID P2), and verified domains.",
-      endpoint: "https://graph.microsoft.com/v1.0/organization",
-      requiredFor: "Tenant Capability Detection & License SKU Matrix",
-    },
-    {
-      permission: "RoleManagement.Read.Directory",
-      scope: "Application",
-      description: "Read directory role assignments (Global Admin, Security Admin, etc.) to identify privileged accounts.",
-      // directoryRoles does not support $top/paging - Graph returns HTTP 400
-      // ("This resource does not support custom page sizes") if it's passed,
-      // regardless of whether the permission is actually granted.
-      endpoint: "https://graph.microsoft.com/v1.0/directoryRoles",
-      requiredFor: "Module 6: Privileged Admin Role Assignment & Unprotected Admin Detection",
-    },
-    {
-      permission: "DeviceManagementManagedDevices.Read.All",
-      scope: "Application",
-      description: "Read Intune-managed device inventory, compliance state, and encryption status.",
-      endpoint: "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$top=1",
-      requiredFor: "Module 10: Intune Endpoint Security",
-    },
-    {
-      permission: "DeviceManagementConfiguration.Read.All",
-      scope: "Application",
-      description:
-        "Read Intune Endpoint Security policy assignments (antivirus, EDR) and Attack Surface Reduction rule configuration - the Settings Catalog, classic Device Configuration profiles, and Endpoint Security Template policies that can each configure ASR rules all share this one permission, so granting it once covers all three.",
-      endpoint: "https://graph.microsoft.com/beta/deviceManagement/intents?$top=1",
-      requiredFor: "Module 10: Intune Endpoint Security (antivirus/EDR policy counts) & ASR Rules (live configuration state)",
-    },
-    {
-      permission: "SecurityEvents.Read.All",
-      scope: "Application",
-      description: "Read Microsoft Secure Score, control profiles, and improvement action recommendations.",
-      endpoint: "https://graph.microsoft.com/v1.0/security/secureScores?$top=1",
-      requiredFor: "Module 3: Defender Secure Score & Historical Timeline",
-    },
-    {
-      permission: "SecurityAlert.Read.All",
-      scope: "Application",
-      description: "Read Microsoft Defender for Office 365 threat detections (phishing, malware) from the Security Alerts API.",
-      endpoint: "https://graph.microsoft.com/v1.0/security/alerts_v2?$top=1",
-      requiredFor: "Module 8: MDO Threat Detections",
-    },
-    {
-      permission: "Group.Read.All",
-      scope: "Application",
-      description: "Read Microsoft 365 groups, security groups, and distribution lists - membership, owners, and tenant-wide group settings.",
-      endpoint: "https://graph.microsoft.com/v1.0/groups?$top=1",
-      requiredFor: "Module 11: Groups & Distribution Management",
-    },
-    {
-      permission: "Sites.Read.All",
-      scope: "Application",
-      description: "Read SharePoint site collections and OneDrive storage quotas.",
-      endpoint: "https://graph.microsoft.com/v1.0/sites?search=*&$top=1",
-      requiredFor: "Module 12: SharePoint & OneDrive Storage (site inventory)",
-    },
-    {
-      permission: "SharePointTenantSettings.Read.All",
-      scope: "Application",
-      description: "Read tenant-wide SharePoint sharing settings (sharing capability ceiling, default link type, anonymous link expiration) - a separate, narrower permission from Sites.Read.All that Microsoft requires specifically for the admin settings API.",
-      endpoint: "https://graph.microsoft.com/v1.0/admin/sharepoint/settings",
-      requiredFor: "Module 12: SharePoint & OneDrive Storage (tenant-wide policy)",
-    },
-    {
-      permission: "ThreatHunting.Read.All",
-      scope: "Application",
-      description:
-        "Optional - read live Microsoft Defender for Endpoint Advanced Hunting telemetry (the DeviceEvents table) to show ASR rule detection activity (30-day hit counts and event detail). A materially more restrictive, separately-consented permission than anything else Clarity365 requests. The actual detection-activity query additionally needs a Defender for Endpoint P1/P2 (or equivalent) license for the DeviceEvents table specifically - Defender for Business tenants may have this permission granted yet still see 'table not found' on that one query, which is a license/table-availability gap, not a missing-permission one; without either, ASR rule configuration reporting (which rule is Block/Audit/Warn/Not Configured) still works fully - only the event-count badges and event list are unavailable.",
-      endpoint: "https://graph.microsoft.com/v1.0/security/runHuntingQuery",
-      method: "POST",
-      // Deliberately NOT a DeviceEvents query (unlike the real detection
-      // queries below) - a live bug report showed a tenant with
-      // ThreatHunting.Read.All genuinely granted still failing this
-      // self-test, because DeviceEvents itself doesn't resolve on that
-      // tenant's Defender plan (a 400 "table not found", not a 401/403).
-      // This probe is a table-independent Kusto literal (`print`, no `from`
-      // clause) so the self-test result reflects ONLY whether the
-      // permission itself is granted, never a downstream license/table gap.
-      body: JSON.stringify({ Query: "print ClarityPermissionProbe = 1", Timespan: "P1D" }),
-      requiredFor: "Optional: ASR Rules detection activity (event counts and event detail)",
-      optional: true,
-    },
-    {
-      permission: "DelegatedPermissionGrant.Read.All / Directory.Read.All",
-      scope: "Application",
-      description:
-        "Optional - read which apps users and admins have consented to (oauth2PermissionGrants) and with which delegated permissions, for the Security Simulations \"malicious OAuth app consent\" scenario. DelegatedPermissionGrant.Read.All is the least-privileged choice; Directory.Read.All also covers it. Without either, that one check shows as not assessed.",
-      endpoint: "https://graph.microsoft.com/v1.0/oauth2PermissionGrants?$top=1",
-      requiredFor: "Optional: Security Simulations - OAuth app consent scenario",
-      optional: true,
-    },
-    {
-      permission: "Policy.ReadWrite.ConditionalAccess",
-      scope: "Application",
-      description:
-        "Optional - only needed to auto-deploy CA baseline policies directly from Clarity365. Without it, Policy.Read.All above still gives full audit/reporting coverage, and Clarity365 generates a PowerShell script you can run manually instead. One baseline, CA05, also needs Application.Read.All granted alongside this (it references a specific application by ID rather than \"All\") - if a CA05 deploy specifically fails while every other baseline works, that's why; the deploy attempt itself will say so.",
-      endpoint: "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
-      requiredFor: "Optional: Direct In-App CA Auto-Deployment & Baseline Remediation",
-      isWriteAccess: true,
-      optional: true,
-    },
-    {
-      permission: "DeviceManagementConfiguration.ReadWrite.All",
-      scope: "Application",
-      description:
-        "Optional - only needed for Endpoint Security's write-enabled deploy actions (MDE connector setting changes, Defender Antivirus policy deployment, ASR rule deployment). Also gated by a separate per-tenant toggle in the Defender Config module itself (endpointSecurityWriteMode) - both must be turned on before any Deploy button appears. Without it, DeviceManagementConfiguration.Read.All above still gives full read-only reporting, and every deploy screen offers a copy-pasteable PowerShell/portal equivalent instead.",
-      endpoint: "https://graph.microsoft.com/beta/deviceManagement/intents?$top=1",
-      requiredFor: "Optional: Endpoint Security write-enabled deployment (MDE connector, Defender AV policy, ASR rules)",
-      isWriteAccess: true,
-      optional: true,
-    },
-  ];
+  // The list itself lives in data/graph-permissions.ts, shared with the
+  // onboarding checklist and the sync's error handling so the three can't
+  // drift apart. Only the fields the report needs are carried over.
+  const permissionsToTest: Omit<PermissionTestResult, "status">[] = GRAPH_PERMISSIONS.map(({ grant, syncSteps, purpose, ...test }) => test);
 
   if (tenant.credentials.authMode === "mock") {
     return {
@@ -2341,11 +2179,28 @@ export async function fetchLiveTenantSnapshot(
     // members collection raises Graph's default expand page size; Graph does not
     // support @odata.nextLink cursoring *within* an expanded property, so an
     // exceptionally large single role's membership could still be capped here.
-    const rolesResult = await fetchAllPages<any>(
-      "https://graph.microsoft.com/v1.0/directoryRoles?$expand=members($top=999)",
-      headers
-    );
-    if (rolesResult.error) syncErrors.push(`Directory roles: ${rolesResult.error}`);
+    const DIRECTORY_ROLES_URL = "https://graph.microsoft.com/v1.0/directoryRoles?$expand=members($top=999)";
+    let rolesResult = await fetchAllPages<any>(DIRECTORY_ROLES_URL, headers);
+    // Microsoft intermittently answers this call with "internal server
+    // error" (3 of 10 live tenants on 2026-09-30). Try once more, then
+    // rebuild the same user -> roles map from roleAssignments, which the
+    // same permission covers. Only if both fail is it a sync error.
+    if (rolesResult.error && rolesResult.items.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      rolesResult = await fetchAllPages<any>(DIRECTORY_ROLES_URL, headers);
+    }
+    if (rolesResult.error && rolesResult.items.length === 0) {
+      const assignments = await fetchAllPages<any>("https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments?$expand=roleDefinition", headers);
+      if (assignments.error && assignments.items.length === 0) {
+        syncErrors.push(`Directory roles: ${rolesResult.error}`);
+      } else {
+        const maps = buildAdminRoleMapsFromRoleAssignments(assignments.items);
+        maps.rolesByPrincipal.forEach((names, id) => adminUserRolesMap.set(id, names));
+        maps.templateIdsByPrincipal.forEach((ids, id) => adminUserRoleTemplateIdsMap.set(id, ids));
+      }
+    } else if (rolesResult.error) {
+      syncErrors.push(`Directory roles: ${rolesResult.error}`);
+    }
 
     rolesResult.items.forEach((role: any) => {
       const roleName = role.displayName || "Directory Role";
@@ -2375,19 +2230,36 @@ export async function fetchLiveTenantSnapshot(
   // 3. Fetch Sign-In Logs
   onProgress?.("Sign-in logs", 3, TOTAL_SYNC_STEPS);
   let signInsList: SignInEvent[] = [];
+  let signInCoverage: SignInCoverage | undefined;
   try {
     // Some tenant configurations reject a $top=250 audit log request with 400;
     // fall back to a smaller page size for the first page, then paginate normally.
     // Sign-in volume can be very high, so this is capped tighter than other lists.
+    // Newest first, limited to the last SIGN_IN_WINDOW_DAYS days and to 20
+    // pages. This endpoint is slow on busy tenants (30s timeouts seen live),
+    // so it gets a longer per-page timeout. Reaching the page limit is a
+    // known cap, not a failure: it's recorded as coverage (shown wherever
+    // sign-ins are used) instead of marking the tenant degraded.
+    const signInWindowStart = new Date(Date.now() - SIGN_IN_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 19) + "Z";
+    const signInFilter = `$filter=createdDateTime ge ${signInWindowStart}`;
+    // Beta is tried first because only it reports how each sign-in was
+    // authenticated (MFA required or not, and the method) - v1.0 has no such
+    // fields. Beta returns a superset of v1.0, so the mapping below is the
+    // same either way; if beta refuses, the v1.0 candidates take over and the
+    // authentication details are simply absent ("not reported").
     const signInsResult = await fetchAllPages<any>(
       [
-        "https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=250",
+        `https://graph.microsoft.com/beta/auditLogs/signIns?$top=250&${signInFilter}`,
+        `https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=250&${signInFilter}`,
+        `https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=100&${signInFilter}`,
         "https://graph.microsoft.com/v1.0/auditLogs/signIns?$top=100",
       ],
       headers,
-      20
+      20,
+      { timeoutMs: 90_000 }
     );
-    if (signInsResult.error) syncErrors.push(`Sign-in logs: ${signInsResult.error}`);
+    const signInError = signInsResult.hitPageCap ? undefined : signInsResult.error;
+    if (signInError) syncErrors.push(`Sign-in logs: ${signInError}`);
 
     signInsList = signInsResult.items.map((s: any) => {
       const appliedPolicies = (s.appliedConditionalAccessPolicies || []).map((p: any) => ({
@@ -2434,6 +2306,9 @@ export async function fetchLiveTenantSnapshot(
       return {
         id: s.id,
         createdDateTime: s.createdDateTime || new Date().toISOString(),
+        authentication: mapSignInAuthentication(s),
+        userType: s.userType === "guest" || s.userType === "member" ? s.userType : undefined,
+        asn: typeof s.autonomousSystemNumber === "number" ? s.autonomousSystemNumber : undefined,
         userPrincipalName: s.userPrincipalName || "unknown@domain.com",
         userDisplayName: s.userDisplayName || s.userPrincipalName || "Unknown User",
         userId: s.userId || "",
@@ -2467,6 +2342,8 @@ export async function fetchLiveTenantSnapshot(
         reportOnlyFailedPolicies,
       };
     });
+    signInCoverage = computeSignInCoverage(signInsList, { hitLimit: signInsResult.hitPageCap, error: signInError });
+    signInCoverage.hasAuthDetails = signInsList.some((s) => !!s.authentication);
   } catch (err: any) {
     console.error("[Graph Client] Error fetching sign-in logs:", err);
     syncErrors.push(`Sign-in logs: ${err.message || "Unexpected error while processing sign-in logs."}`);
@@ -2510,9 +2387,9 @@ export async function fetchLiveTenantSnapshot(
           department: u.department || "General",
           accountEnabled: u.accountEnabled,
           isAdmin,
-          adminRoles: roles.length > 0 ? roles : isAdmin ? ["Global Administrator"] : undefined,
-          // Only real directory-role memberships - never the "Global Administrator"
-          // placeholder above, which is inferred from the registration report alone.
+          adminRoles: roles.length > 0 ? roles : isAdmin ? [UNCONFIRMED_ADMIN_ROLE_LABEL] : undefined,
+          // Only real directory-role memberships - never the placeholder label
+          // above, which is inferred from the registration report alone.
           adminRoleTemplateIds: adminUserRoleTemplateIdsMap.get(u.id),
           mfaRegistered,
           mfaEnforcedByPolicy: hasCaMfaEnforced || isAdmin,
@@ -3048,6 +2925,7 @@ export async function fetchLiveTenantSnapshot(
   onProgress?.("App registrations & enterprise applications", 15, TOTAL_SYNC_STEPS);
   // 8.95. Fetch App Registrations & Enterprise Applications (Module 9)
   let appRegistrationsLive: AppRegistrationItem[] | null = null;
+  let secretExpiry: SecretExpiry | undefined;
   try {
     const appsResult = await fetchAllPages<any>(
       "https://graph.microsoft.com/v1.0/applications?$top=999&$select=id,appId,displayName,publisherDomain,createdDateTime,keyCredentials,passwordCredentials,requiredResourceAccess,signInAudience",
@@ -3057,6 +2935,10 @@ export async function fetchLiveTenantSnapshot(
       syncErrors.push(`App Registrations: ${appsResult.error}`);
     } else {
       appRegistrationsLive = appsResult.items.map(mapAppRegistration);
+      // Clarity365's own app is in this list: note when the secret it signs
+      // in with expires, so the UI can warn before every module stops.
+      const ownApp = appsResult.items.find((a: any) => a?.appId && a.appId === tenant.credentials.clientId);
+      secretExpiry = resolveOwnAppSecretExpiry(ownApp, tenant.credentials.clientSecret);
     }
   } catch (err: any) {
     console.error("[Graph Client] Error fetching app registrations:", err);
@@ -3406,9 +3288,14 @@ export async function fetchLiveTenantSnapshot(
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = computeBaselineCoveragePercent(deployedBaselineCodes.size, CA_BASELINE_STANDARDS.length);
 
+  // Missing-permission refusals are resolved against what the token actually
+  // carries: a required permission becomes one plain "grant X" line, a
+  // declined optional one isn't an error at all (see sync-permission-errors.ts).
+  const resolvedErrors = resolveSyncErrors(syncErrors, decodeAppRolesFromToken(token));
   const syncHealth: SyncHealth = {
-    isPartial: syncErrors.length > 0,
-    errors: syncErrors,
+    isPartial: resolvedErrors.errors.length > 0,
+    errors: resolvedErrors.errors,
+    missingPermissions: resolvedErrors.missingPermissions,
     lastAttemptAt: new Date().toISOString(),
   };
 
@@ -3419,7 +3306,8 @@ export async function fetchLiveTenantSnapshot(
 
   base.tenant = {
     ...tenant,
-    credentials: exoCredentials,
+    // secretExpiry: refreshed when this sync could read it, otherwise the last known value stays.
+    credentials: secretExpiry ? { ...exoCredentials, secretExpiry } : exoCredentials,
     lastSyncTimestamp: new Date().toISOString(),
     connectionStatus: syncHealth.isPartial ? "degraded" : "healthy",
   };
@@ -3450,6 +3338,9 @@ export async function fetchLiveTenantSnapshot(
 
   if (signInsList.length > 0) {
     base.signIns = signInsList;
+    // Kept in step with the list it describes: when nothing new was loaded
+    // the previous sign-ins (and their coverage) stay.
+    base.signInCoverage = signInCoverage;
   }
 
   if (usersList.length > 0) {

@@ -5,6 +5,7 @@ import { detectMostCommonCountry } from "../utils/sign-in-country";
 import { CaEnvironment, CaEvaluationResult, CaSimLocation, CaSimUser, SignInContext, evaluateSignIn } from "./ca-policy-evaluator";
 import { BreakGlassCandidate, buildCaEnvironment, detectLikelyBreakGlassAccounts } from "./ca-sim-context";
 import { CaFixRecommendation, recommendFixes } from "./ca-fix-recommender";
+import { describeSignInCoverage, getSignInCoverage } from "../utils/sign-in-coverage";
 
 // Runs the Sign-in Situations (signin-situation-definitions.ts) through the
 // CA engine for one chosen account, and applies the user's colour rules
@@ -30,7 +31,9 @@ export interface SituationRunResult {
   result?: CaEvaluationResult;
   fixes: CaFixRecommendation[];
   // Real sign-ins by the chosen account that look like this situation.
-  evidence?: { matched: number; succeeded: number };
+  // coverage: the period the synced sign-ins cover, so "none found" isn't
+  // read as "never happened".
+  evidence?: { matched: number; succeeded: number; coverage: string };
   notes: string[];
 }
 
@@ -185,7 +188,7 @@ export function runSituation(
   if (snapshot && situation.evidence && user.userPrincipalName) {
     const upn = user.userPrincipalName.toLowerCase();
     const matched = (snapshot.signIns || []).filter((e) => e.userPrincipalName?.toLowerCase() === upn && situation.evidence!(e, opts.homeCountry));
-    evidence = { matched: matched.length, succeeded: matched.filter((e) => e.status === "success").length };
+    evidence = { matched: matched.length, succeeded: matched.filter((e) => e.status === "success").length, coverage: describeSignInCoverage(getSignInCoverage(snapshot)) };
   }
 
   return {

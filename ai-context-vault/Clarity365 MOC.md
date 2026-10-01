@@ -17,7 +17,7 @@ Start here, then follow links outward :  every note links back to this one, so y
 
 ## Services (the backbone)
 [[Tenant Store]] :  the god service everything calls
-[[Core Graph Layer]] · [[Baseline Matchers]] · [[Data Mappers]] · [[Analysis & Generation]] · [[Fleet Operations]] · [[Security Infra]] · [[CA Simulation Engine]]
+[[Core Graph Layer]] · [[Baseline Matchers]] · [[Data Mappers]] · [[Analysis & Generation]] · [[Fleet Operations]] · [[Security Infra]] · [[CA Simulation Engine]] · [[Sign-in Report]]
 
 ## API & MCP
 [[API Surface]] :  all 33 routes
@@ -45,7 +45,7 @@ Start here, then follow links outward :  every note links back to this one, so y
 
 ## Where this goes next
 [[Optimization Plan]] :  prioritized findings from this scan (security gaps, test coverage, structural risk)
-[[Recommendations Plan]] :  bugs found and features recommended after the Security Simulations and Exchange work (2026-10-01), for review
+[[Recommendations Plan]] :  bugs found and features recommended after the Security Simulations and Exchange work; first seven items built 2026-10-01
 [[Prompting & Obsidian Workflow]] :  how to prompt Claude Code against this vault, and how to keep the vault from going stale
 [[DLP & Sensitivity Labels Plan]] :  multi-stage plan for Purview DLP and sensitivity labels (planning only) · [[DLP Stage 1 - Data Model & Licensing]] :  in-depth Stage 1 · [[DLP Stage 3 - Remaining Data Categories]] :  in-depth plan for the last four data categories · [[DLP Stage 5 - Fleet Rollout]] :  next stage, generating guided packs across many tenants · [[Compliance Readiness Checklist Plan]] :  technical + organizational readiness for POPIA/GDPR/HIPAA, not just DLP · [[Sensitivity Labels Catalog Plan]] :  the still-missing label half of "DLP & Sensitivity Labels" · [[Security Simulations Plan]] :  Security Simulations category (attack scenarios, sign-in situation simulator, CA gap analysis), stages 1-6 built · [[Exchange App-Only Access Plan]] :  Exchange through the app registration (no sign-in); built with the client secret, certificate optional later
 

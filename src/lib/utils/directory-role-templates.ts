@@ -117,3 +117,8 @@ export function roleNamesToTemplateIds(roleNames: string[]): string[] {
 export function isGlobalAdminRoleName(roleName: string): boolean {
   return getRoleTemplateByName(roleName)?.templateId === GLOBAL_ADMIN_TEMPLATE_ID;
 }
+
+// Shown when the MFA registration report says an account is an admin but its
+// directory roles couldn't be read. Never a real role name: an earlier build
+// wrote "Global Administrator" here, which screens then showed as fact.
+export const UNCONFIRMED_ADMIN_ROLE_LABEL = "Administrator (role not confirmed)";

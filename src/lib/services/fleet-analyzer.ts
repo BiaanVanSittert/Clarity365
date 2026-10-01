@@ -557,6 +557,7 @@ export function computeFleetPosture(
       defaultDomainName: tenant.defaultDomainName,
       tier: tenant.tier,
       connectionStatus: tenant.connectionStatus,
+      secretExpiry: tenant.credentials?.secretExpiry,
       isDemo: tenant.isDemo,
       lastSyncTimestamp: tenant.lastSyncTimestamp,
       secureScore: {

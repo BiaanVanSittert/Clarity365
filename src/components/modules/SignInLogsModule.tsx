@@ -8,6 +8,8 @@ import { CountryFlag } from "../common/CountryFlag";
 import { SyncErrorBanner } from "../common/SyncErrorBanner";
 import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
+import { describeSignInCoverage, getSignInCoverage } from "@/lib/utils/sign-in-coverage";
+import { SignInReportModal } from "../modals/SignInReportModal";
 import {
   markSignInLogsReviewed,
   clearSignInLogsReviewedWatermark,
@@ -49,6 +51,7 @@ import {
   RefreshCw,
   SlidersHorizontal,
   Globe,
+  FileText,
 } from "lucide-react";
 
 interface SignInLogsModuleProps {
@@ -124,6 +127,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
 }) => {
   const { signIns, tenant } = snapshot;
   const signInSyncErrors = getSyncErrorsForPrefixes(snapshot, ["Sign-in logs:"]);
+  const signInCoverage = getSignInCoverage(snapshot);
 
   // Search and general filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -155,6 +159,7 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
   // Copy & export feedback state
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [kqlModalOpen, setKqlModalOpen] = useState(false);
+  const [reportModalOpen, setReportModalOpen] = useState(false);
   // Unlike a plain sticky "dismissed" flag, this tracks how many flagged
   // sign-ins have happened SINCE the last review - so the sidebar badge (and
   // this button) naturally come back on their own when something new shows
@@ -477,6 +482,16 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
             </button>
           )}
 
+          {/* Sign-in report: summary by country, IP, user and MFA method */}
+          <button
+            onClick={() => setReportModalOpen(true)}
+            title="Summary of sign-ins by country, IP address, user and MFA method - print it or download the data"
+            className="px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 border border-[#CBD5E1] dark:border-slate-700 rounded-sm flex items-center gap-1.5 transition-colors shadow-2xs"
+          >
+            <FileText size={13} className="text-slate-500 dark:text-slate-400" />
+            <span>Sign-in report</span>
+          </button>
+
           {/* Export CSV */}
           <button
             onClick={handleExportCSV}
@@ -510,6 +525,18 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
       </div>
 
       <SyncErrorBanner errors={signInSyncErrors} title="Sign-in log sync error - entries below may be stale" />
+
+      {/* What period the list below really covers - on a busy tenant the
+          synced sign-ins can be days, not the month the filters suggest. */}
+      <div
+        className={`text-[11px] px-3 py-1.5 rounded-sm border ${
+          signInCoverage.complete
+            ? "text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700"
+            : "text-amber-900 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800"
+        }`}
+      >
+        {describeSignInCoverage(signInCoverage)}
+      </div>
 
       {/* Time Range & Timestamp Filtering Bar */}
       <div className="bg-white dark:bg-slate-800 border border-[#CBD5E1] dark:border-slate-700 p-3 rounded-sm space-y-3 shadow-2xs">
@@ -1226,6 +1253,8 @@ export const SignInLogsModule: React.FC<SignInLogsModuleProps> = ({
           </div>
         </Drawer>
       )}
+
+      {reportModalOpen && <SignInReportModal isOpen onClose={() => setReportModalOpen(false)} snapshot={snapshot} homeCountry={effectiveHomeCountry} />}
 
       {/* KQL Query Generator Modal */}
       <Modal

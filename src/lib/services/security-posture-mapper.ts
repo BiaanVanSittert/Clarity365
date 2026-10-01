@@ -4,6 +4,7 @@ import {
   PrivilegedRoleAssignment,
   SharePointTenantPolicy,
 } from "../types";
+import { getRoleTemplateById } from "../utils/directory-role-templates";
 
 // Pure mappers for the data Security Simulations Stage 5 adds to the sync
 // (ai-context-vault/Optimization/Security Simulations Plan.md): SharePoint
@@ -122,6 +123,29 @@ export function mapPimAssignments(eligibleRaw: any[], activeRaw: any[]): Privile
 
 // Non-PIM fallback (/roleManagement/directory/roleAssignments): active
 // assignments only, with no schedule - every entry reads as permanent.
+// Who holds which directory role, rebuilt from roleAssignments
+// ($expand=roleDefinition) - the sync's stand-in when directoryRoles fails
+// (Microsoft returned "internal server error" for it on 3 of 10 live tenants).
+// Same shape the directoryRoles step builds: principal id -> role names, and
+// principal id -> role template ids. For built-in roles the role definition
+// id IS the template id.
+export function buildAdminRoleMapsFromRoleAssignments(raw: any[]): { rolesByPrincipal: Map<string, string[]>; templateIdsByPrincipal: Map<string, string[]> } {
+  const rolesByPrincipal = new Map<string, string[]>();
+  const templateIdsByPrincipal = new Map<string, string[]>();
+  for (const r of raw) {
+    if (!r?.principalId || !r?.roleDefinitionId || !isTenantWide(r)) continue;
+    const templateId = String(r.roleDefinition?.templateId || r.roleDefinitionId).toLowerCase();
+    const name = getRoleTemplateById(templateId)?.displayName || r.roleDefinition?.displayName || "Directory Role";
+    const names = rolesByPrincipal.get(r.principalId) || [];
+    if (!names.includes(name)) names.push(name);
+    rolesByPrincipal.set(r.principalId, names);
+    const ids = templateIdsByPrincipal.get(r.principalId) || [];
+    if (!ids.includes(templateId)) ids.push(templateId);
+    templateIdsByPrincipal.set(r.principalId, ids);
+  }
+  return { rolesByPrincipal, templateIdsByPrincipal };
+}
+
 export function mapRoleAssignmentsFallback(raw: any[]): PrivilegedRoleAssignment[] {
   return raw
     .filter((r) => r?.principalId && r?.roleDefinitionId && isTenantWide(r))

@@ -61,8 +61,19 @@ export interface TenantCredentials {
   // Optimization/Exchange App-Only Access Plan.md). Recorded by the sync and
   // the Permissions check; undefined = never checked. Not a secret.
   exoAppAccess?: ExoAppAccess;
+  // When the client secret in use expires, read by the sync from the app's
+  // own registration (credential-expiry.ts). Undefined = not known. Not a secret.
+  secretExpiry?: SecretExpiry;
   authMode: "mock" | "secret" | "certificate";
   verifiedAt?: string;
+}
+
+export interface SecretExpiry {
+  expiresAt: string;
+  // True when the secret in use was identified exactly; false when this is
+  // the soonest-expiring secret on the app registration (a safe estimate).
+  exact: boolean;
+  checkedAt: string;
 }
 
 export interface Tenant {
@@ -319,9 +330,27 @@ export interface CABaselineItem {
 
 export type SignInStatus = "success" | "failed" | "ca_blocked" | "report_only_failed";
 
+// How a sign-in was authenticated. Only Microsoft's beta sign-in log reports
+// this; see sign-in-authentication.ts.
+export interface SignInAuthentication {
+  // What Entra required for this sign-in. "singleFactor" means MFA was not
+  // required - not necessarily that the account has no MFA.
+  requirement: "singleFactor" | "multiFactor";
+  // Methods presented in this sign-in ("Password", "Mobile app notification", ...).
+  methods: string[];
+  // True when no method was presented because an existing session already satisfied it.
+  fromExistingSession: boolean;
+}
+
 export interface SignInEvent {
   id: string;
   createdDateTime: string;
+  // Optional: undefined on demo data, on snapshots synced before 2026-10-01
+  // and when the beta sign-in log wasn't available.
+  authentication?: SignInAuthentication;
+  userType?: "member" | "guest";
+  // Autonomous System Number of the network the sign-in came from.
+  asn?: number;
   userPrincipalName: string;
   userDisplayName: string;
   userId: string;
@@ -1176,9 +1205,29 @@ export interface SharePointBaselineResult {
 
 // Per-section result of the most recent live Graph sync. Absent entirely for
 // demo/mock tenants and for snapshots that predate this field.
+export interface SignInCoverage {
+  // How far back the sync asks Microsoft for sign-ins.
+  windowDays: number;
+  count: number;
+  // Oldest / newest sign-in loaded. Absent when none were.
+  from?: string;
+  to?: string;
+  // False when older sign-ins inside the window weren't loaded.
+  complete: boolean;
+  // "limit": stopped at the sync's page limit (newest records only).
+  // "error": Microsoft timed out or refused part-way.
+  incompleteReason?: "limit" | "error";
+  // Whether the sign-ins carry authentication details (MFA requirement and
+  // method) - only when the beta sign-in log answered.
+  hasAuthDetails?: boolean;
+}
+
 export interface SyncHealth {
   isPartial: boolean;
   errors: string[]; // e.g. "Sign-in logs: Pagination stopped early: Insufficient privileges."
+  // Required Graph permissions the app registration didn't have at this sync
+  // (read from the access token). Undefined on snapshots synced before 2026-10-01.
+  missingPermissions?: string[];
   lastAttemptAt: string;
 }
 
@@ -1233,6 +1282,10 @@ export interface TenantSecuritySnapshot {
   privilegedRoleAssignments?: PrivilegedRoleAssignments;
   oauthConsentGrants?: OAuthConsentGrantSummary;
   signIns: SignInEvent[];
+  // The period the synced sign-ins actually cover. Undefined on demo tenants
+  // and snapshots synced before 2026-10-01 - read it through
+  // getSignInCoverage() (sign-in-coverage.ts), which fills that gap.
+  signInCoverage?: SignInCoverage;
   mfaAudit: UserMfaProfile[];
   accountClassification: TenantAccountSummary;
   mailboxes: MailboxItem[];
@@ -1353,6 +1406,8 @@ export interface FleetTenantPosture {
   defaultDomainName: string;
   tier: TenantLicenseType;
   connectionStatus: "healthy" | "degraded" | "disconnected" | "error";
+  // Read-only visibility of when the tenant's client secret expires.
+  secretExpiry?: SecretExpiry;
   isDemo?: boolean;
   lastSyncTimestamp: string;
   secureScore: {

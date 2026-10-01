@@ -451,6 +451,7 @@ export const SituationCard: React.FC<{
               {result.evidence.matched === 0
                 ? "No synced sign-ins by this account look like this situation."
                 : `${result.evidence.matched} synced sign-in(s) by this account look like this situation; ${result.evidence.succeeded} succeeded.`}
+              <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Sign-in log: {result.evidence.coverage}</div>
             </Section>
           )}
 

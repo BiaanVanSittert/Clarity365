@@ -17,7 +17,9 @@
 //   3        - Security Simulations Stage 5: SharePoint security settings,
 //              Exchange audit/protocol settings, PIM role assignments,
 //              OAuth consent grants
-export const SNAPSHOT_SYNC_SCHEMA_VERSION = 3;
+//   4        - sign-in coverage and authentication details (beta sign-in
+//              log), missing-permission list on sync health
+export const SNAPSHOT_SYNC_SCHEMA_VERSION = 4;
 
 export function storedSchemaVersion(snapshot: { syncSchemaVersion?: number } | undefined): number {
   return typeof snapshot?.syncSchemaVersion === "number" ? snapshot.syncSchemaVersion : 0;

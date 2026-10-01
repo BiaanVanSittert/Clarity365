@@ -23,4 +23,8 @@ Also fixed: the sidebar's badge for this module (`riskySignInsCount` in `Sidebar
 - **Related fix:** `fleet-analyzer.ts`'s Universal Search now also matches a sign-in's resolved country *name*, not just the raw stored code - previously a live tenant's "US"-coded events were never found by typing "united states".
 - **A second, deeper bug this surfaced:** `tenant-store.ts`'s `backfillSnapshot()` already had a "demo tenants always reflect the current `mock-tenants.ts`, never the value frozen in the database at first seed" rule for `users`/`mailboxes`/`devices`/`incidents` - but `signIns` was missing from that list. A demo tenant seeded before any mock-data edit kept serving its stale, already-persisted `signIns` forever (mock tenants never re-sync - `fetchLiveTenantSnapshot` short-circuits unchanged for `authMode === "mock"`), which is exactly how the country-code normalization above initially appeared to have no effect at all. Fixed by adding `signIns` to that same backfill rule.
 
+## Coverage line and Sign-in report (2026-10-01)
+- A line under the sync-error banner states which period the list really covers (`getSignInCoverage` + `describeSignInCoverage`); orange when only the newest sign-ins were loaded or loading stopped early.
+- **Sign-in report** button opens `SignInReportModal`: summary by country, IP address, user, MFA method, app, client and device, "worth a look" findings, a printable report and CSV downloads. It uses the module's home country. See [[Sign-in Report]].
+
 Part of [[Clarity365 MOC]]. Tightly coupled to [[Conditional Access Policy Scanner]] :  this is where a CA policy's report-only failures actually surface per-user.

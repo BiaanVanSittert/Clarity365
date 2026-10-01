@@ -32,4 +32,6 @@ The account picker starts on a **typical** account (`pickTypicalAccount`): not a
 ## Live validation (2026-09-29, read-only, seven re-synced tenants)
 Results matched each tenant's policies. Real gaps it surfaced: guests at Axiomatic and Wauko have no enforced policy (CA02 excludes guests, CA04 is report-only); Gustav Barkhuysen has every policy in report-only; no live tenant defines trusted IP locations except Wauko, so "known location" situations elsewhere read "No trusted locations".
 
+**2026-10-01:** the evidence line ("N synced sign-ins by this account look like this situation") now also states the period the sign-in log covers, so "none found" isn't read as "never happened". Admins whose roles couldn't be read show "Administrator (role not confirmed)" instead of a made-up Global Administrator.
+
 Part of [[Clarity365 MOC]].

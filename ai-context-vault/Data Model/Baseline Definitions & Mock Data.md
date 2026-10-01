@@ -26,4 +26,6 @@ Woodgrove, the "100% coverage" zero-trust demo tenant, generated all ten CA01-CA
 
 Also fixed: Contoso's `ca-pol-04` was mislabeled - named/scoped as CA01 to CA10's slot 4 but actually a device-compliance policy (CA09's real shape: `compliantDevice`/`domainJoinedDevice` controls), not CA04's real definition (guest-access MFA, per [[Baseline Matchers]]). It only worked "by accident" because a CIS control's loose name-substring `.find()` picked it up as evidence for CA09 being satisfied. Now genuinely represents CA04 (MFA scoped to `GuestsOrExternalUsers`) - see [[Baseline Matchers]] for the related `ca-baseline-matcher.ts` naming-convention fix this uncovered.
 
+**`graph-permissions.ts` (2026-10-01):** the single list of Microsoft Graph application permissions (`GRAPH_PERMISSIONS`: 16 required read-only rows covering 17 permission names, 4 optional), with the name(s) to grant, the sync steps each unlocks and the self-test endpoint. Client-safe. Add a permission here and it appears in onboarding, the Permissions check and the sync's error handling at once. Guard tests in `sync-permission-errors.test.ts`.
+
 Part of [[Clarity365 MOC]].

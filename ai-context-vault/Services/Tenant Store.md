@@ -43,6 +43,9 @@ Two new tables for [[Audit Log Investigator]] - `ual_imports` (one row per uploa
 ## Exchange access and write gates
 All Exchange write actions (TABL, MDO/mailflow fixes, delegation removal, forwarding, mailbox auditing) are gated by `canWriteToExchange()` (`exchange-access.ts`): the write switch **and** access that can write. `testExoConnectivity()` saves the app-only status on the tenant row (`credentials.exoAppAccess`), and `updateTenant()` drops the cached app-only check when credentials change. See [[Exchange App-Only Access Plan]].
 
+## Secret expiry
+`updateTenant()` deletes `credentials.secretExpiry` when a new client secret is saved; the next sync reads the new one. The sync writes it (see [[Core Graph Layer]]).
+
 ## Credential rotation
 `updateTenant(id, updates)` has always supported rewriting `credentials.clientId`/`clientSecret`/`tenantId` for an existing tenant - the `SECRET_MASK`/`keepExistingSecret` convention (a masked `"••••••••"` value, or none at all, means "leave the stored secret alone"; anything else gets encrypted and stored as the new secret) was originally built for `PermissionsModal.tsx`'s EXO device-code reconnect flow. Until a live incident (an Axiomatic app registration's client secret going bad, breaking every single Graph call tenant-wide with `"Lifetime validation failed, the token is expired"` - see [[Attack Surface Reduction Rules]] for the full investigation trail), **no UI anywhere in the app actually exposed this for an existing tenant** - only `AddTenantModal.tsx` at creation time. `EditTenantCredentialsModal` (see [[Modals]]) is the fix, reachable from the tenant switcher dropdown in `Header.tsx`.
 

@@ -22,4 +22,8 @@ Every [[Baseline Matchers|baseline matcher]], every [[Data Mappers|data mapper]]
 
 UI tests are almost absent (no React Testing Library, no Playwright/Cypress). The one exception is `SignInSituationsModule.test.ts`, a server-render smoke test (`react-dom/server`) that catches render-time crashes; it works because `vitest.config.mjs` compiles JSX with Oxc (`tsconfig.json`'s `jsx: preserve` is for Next.js and can't run under Vite). The same pattern is cheap to reuse for other modules. See [[Optimization Plan]] for prioritization.
 
+**2026-10-01:** 810 tests in 72 files. New: `sync-permission-errors.test.ts` (also guards the permission list), `sign-in-coverage.test.ts`, `sign-in-authentication.test.ts`, `ip-range.test.ts`, `credential-expiry.test.ts`, `signin-report.test.ts` (aggregations, findings, HTML escaping, CSV shape, every demo tenant) and `SignInReportModal.test.ts` (render smoke test). Live behaviour was checked with temporary read-only probe tests (deleted afterwards): the filtered sign-in query, the beta authentication fields, the role-assignment fallback and the secret-expiry lookup.
+
+**Sync all tenants (2026-10-01):** `sync-all.test.ts` (one at a time and in order, failures don't stop the pass, no second pass while running, stop after the current tenant) and `SyncAllTenantsControl.test.ts`. 820 tests in 74 files. Not exercised against live tenants yet.
+
 Part of [[Clarity365 MOC]].

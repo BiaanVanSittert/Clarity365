@@ -20,6 +20,7 @@ import {
 import { StatusPill } from "../common/StatusPill";
 import { useTheme } from "../common/useTheme";
 import { getConnectionStatusDisplay } from "@/lib/utils/tenant-connection-status";
+import { getSecretExpiryStatus } from "@/lib/utils/credential-expiry";
 
 interface HeaderProps {
   tenants: Tenant[];
@@ -269,6 +270,35 @@ export const Header: React.FC<HeaderProps> = ({
               {activeTenant.connectionStatus === "degraded" || activeTenant.connectionStatus === "error" ? "Attempted" : "Synced"}{" "}
               {formatTimestamp(activeTenant.lastSyncTimestamp)}
             </span>
+            {/* Client secret about to expire (or expired): every module stops when it does. */}
+            {(() => {
+              const expiry = getSecretExpiryStatus(activeTenant.credentials);
+              if (!expiry || expiry.state === "ok") return null;
+              return (
+                <span
+                  title={expiry.detail}
+                  className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-sm border ${
+                    expiry.state === "expired"
+                      ? "text-rose-700 dark:text-red-300 bg-rose-50 dark:bg-red-950 border-rose-300 dark:border-red-800"
+                      : "text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border-amber-300 dark:border-amber-800"
+                  }`}
+                >
+                  {expiry.label}
+                </span>
+              );
+            })()}
+            {/* Names the usual reason for "Degraded" and opens the check that fixes it. */}
+            {!!activeSnapshot?.syncHealth?.missingPermissions?.length && (
+              <button
+                onClick={onOpenPermissions}
+                title={`Not granted: ${activeSnapshot.syncHealth.missingPermissions.join(", ")}`}
+                className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 underline decoration-dotted hover:text-amber-900 dark:hover:text-amber-300"
+              >
+                {activeSnapshot.syncHealth.missingPermissions.length === 1
+                  ? "1 permission missing"
+                  : `${activeSnapshot.syncHealth.missingPermissions.length} permissions missing`}
+              </button>
+            )}
           </div>
         )}
 

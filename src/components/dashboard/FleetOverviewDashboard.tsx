@@ -27,12 +27,16 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { exportToCsv } from "@/lib/utils/csv";
+import { getSecretExpiryStatus } from "@/lib/utils/credential-expiry";
+import { SyncAllTenantsControl } from "./SyncAllTenantsControl";
 
 interface FleetOverviewDashboardProps {
   summary: FleetPostureSummary | null;
   isLoading: boolean;
   onSelectTenant: (tenantId: string, targetModule?: string, targetEntityId?: string) => void;
   onOpenUniversalSearch: () => void;
+  // Reloads the fleet data; called as each tenant finishes during "Sync all tenants".
+  onRefresh?: () => void;
 }
 
 export const FleetOverviewDashboard: React.FC<FleetOverviewDashboardProps> = ({
@@ -40,6 +44,7 @@ export const FleetOverviewDashboard: React.FC<FleetOverviewDashboardProps> = ({
   isLoading,
   onSelectTenant,
   onOpenUniversalSearch,
+  onRefresh,
 }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [tierFilter, setTierFilter] = useState("all");
@@ -310,6 +315,8 @@ export const FleetOverviewDashboard: React.FC<FleetOverviewDashboardProps> = ({
         </div>
       </div>
 
+      <SyncAllTenantsControl onTenantSynced={onRefresh} />
+
       {/* Main Tenant Posture Matrix Table */}
       <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 rounded-sm overflow-hidden">
         {/* Table Filters & Toolbar */}
@@ -438,6 +445,18 @@ export const FleetOverviewDashboard: React.FC<FleetOverviewDashboardProps> = ({
                         label={getConnectionStatusDisplay(t.connectionStatus, "fleet").label}
                         size="sm"
                       />
+                      {(() => {
+                        const expiry = getSecretExpiryStatus({ secretExpiry: t.secretExpiry });
+                        if (!expiry || expiry.state === "ok") return null;
+                        return (
+                          <div
+                            title={expiry.detail}
+                            className={`mt-1 text-[10px] font-semibold ${expiry.state === "expired" ? "text-rose-600 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}
+                          >
+                            {expiry.label}
+                          </div>
+                        );
+                      })()}
                     </td>
 
                     {/* Composite Risk Score */}

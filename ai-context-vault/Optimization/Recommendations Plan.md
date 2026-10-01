@@ -4,9 +4,27 @@ tags: [optimization, plan, recommendation]
 
 # Recommendations Plan
 
-Status: **for review** (drafted 2026-10-01). Nothing here is built. Everything listed was observed while building Security Simulations and Exchange app-only access (2026-09-29 to 2026-10-01), mostly from read-only checks against the 10 live tenants; each item says what the evidence is. Sizes: **S** under an hour, **M** a few hours, **L** a day or more.
+Status: **in progress.** Built 2026-10-01: 1.1, 1.2, 1.3, 1.4, 1.5, 3.1 and 3.2.1 (see Progress below). Everything else is still a recommendation. Everything listed was observed while building Security Simulations and Exchange app-only access (2026-09-29 to 2026-10-01), mostly from read-only checks against the 10 live tenants; each item says what the evidence is. Sizes: **S** under an hour, **M** a few hours, **L** a day or more.
 
 Scope reminder: every action stays scoped to one tenant; fleet views are read-only (see memory "no cross-tenant actions").
+
+## Progress (2026-10-01)
+
+All of this needs **one sync per tenant** (after restarting the server) to take effect; sync schema version is now 4.
+
+- **1.1 + 1.2 done.** One permission list, `src/lib/data/graph-permissions.ts` (`GRAPH_PERMISSIONS`), read by the onboarding checklist, the Permissions check and the sync. Three permissions added as **required** (all read-only): `SecurityIncident.Read.All`, `DeviceManagementServiceConfig.Read.All` (names confirmed on Microsoft Learn) and `Application.Read.All`. The sync now compares its errors with the permissions the access token actually carries (`sync-permission-errors.ts`): a refused step whose required permission is missing becomes one plain line ("not synced - the X permission isn't granted..."), a declined optional permission is not an error, and everything else passes through. `syncHealth.missingPermissions` lists what to grant; the header shows "N permissions missing" and opens the Permissions check. **Tenants stay "degraded" until the missing permissions are granted** - that is now accurate rather than unexplained. Read-only check on the live data: all 10 tenants lack the first two, 2 lack `Application.Read.All`.
+- **1.3 done.** Sign-ins are fetched for an explicit 30-day window with a 90-second page timeout (a live read took 29s for 63 rows on v1.0 and 41s on beta, which is why 30s timed out). Reaching the 20-page limit is no longer a sync error; instead `signInCoverage` records the period really covered, shown in [[Sign-In Logs & CA Diagnostics]], in [[Sign-in Situations]]' evidence line and on the report. `getSignInCoverage()` also works on older snapshots.
+- **1.4 done.** Directory roles: one retry, then the same user → roles map is rebuilt from `roleManagement/directory/roleAssignments?$expand=roleDefinition` (`buildAdminRoleMapsFromRoleAssignments`). Checked live: same principals and roles as `directoryRoles`, plus two implicit Microsoft roles on a non-user principal, which are harmless.
+- **1.5 done.** The placeholder is now "Administrator (role not confirmed)" (`UNCONFIRMED_ADMIN_ROLE_LABEL`), never a real role name.
+- **3.1 done.** See [[Sign-in Report]].
+- **3.2.1 done.** The sync finds Clarity365's own app registration and records when the secret in use expires (`credentials.secretExpiry`, matched by the secret's 3-character hint; `credential-expiry.ts`). Warning 30 days ahead in the header, the fleet table (read-only) and the Permissions check. Checked live on one tenant (exact match). Needs `Application.Read.All`.
+
+- **Sync all tenants** (added on request): a button on the fleet overview that syncs every live tenant one at a time on the server, with progress and Stop. See [[Security Infra]] (`sync-all.ts`).
+
+**New findings from this work**
+- **Busy tenants: 5,000 sign-ins is only a few days.** Live: 3 days on the largest tenant, 10 and 13 days on two others. The report says so, but can't cover a month there. Raising the limit means a slimmer stored record (a sign-in is roughly 1 KB and the whole snapshot is sent to the browser) or a separate on-demand fetch for the report.
+- **The sign-in log endpoint is slow** (29 to 41 seconds for one small page). Sync time for sign-ins on a busy tenant is now bounded by 20 pages x up to 90s.
+- **Beta dependency.** MFA details come only from Microsoft's beta sign-in log; if beta refuses, the sync falls back to v1.0 and the report says the MFA method isn't available.
 
 ## 1. Fix first: things that are wrong today
 
@@ -83,10 +101,10 @@ Size: **M** for the data + summary, **+S** for the "worth a look" rules. Pure fu
 | 4.8 | **Vault counts are stale** (module / route / line counts in the MOC and hub notes). | Refresh in one pass. | S |
 
 ## Suggested order
-1. **1.1 and 1.2** together (the health badge and the permission catalogue): small, and they make every other signal trustworthy.
-2. **1.3, 1.4, 1.5** (sign-in completeness and role data): they feed the report and the simulations.
-3. **3.1 sign-in report.**
-4. **3.2.1 credential expiry**, then **2.x verifications** as tenants allow.
-5. The rest by appetite; **4.1** as its own planned upgrade.
+1. ~~1.1 and 1.2~~ done 2026-10-01.
+2. ~~1.3, 1.4, 1.5~~ done 2026-10-01.
+3. ~~3.1 sign-in report~~ done 2026-10-01.
+4. ~~3.2.1 credential expiry~~ done 2026-10-01. **2.x verifications** still open (they need tenant-side changes).
+5. Next by appetite: 1.6 to 1.8, a 30-day sign-in window for busy tenants (see new findings), 3.2.2 onwards; **4.1** as its own planned upgrade.
 
 Part of [[Clarity365 MOC]]. See also [[Optimization Plan]], [[Security Simulations Plan]], [[Exchange App-Only Access Plan]].
