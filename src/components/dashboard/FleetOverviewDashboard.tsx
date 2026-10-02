@@ -118,7 +118,10 @@ export const FleetOverviewDashboard: React.FC<FleetOverviewDashboardProps> = ({
     exportToCsv(`clarity365-fleet-posture-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
   };
 
-  if (isLoading || !summary) {
+  // Skeleton only until the first data arrives. A later reload (e.g. after
+  // each tenant during "Sync all tenants") keeps the current table on screen
+  // instead of flashing back to the skeleton.
+  if (!summary) {
     return (
       <div className="p-5 space-y-5 max-w-[1600px] mx-auto">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">

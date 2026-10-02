@@ -15,6 +15,16 @@ interface SyncAllTenantsControlProps {
 
 const POLL_MS = 2500;
 
+type Seen = { startedAt?: string; completed: number; running: boolean };
+
+// Should the fleet table reload? Only when something changed while this
+// control was watching: a tenant finished, or the pass ended. The first
+// status seen (before === null) is just a baseline.
+export function shouldReloadFleet(before: Seen | null, next: Seen): boolean {
+  if (!before || before.startedAt !== next.startedAt) return false;
+  return next.completed > before.completed || (before.running && !next.running);
+}
+
 // Fleet overview's "Sync all tenants": starts one pass over every live
 // tenant, one at a time, on the server (so it keeps going if this screen is
 // closed) and shows which tenant it is on. Only reads from Microsoft 365.
@@ -22,15 +32,19 @@ export const SyncAllTenantsControl: React.FC<SyncAllTenantsControlProps> = ({ on
   const [status, setStatus] = useState<Status | null>(initialStatus || null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const lastCompleted = useRef(initialStatus?.completed ?? 0);
-  const wasRunning = useRef(!!initialStatus?.running);
+  // What the previous status looked like. Null until the first status
+  // arrives: that first one is only a baseline and must never trigger a
+  // reload. (It did once: every reload remounted this control, the fresh
+  // mount saw "completed" differ from zero, asked for another reload, and
+  // the fleet view refreshed forever.)
+  const previous = useRef<Seen | null>(null);
 
   const apply = useCallback(
     (next: Status) => {
       setStatus(next);
-      if (next.completed !== lastCompleted.current || (wasRunning.current && !next.running)) onTenantSynced?.();
-      lastCompleted.current = next.completed;
-      wasRunning.current = next.running;
+      const before = previous.current;
+      previous.current = { startedAt: next.startedAt, completed: next.completed, running: next.running };
+      if (shouldReloadFleet(before, next)) onTenantSynced?.();
     },
     [onTenantSynced]
   );
