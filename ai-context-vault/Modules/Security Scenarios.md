@@ -49,4 +49,6 @@ Demo tenants cover each outcome: Woodgrove (both alerting), Contoso (no recipien
 ## How to fix guides (2026-10-05)
 Checks can point at a guide (`guideId` on the check definition; carried on the result only while the check isn't green). "How to fix" opens `FixGuideModal` with the portal path, copyable commands filled in with this tenant's values, confirm and undo steps. Guides only: Clarity365 never makes the change. Pilots: device code flow, SMTP AUTH, guest admin roles. See [[Scenario Fix Guides Plan]].
 
+**2026-10-05, Stage 1 guides:** 24 checks across Exchange, SharePoint, Entra settings and alerts now have "How to fix" guides. The alert checks no longer carry the `New-ProtectionAlert` command themselves; it is in their guides. The Guest re-share sprawl check "Invitations can only be redeemed by the invited account" was **removed**: Microsoft deprecated `RequireAcceptingAccountMatchInvitedAccount` when SharePoint moved to Entra B2B invitations.
+
 Part of [[Clarity365 MOC]].

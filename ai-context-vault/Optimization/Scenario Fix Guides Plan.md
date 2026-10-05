@@ -4,7 +4,7 @@ tags: [optimization, plan, security-simulations]
 
 # Scenario Fix Guides Plan
 
-Status: **Stage 0 done 2026-10-05** (format + three pilot guides built). Stage 1 next.
+Status: **Stages 0 and 1 done 2026-10-05** (24 guides). Stage 2 (Conditional Access guides) next.
 
 ## Decisions (user, 2026-10-05)
 - **Guides only.** Clarity365 shows the portal steps and the commands; the operator runs them. Stage 5 ("apply from Clarity365") is dropped.
@@ -95,6 +95,20 @@ Two checks are information only (Intune licensed, sign-in logs available) and ge
 - Removal of PIM-managed active assignments can fail through `Remove-MgRoleManagementDirectoryRoleAssignment`; the guide says to use PIM in that case. Stage 3 should look at `roleAssignmentScheduleRequests` (`adminRemove`) for active PIM assignments.
 - A guide is offered on "not assessed" checks too (for example SMTP AUTH where Exchange isn't connected); the verify command lets the operator check first.
 
+## Stage 1 record (2026-10-05)
+
+**21 guides added** (24 in total), every command checked on Microsoft Learn on 2026-10-05:
+- **Exchange Online (6):** `restrict-smtp-auth-mailboxes` (per mailbox, `Set-CASMailbox -SmtpClientAuthenticationDisabled $true`), `disable-pop-imap` (per mailbox + `Set-CASMailboxPlan`), `enable-unified-audit-log` (`Set-AdminAuditLogConfig -UnifiedAuditLogIngestionEnabled $true`, Purview Audit banner), `enable-mailbox-auditing` (`Set-OrganizationConfig -AuditDisabled $false`), `block-external-autoforward-outbound` (`Set-HostedOutboundSpamFilterPolicy -Identity Default -AutoForwardingMode Off`), `block-autoforward-remote-domain` (`Set-RemoteDomain -Identity Default -AutoForwardEnabled $false`).
+- **SharePoint / OneDrive (9):** legacy auth (`-LegacyAuthProtocolsEnabled $false`), sync on domain-joined PCs (`Set-SPOTenantSyncClientRestriction -Enable -DomainGuids`; AD domains only, the guide says so), web-only access on unmanaged devices (`-ConditionalAccessPolicy AllowLimitedAccess`, needs Entra ID P1), organisation sharing level (`-SharingCapability ExternalUserSharingOnly`), per-site (`Set-SPOSite -SharingCapability`), Anyone-link expiry (`-RequireAnonymousLinksExpireInDays 30`, ends with confirm-once), default link type (`-DefaultSharingLinkType Internal`, ends with confirm-once), guest re-share (`-PreventExternalUsersFromResharing $true`), domain allow list (`-SharingDomainRestrictionMode AllowList -SharingAllowedDomainList "a.com b.com"`, space-separated).
+- **Entra settings (4):** guest directory access (`Update-MgPolicyAuthorizationPolicy -GuestUserRoleId 2af84b1e-...` Restricted Guest User), guest invites (`-AllowInvitesFrom adminsAndGuestInviters`), user consent (`permissionGrantPoliciesAssigned = managePermissionGrantsForSelf.microsoft-user-default-low`, keeping existing `ManagePermissionGrantsForOwnedResource.*` entries), admin consent workflow (`Invoke-MgGraphRequest PUT /policies/adminConsentRequestPolicy`; Learn shows no dedicated cmdlet example).
+- **Alert policies (2):** the two `New-ProtectionAlert` commands moved out of the checks into guides (with verify and undo).
+
+**Builder additions:** per-item sources for SMTP AUTH mailboxes, POP/IMAP mailboxes and Anyone sites; the SharePoint admin URL (`https://<tenant>-admin.sharepoint.com`) is worked out from the synced site URLs and used in the connect line and portal link; names in step text are capped at 20 (commands keep every item).
+
+**Found while checking:** Microsoft has **deprecated** `Set-SPOTenant -RequireAcceptingAccountMatchInvitedAccount` (SharePoint invitations now use Entra B2B). The "Invitations can only be redeemed by the invited account" check was removed from Guest re-share sprawl rather than given a guide for a dead setting.
+
+**Live data (read-only, local database):** 13 to 23 guides offered per tenant; the SharePoint admin URL was worked out on all 10; per-item lists filled in (for example 37 SMTP AUTH and POP/IMAP mailboxes on one tenant, 13 to 250 Anyone sites on six). The 250s are the sync caps. No guide has been run by the operator yet.
+
 ## Inventory (all checks)
 Kind letters as in the table above. "Stage" is when its guide gets built. Commands are the planned ones; each is checked on Microsoft Learn when its guide is written.
 
@@ -161,7 +175,7 @@ Kind letters as in the table above. "Stage" is when its guide gets built. Comman
 | | default-link | C | `Set-SPOTenant -DefaultSharingLinkType Internal` (+ confirm once) | 1 |
 | Guest re-share sprawl | reshare | C | `Set-SPOTenant -PreventExternalUsersFromResharing $true` | 1 |
 | | domains | C | `Set-SPOTenant -SharingDomainRestrictionMode AllowList -SharingAllowedDomainList ...` | 1 |
-| | invitee-match | C | `Set-SPOTenant -RequireAcceptingAccountMatchInvitedAccount $true` | 1 |
+| | ~~invitee-match~~ | - | Removed 2026-10-05: setting deprecated by Microsoft | - |
 | | invites | D | as guest-invites | 1 |
 
 Stage 1 therefore covers about 26 guides (B, C, D, the two alert checks moved into guides, and the info notes).

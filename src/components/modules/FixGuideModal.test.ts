@@ -12,7 +12,10 @@ describe("FixGuideModal (render smoke test)", () => {
     for (const def of FIX_GUIDES) {
       it(`renders ${def.id} for ${tenantId}`, () => {
         const guide = buildFixGuide(def.id, snapshot)!;
-        const html = renderToStaticMarkup(React.createElement(FixGuideModal, { guide, onClose: () => {} }));
+        const html = renderToStaticMarkup(React.createElement(FixGuideModal, { guide, onClose: () => {} }))
+          .replace(/&#x27;/g, "'")
+          .replace(/&quot;/g, '"')
+          .replace(/&amp;/g, "&");
         expect(html).toContain(def.title);
         expect(html).toContain("Before you start");
         expect(html).toContain("Confirm it worked");

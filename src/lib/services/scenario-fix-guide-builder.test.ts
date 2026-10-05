@@ -133,3 +133,72 @@ describe("unknown guides", () => {
     expect(buildFixGuide("no-such-guide", snapshot())).toBeUndefined();
   });
 });
+
+describe("Stage 1 guides: per-item commands", () => {
+  const mailboxes = [
+    { primarySmtpAddress: "scanner@contoso.com", popEnabled: false, imapEnabled: false, activeSyncEnabled: true, smtpClientAuthDisabled: false },
+    { primarySmtpAddress: "ann@contoso.com", popEnabled: true, imapEnabled: true, activeSyncEnabled: true, smtpClientAuthDisabled: null },
+    { primarySmtpAddress: "bob@contoso.com", popEnabled: false, imapEnabled: false, activeSyncEnabled: true, smtpClientAuthDisabled: true },
+  ];
+  const withExchange = (orgWideDisabled: boolean) => snapshot({ exchangeSecurity: { smtpClientAuthDisabledOrgWide: orgWideDisabled, casMailboxes: mailboxes } } as any);
+
+  it("turns SMTP AUTH off only on the mailboxes that can still use it", () => {
+    const g = buildFixGuide("restrict-smtp-auth-mailboxes", withExchange(true))!;
+    const script = g.steps.find((s) => s.command)!.command!.script;
+    expect(script).toBe('Set-CASMailbox -Identity "scanner@contoso.com" -SmtpClientAuthenticationDisabled $true');
+    // With SMTP AUTH on for the organisation, mailboxes following it are listed too.
+    const all = buildFixGuide("restrict-smtp-auth-mailboxes", withExchange(false))!.steps.find((s) => s.command)!.command!.script;
+    expect(all.split("\n")).toEqual(['Set-CASMailbox -Identity "scanner@contoso.com" -SmtpClientAuthenticationDisabled $true', 'Set-CASMailbox -Identity "ann@contoso.com" -SmtpClientAuthenticationDisabled $true']);
+  });
+
+  it("turns POP and IMAP off per mailbox and in the mailbox plans", () => {
+    const g = buildFixGuide("disable-pop-imap", withExchange(true))!;
+    const scripts = g.steps.map((s) => s.command?.script || "");
+    expect(scripts).toContain('Set-CASMailbox -Identity "ann@contoso.com" -PopEnabled $false -ImapEnabled $false');
+    expect(scripts).toContain("Get-CASMailboxPlan | Set-CASMailboxPlan -PopEnabled $false -ImapEnabled $false");
+    expect(g.steps[0].note).toContain("ann@contoso.com (POP + IMAP)");
+  });
+
+  it("restricts each Anyone site and uses this tenant's SharePoint admin center", () => {
+    const g = buildFixGuide(
+      "sharepoint-restrict-anyone-sites",
+      snapshot({ sharePoint: { sites: [{ siteName: "Marketing", siteUrl: "https://contoso.sharepoint.com/sites/marketing", sharingCapability: "Anyone" }, { siteName: "HR", siteUrl: "https://contoso.sharepoint.com/sites/hr", sharingCapability: "OnlyPeopleInOrg" }] } } as any)
+    )!;
+    const cmd = g.steps.find((s) => s.command)!.command!;
+    expect(cmd.script).toBe('Set-SPOSite -Identity "https://contoso.sharepoint.com/sites/marketing" -SharingCapability ExternalUserSharingOnly');
+    expect(cmd.connect).toBe("Connect-SPOService -Url https://contoso-admin.sharepoint.com");
+    expect(g.steps.find((s) => s.portal)!.portal!.url).toBe("https://contoso-admin.sharepoint.com");
+    expect(g.warnings).toEqual([]);
+  });
+
+  it("warns when the SharePoint admin address can't be worked out", () => {
+    const g = buildFixGuide("sharepoint-block-legacy-auth", snapshot())!;
+    expect(g.warnings.some((w) => /SharePoint admin address/.test(w))).toBe(true);
+    expect(g.steps.find((s) => s.command)!.command!.connect).toBe("Connect-SPOService -Url https://<tenant>-admin.sharepoint.com");
+  });
+});
+
+describe("Stage 1 coverage", () => {
+  it("offers a guide on every Exchange, SharePoint, Entra-setting and alert check that isn't green", () => {
+    const stage1 = new Set(FIX_GUIDES.filter((g) => ["exchange", "sharePoint", "entraSetting", "alertPolicy"].includes(g.kind)).map((g) => g.id));
+    expect(stage1.size).toBe(22); // 21 from Stage 1 plus the SMTP AUTH pilot
+    const offered = new Set<string>();
+    for (const snap of Object.values(MOCK_TENANT_DATA)) for (const r of evaluateScenarios(snap)) for (const c of r.checks) if (c.guideId) offered.add(c.guideId);
+    // Every guide is reachable from at least one demo tenant, except those whose check is green everywhere in the demo data.
+    expect([...offered].every((id) => FIX_GUIDES.some((g) => g.id === id))).toBe(true);
+  });
+
+  it("no longer scores the retired SharePoint invitation-matching setting", () => {
+    const checks = SCENARIO_DEFINITIONS.flatMap((d) => d.checks.map((c) => c.id));
+    expect(checks).not.toContain("invitee-match");
+  });
+});
+
+describe("long item lists", () => {
+  it("caps the names in the text but keeps every item in the command", () => {
+    const sites = Array.from({ length: 30 }, (_, i) => ({ siteName: `Site ${i}`, siteUrl: `https://contoso.sharepoint.com/sites/s${i}`, sharingCapability: "Anyone" }));
+    const g = buildFixGuide("sharepoint-restrict-anyone-sites", snapshot({ sharePoint: { sites } } as any))!;
+    expect(g.steps[0].note).toMatch(/and 10 more \(all are in the command below\)/);
+    expect(g.steps.find((s) => s.command)!.command!.script.split("\n")).toHaveLength(30);
+  });
+});

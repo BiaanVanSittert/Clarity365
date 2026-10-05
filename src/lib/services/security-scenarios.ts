@@ -323,7 +323,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "guest-access-level",
+        id: "guest-access-level", guideId: "restrict-guest-directory-access",
         evaluate: (c) => {
           const lvl = c.snapshot.identitySettings?.guestAccessLevel;
           const label = "Guest access to directory data is restricted";
@@ -334,7 +334,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "guest-invites",
+        id: "guest-invites", guideId: "restrict-guest-invites",
         evaluate: (c) => {
           const s = c.snapshot.identitySettings?.guestInviteSetting;
           const label = "Only admins and guest inviters can invite guests";
@@ -410,7 +410,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
           ),
       },
       {
-        id: "smtp-auth-mailboxes",
+        id: "smtp-auth-mailboxes", guideId: "restrict-smtp-auth-mailboxes",
         evaluate: (c) => {
           const ex = c.snapshot.exchangeSecurity;
           const label = "Only mailboxes that need SMTP AUTH have it";
@@ -428,7 +428,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "pop-imap",
+        id: "pop-imap", guideId: "disable-pop-imap",
         evaluate: (c) => {
           const ex = c.snapshot.exchangeSecurity;
           const label = "POP and IMAP are off where they aren't used";
@@ -445,7 +445,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "sharepoint-legacy",
+        id: "sharepoint-legacy", guideId: "sharepoint-block-legacy-auth",
         evaluate: (c) =>
           boolCheck(
             c.snapshot.sharePoint?.legacyAuthProtocolsEnabled,
@@ -492,7 +492,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     description: "A user is tricked into approving an app that asks for access to their mail or files. The app keeps that access even after a password reset.",
     checks: [
       {
-        id: "user-consent",
+        id: "user-consent", guideId: "restrict-user-consent",
         evaluate: (c) => {
           const mode = c.snapshot.identitySettings?.userConsentMode;
           const label = "User consent is restricted";
@@ -504,7 +504,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "admin-workflow",
+        id: "admin-workflow", guideId: "enable-admin-consent-workflow",
         evaluate: (c) =>
           boolCheck(
             c.snapshot.identitySettings?.adminConsentWorkflowEnabled,
@@ -665,7 +665,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
       },
       { id: "user-risk", evaluate: (c) => fromCell(c, "users", "userRisk", "High user risk forces remediation", "Require risk remediation when user risk is high (CA07).", CA_DOCS.userRisk) },
       {
-        id: "ual",
+        id: "ual", guideId: "enable-unified-audit-log",
         evaluate: (c) =>
           boolCheck(
             c.snapshot.exchangeSecurity?.unifiedAuditLogIngestionEnabled,
@@ -685,7 +685,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     description: "Auditing is off (Microsoft doesn't turn it on by default for Business plans), or an attacker turns it off, so nothing they do can be investigated later.",
     checks: [
       {
-        id: "ual",
+        id: "ual", guideId: "enable-unified-audit-log",
         evaluate: (c) =>
           boolCheck(
             c.snapshot.exchangeSecurity?.unifiedAuditLogIngestionEnabled,
@@ -697,7 +697,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
           ),
       },
       {
-        id: "mailbox-auditing",
+        id: "mailbox-auditing", guideId: "enable-mailbox-auditing",
         evaluate: (c) =>
           boolCheck(
             c.snapshot.mailboxAuditingEnabled,
@@ -718,15 +718,14 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "alerting",
+        id: "alerting", guideId: "alert-audit-config-changes",
         evaluate: (c) =>
           alertPolicyCheck(c, {
             label: "Someone is alerted if auditing is changed",
             operations: AUDIT_CONFIG_OPERATIONS,
             confirmKey: "alert-audit-config",
             watched: "the audit log configuration is changed (Set-AdminAuditLogConfig)",
-            fix: "Create an alert policy for audit-configuration changes (run the command in Security & Compliance PowerShell), or a Sentinel rule and confirm it here.",
-            command: 'New-ProtectionAlert -Name "Audit logging changed" -Category ThreatManagement -ThreatType Activity -Operation "Set-AdminAuditLogConfig" -AggregationType None -Severity High -NotifyUser "<alert mailbox>"',
+            fix: "Create an alert policy for audit-configuration changes (see How to fix), or a Sentinel rule and confirm it here.",
             docsUrl: SCENARIO_DOCS.auditLog,
           }),
       },
@@ -772,15 +771,14 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "alerting",
+        id: "alerting", guideId: "alert-user-deletion",
         evaluate: (c) =>
           alertPolicyCheck(c, {
             label: "User deletion raises an alert",
             operations: USER_DELETION_OPERATIONS,
             confirmKey: "alert-user-deletion",
             watched: "a user is deleted",
-            fix: "Create an alert policy for user deletion (run the command in Security & Compliance PowerShell). With an E5 licence, add -AggregationType SimpleAggregation -Threshold 5 -TimeWindow 60 to alert only on bulk deletion. Or use a Sentinel rule and confirm it here.",
-            command: 'New-ProtectionAlert -Name "User deleted" -Category AccessGovernance -ThreatType Activity -Operation "Delete user." -AggregationType None -Severity Medium -NotifyUser "<alert mailbox>"',
+            fix: "Create an alert policy for user deletion (see How to fix), or a Sentinel rule and confirm it here.",
           }),
       },
     ],
@@ -806,7 +804,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "outbound-policy",
+        id: "outbound-policy", guideId: "block-external-autoforward-outbound",
         evaluate: (c) => {
           const outbound = (c.snapshot.mdoThreat?.policies || []).filter((p) => p.policyType === "AntiSpamOutbound");
           const label = "Outbound spam policy blocks automatic external forwarding";
@@ -821,7 +819,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "remote-domain",
+        id: "remote-domain", guideId: "block-autoforward-remote-domain",
         evaluate: (c) =>
           boolCheck(
             c.snapshot.remoteDomainAutoForwardBlocked,
@@ -833,7 +831,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
           ),
       },
       {
-        id: "mailbox-auditing",
+        id: "mailbox-auditing", guideId: "enable-mailbox-auditing",
         evaluate: (c) =>
           boolCheck(
             c.snapshot.mailboxAuditingEnabled,
@@ -875,7 +873,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "ual",
+        id: "ual", guideId: "enable-unified-audit-log",
         evaluate: (c) =>
           boolCheck(
             c.snapshot.exchangeSecurity?.unifiedAuditLogIngestionEnabled,
@@ -897,7 +895,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     description: "A departing employee or an attacker syncs whole document libraries to a personal computer with the OneDrive app.",
     checks: [
       {
-        id: "sync-restricted",
+        id: "sync-restricted", guideId: "sharepoint-sync-domain-joined",
         evaluate: (c) =>
           boolCheck(
             c.snapshot.sharePoint?.unmanagedSyncAppRestricted,
@@ -910,7 +908,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
       },
       { id: "desktop-blocked", evaluate: (c) => fromSituation(c, "user-desktop-unmanaged", "Desktop apps on unmanaged devices are blocked") },
       {
-        id: "browser-limited",
+        id: "browser-limited", guideId: "sharepoint-limit-unmanaged-devices",
         evaluate: (c) => {
           const r = c.probe("user", { device: "unmanaged", clientAppType: "browser" });
           const limited = r.enforced.sessionControls.some((s) => s.controls.some((x) => /App-enforced restrictions|Defender for Cloud Apps/.test(x)));
@@ -932,7 +930,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
       "Sensitivity labels aren't synced yet, so Clarity365 can't tell which sites are sensitive. These checks cover every site.",
     checks: [
       {
-        id: "tenant-level",
+        id: "tenant-level", guideId: "sharepoint-restrict-anyone-org",
         evaluate: (c) => {
           const lvl = c.snapshot.sharePoint?.tenantSharingLevel;
           return lvl === "Anyone"
@@ -941,7 +939,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "sites",
+        id: "sites", guideId: "sharepoint-restrict-anyone-sites",
         evaluate: (c) => {
           const sites = (c.snapshot.sharePoint?.sites || []).filter((s) => s.sharingCapability === "Anyone");
           return sites.length === 0
@@ -950,7 +948,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "expiry",
+        id: "expiry", guideId: "sharepoint-anyone-link-expiry",
         evaluate: (c) => {
           const sp = c.snapshot.sharePoint;
           const label = "Anyone links expire";
@@ -962,7 +960,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "default-link",
+        id: "default-link", guideId: "sharepoint-default-link-type",
         evaluate: (c) => {
           const sp = c.snapshot.sharePoint;
           const label = "The default link isn't an Anyone link";
@@ -982,7 +980,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     description: "A guest re-shares files they were given with more people outside, until nobody knows who can see them.",
     checks: [
       {
-        id: "reshare",
+        id: "reshare", guideId: "sharepoint-prevent-guest-reshare",
         evaluate: (c) =>
           boolCheck(
             c.snapshot.sharePoint?.resharingByExternalUsersEnabled,
@@ -993,7 +991,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
           ),
       },
       {
-        id: "domains",
+        id: "domains", guideId: "sharepoint-domain-allowlist",
         evaluate: (c) => {
           const mode = c.snapshot.sharePoint?.sharingDomainRestrictionMode;
           const label = "Sharing is limited to approved domains";
@@ -1004,18 +1002,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "invitee-match",
-        evaluate: (c) =>
-          boolCheck(
-            c.snapshot.sharePoint?.requireAcceptingUserToMatchInvitedUser,
-            true,
-            "Invitations can only be redeemed by the invited account",
-            { good: "A guest must sign in with the account the invitation was sent to.", bad: "A forwarded invitation can be redeemed by anyone.", unknown: "SharePoint settings haven't been synced yet." },
-            "Run Set-SPOTenant -RequireAcceptingAccountMatchInvitedAccount $true."
-          ),
-      },
-      {
-        id: "invites",
+        id: "invites", guideId: "restrict-guest-invites",
         evaluate: (c) => {
           const s = c.snapshot.identitySettings?.guestInviteSetting;
           const label = "Guests can't invite other guests";
@@ -1042,7 +1029,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
 // alert lives somewhere Clarity365 can't see (Sentinel, another SIEM).
 function alertPolicyCheck(
   c: ScenarioContext,
-  spec: { label: string; operations: string[]; confirmKey: ScenarioConfirmationKey; watched: string; fix: string; command: string; docsUrl?: string }
+  spec: { label: string; operations: string[]; confirmKey: ScenarioConfirmationKey; watched: string; fix: string; docsUrl?: string }
 ): Omit<ScenarioCheckResult, "id"> {
   const { label, confirmKey, docsUrl } = spec;
   const inventory = c.snapshot.alertPolicies;
@@ -1064,7 +1051,6 @@ function alertPolicyCheck(
         status: "notPrevented",
         detail: `None of this tenant's ${inventory!.policies.length} Microsoft 365 alert policies fires when ${spec.watched}. If you alert on it elsewhere (Sentinel or another monitoring tool), confirm that here.`,
         fix: spec.fix,
-        command: spec.command,
         docsUrl,
         confirmKey,
       };
@@ -1074,7 +1060,7 @@ function alertPolicyCheck(
         : inventory.unavailable === "notSetUp"
           ? "Alert policies can't be read until Exchange app access is set up for this tenant (see the Permissions check)."
           : `Alert policies couldn't be read: ${inventory.detail || "unknown error"}.`;
-      return { label, status: "notAssessed", detail: reason, fix: "Until they can be read, check it in the Defender portal (Policies & rules > Alert policy) and confirm it here.", command: spec.command, docsUrl, confirmKey };
+      return { label, status: "notAssessed", detail: reason, fix: "Until they can be read, check it in the Defender portal (Policies & rules > Alert policy) and confirm it here.", docsUrl, confirmKey };
     }
   }
 }

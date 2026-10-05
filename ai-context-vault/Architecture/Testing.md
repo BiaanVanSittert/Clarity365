@@ -30,4 +30,6 @@ UI tests are almost absent (no React Testing Library, no Playwright/Cypress). Th
 
 **2026-10-05:** 878 tests in 79 files. New: `scenario-fix-guide-builder.test.ts` (guide catalogue rules and per-guide resolution) and `FixGuideModal.test.ts` (every guide renders for every demo tenant).
 
+**2026-10-05 (later):** 978 tests in 81 files. `scenario-fix-guide-builder.test.ts` now also covers per-mailbox and per-site commands, the SharePoint admin URL and long-list capping; `single-flight.test.ts` and `sync-errors.test.ts` were added with the sync fixes.
+
 Part of [[Clarity365 MOC]].

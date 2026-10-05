@@ -108,7 +108,8 @@ describe("alert policy checks", () => {
     const c = check(run("tenant-northwind-health"), "silent-tenant", "alerting");
     expect(c.status).toBe("notPrevented");
     expect(c.detail).toMatch(/^None of this tenant's 3 Microsoft 365 alert policies fires when/);
-    expect(c.command).toContain('New-ProtectionAlert -Name "Audit logging changed"');
+    // The command lives in the How to fix guide.
+    expect(c.guideId).toBe("alert-audit-config-changes");
     // It may be covered in a tool Clarity365 can't see, so it can be confirmed.
     expect(c.confirmKey).toBe("alert-audit-config");
   });
