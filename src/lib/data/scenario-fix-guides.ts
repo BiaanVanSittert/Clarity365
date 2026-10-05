@@ -61,6 +61,18 @@ export interface FixGuideItem {
   // A mailbox address or a site URL, for guides that act per mailbox or site.
   address?: string;
   url?: string;
+  // Stage 3 review guides.
+  policyId?: string;
+  policyName?: string;
+  // The exact value in the policy's excludeUsers list (object id or upn).
+  excludeRef?: string;
+  groupId?: string;
+  ownerUpn?: string;
+  appId?: string;
+  permissions?: string[];
+  ruleName?: string;
+  // Mailbox forwarding: an inbox rule or mailbox-level forwarding.
+  forwardKind?: "inboxRule" | "mailboxForwarding";
 }
 
 export interface FixGuideBreakGlass {
@@ -80,6 +92,8 @@ export interface FixGuideContext {
   homeCountry?: string;
   // Other countries successful sign-ins came from, busiest first.
   observedCountries: { code: string; count: number }[];
+  // Entra ID P2 (or Governance) detected; undefined when unknown. PIM needs it.
+  entraP2Licensed?: boolean;
 }
 
 // A Conditional Access policy a guide proposes, as the Microsoft Graph body
@@ -1819,6 +1833,550 @@ const protectSensitiveAdminActions: FixGuideDefinition = {
   missing: breakGlassMissing,
 };
 
+// ================================================== Stage 3 (2026-10-05)
+// Review and clean-up guides (kind F). Each works on the offending items the
+// check found, with one command per item. The judgement (is this rule
+// approved? does this admin still need the role?) stays with the operator:
+// every guide starts with "review first", and where a reversible step exists
+// (disable a rule, disable an app) it comes before the irreversible one.
+
+const S3_LEARN = {
+  registrationCampaign: "https://learn.microsoft.com/en-us/entra/identity/authentication/how-to-mfa-registration-campaign",
+  tap: "https://learn.microsoft.com/en-us/entra/identity/authentication/howto-authentication-temporary-access-pass",
+  updateCaPolicy: "https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.identity.signins/update-mgidentityconditionalaccesspolicy?view=graph-powershell-1.0",
+  emergencyAccess: "https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/security-emergency-access",
+  appPermissions: "https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/manage-application-permissions",
+  disableAppSignIn: "https://learn.microsoft.com/en-us/entra/identity/enterprise-apps/disable-user-sign-in-portal",
+  removeAppRoleAssignment: "https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.applications/remove-mgserviceprincipalapproleassignment?view=graph-powershell-1.0",
+  eligibilityRequest: "https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.identity.governance/new-mgrolemanagementdirectoryroleeligibilityschedulerequest?view=graph-powershell-1.0",
+  assignmentRequest: "https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.identity.governance/new-mgrolemanagementdirectoryroleassignmentschedulerequest?view=graph-powershell-1.0",
+  pimSettings: "https://learn.microsoft.com/en-us/entra/id-governance/privileged-identity-management/pim-how-to-change-default-settings",
+  removeGroupOwner: "https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.groups/remove-mggroupownerdirectoryobjectbyref?view=graph-powershell-1.0",
+  disableInboxRule: "https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/disable-inboxrule?view=exchange-ps",
+  setMailbox: "https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/set-mailbox?view=exchange-ps",
+  revokeSessions: "https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.users.actions/revoke-mgusersigninsession?view=graph-powershell-1.0",
+  disableTransportRule: "https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/disable-transportrule?view=exchange-ps",
+  searchAuditLog: "https://learn.microsoft.com/en-us/powershell/module/exchangepowershell/search-unifiedauditlog?view=exchange-ps",
+};
+
+// Single-quoted PowerShell literal (no interpolation) for names, UPNs and ids.
+const ps = (value: string) => toPowerShell(value);
+
+// --------------------------------------------------------- MFA registration
+
+const mfaRegistrationDrive: FixGuideDefinition = {
+  id: "mfa-registration-drive",
+  kind: "review",
+  title: "Get every user registered for MFA",
+  summary:
+    "Gets the accounts without an MFA method registered, safely. A user without a method is asked to register at their next MFA prompt, and whoever holds the password can register first. Accounts that aren't used are disabled; real users get a one-time Temporary Access Pass from an admin to register with, and the registration page itself is protected.",
+  stops: "An attacker with a sprayed or leaked password registering their own MFA method on an account that never had one.",
+  prerequisites: {
+    adminRole: "Authentication Policy Administrator (TAP policy, registration campaign); Authentication Administrator (create a TAP for a member)",
+    other: ["Microsoft Entra ID Free supports TAP and the registration campaign; the Conditional Access steps need P1"],
+  },
+  impact:
+    "Users given a Temporary Access Pass sign in with it once and register Microsoft Authenticator or a passkey. The registration campaign nudges users who already do MFA by text or call to move to Authenticator; it doesn't reach accounts with no method at all, which is why the TAP step exists.",
+  steps: (ctx) => [
+    {
+      title: "Review the list",
+      note: `${ctx.items.length} enabled member account(s) without an MFA method: ${itemList(ctx, "none")}. For each: is it a person who signs in, a shared or service account, or unused? Disable unused accounts (Entra ID > Users > the user > Edit properties > Account enabled: off) rather than registering them.`,
+    },
+    {
+      title: "1. Protect the registration page first",
+      note: 'Use the guide "Protect MFA and security-info registration" (on the MFA tampering scenario) so that registering a method outside a trusted network needs MFA or a Temporary Access Pass. Without it, the password alone is enough to register.',
+    },
+    {
+      title: "2. Turn on Temporary Access Pass",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: ["Entra ID > Authentication methods > Policies > Temporary Access Pass.", "Enable, Include: All users (or a group for new joiners) > Save.", "Defaults: 1 hour lifetime, one-time use off. Configure to change them."],
+      },
+    },
+    ...(ctx.items.length > 0
+      ? [
+          {
+            title: "3. Create a one-time pass for each person who should register",
+            command: {
+              shell: "MicrosoftGraph" as GuideShell,
+              graphScopes: ["UserAuthenticationMethod.ReadWrite.All"],
+              script: ctx.items
+                .map((i) => `# ${i.label}\n$tap = New-MgUserAuthenticationTemporaryAccessPassMethod -UserId ${ps(i.userPrincipalName || i.principalId || "")} -BodyParameter @{ isUsableOnce = $true; lifetimeInMinutes = 480 }\n"${(i.userPrincipalName || "").replace(/["`$]/g, "")}: $($tap.TemporaryAccessPass)"`)
+                .join("\n\n"),
+            },
+            note: "Delete the lines for accounts you disabled or that shouldn't register. Give each pass to its user over a channel you trust (in person or by phone, not to the mailbox of that account); they sign in at https://mysignins.microsoft.com/security-info and register Authenticator or a passkey. 480 minutes must be within the TAP policy's maximum lifetime (default 8 hours). A pass can't be issued to an external guest.",
+          },
+        ]
+      : []),
+    {
+      title: "4. Nudge everyone else to Microsoft Authenticator",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: ["Entra ID > Authentication methods > Registration campaign > Edit.", "State: Microsoft managed (or Enabled with Authentication method: Microsoft Authenticator).", "Include: All users. Exclude: the break-glass accounts > Save."],
+      },
+      command: {
+        shell: "MicrosoftGraph",
+        graphScopes: ["Policy.Read.All", "Policy.ReadWrite.AuthenticationMethod"],
+        script: `$body = @{
+    registrationEnforcement = @{
+        authenticationMethodsRegistrationCampaign = @{
+            snoozeDurationInDays = 1
+            enforceRegistrationAfterAllowedSnoozes = $true
+            state = 'enabled'
+            excludeTargets = @(${ctx.breakGlass.map((b) => `@{ id = ${ps(b.objectId)}; targetType = 'user' }`).join(", ")})
+            includeTargets = @(@{ id = 'all_users'; targetType = 'group'; targetedAuthenticationMethod = 'microsoftAuthenticator' })
+        }
+    }
+}
+Invoke-MgGraphRequest -Method PATCH -Uri 'https://graph.microsoft.com/v1.0/policies/authenticationMethodsPolicy' -Body ($body | ConvertTo-Json -Depth 10) -ContentType 'application/json'`,
+      },
+      note: "Users must be enabled for Microsoft Authenticator (mode Any or Push) in the authentication methods policy to be nudged.",
+    },
+    { title: "5. Require MFA", note: 'Once people are registered, "Require MFA for all users" (on the Password spray scenario) makes MFA mandatory.' },
+  ],
+  verify: { inClarity: 'Re-sync this tenant; "Every enabled user has MFA registered" lists fewer accounts, and turns green when none are left.' },
+  undo: { text: "Delete an unused pass under the user > Authentication methods; set the registration campaign State to Disabled." },
+  learn: [link("Temporary Access Pass", S3_LEARN.tap), link("Registration campaign", S3_LEARN.registrationCampaign)],
+};
+
+// ------------------------------------------------- Individual CA exclusions
+
+const removeIndividualExclusions: FixGuideDefinition = {
+  id: "remove-individual-exclusions",
+  kind: "review",
+  title: "Remove individual exclusions from Conditional Access policies",
+  summary:
+    "Takes named accounts (other than break-glass) out of the exclude list of each policy that excludes them, so the policy protects them again. The command reads each policy, removes only these accounts from its excluded users, and writes the same users section back.",
+  stops: "An attacker targeting the one account that MFA, device or location policies skip.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator" },
+  impact:
+    "The accounts become subject to the policy: they may be asked for MFA, a compliant device, or be blocked. Service accounts that sign in with a password break; move them to a managed identity or workload identity instead of keeping the exclusion. If someone genuinely needs an exception, exclude a group instead and review its members regularly.",
+  rollout: "Check each account's recent sign-ins (Sign-in Logs module) first, so you know what the policy will do to it.",
+  steps: (ctx) => {
+    const byPolicy = new Map<string, FixGuideItem[]>();
+    for (const i of ctx.items) if (i.policyId && i.excludeRef) byPolicy.set(i.policyId, [...(byPolicy.get(i.policyId) || []), i]);
+    const steps: FixGuideStep[] = [
+      { title: "Review each exclusion", note: `${ctx.items.length} exclusion(s): ${itemList(ctx, "none")}. Ask why each was added; keep only emergency-access (break-glass) accounts.` },
+      {
+        title: "Remove them in the Entra admin center",
+        portal: { url: "https://entra.microsoft.com", steps: ["Entra ID > Conditional Access > Policies > open the policy.", "Users > Exclude > remove the account > Save.", "Repeat for each policy listed."] },
+      },
+    ];
+    if (byPolicy.size > 0) {
+      steps.push({
+        title: "Or with Microsoft Graph PowerShell",
+        command: {
+          shell: "MicrosoftGraph",
+          graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"],
+          script: [...byPolicy.entries()]
+            .map(([policyId, items]) => {
+              const refs = items.map((i) => ps(i.excludeRef!)).join(", ");
+              return `# ${items[0].policyName}: ${items.map((i) => i.userPrincipalName || i.excludeRef).join(", ")}
+$uri = 'https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies/${policyId}'
+$users = (Invoke-MgGraphRequest -Method GET -Uri $uri).conditions.users
+$users.excludeUsers = @($users.excludeUsers | Where-Object { $_ -notin @(${refs}) })
+Invoke-MgGraphRequest -Method PATCH -Uri $uri -Body (@{ conditions = @{ users = $users } } | ConvertTo-Json -Depth 10) -ContentType 'application/json'`;
+            })
+            .join("\n\n"),
+        },
+        note: "Reads the policy's current users section and writes it back with only these accounts removed, so other includes and excludes (groups, roles, guests) are kept as they are.",
+      });
+    }
+    return steps;
+  },
+  verify: {
+    inClarity: 'Re-sync this tenant; "No account is individually excluded from policies" (and "No Global Admin is individually excluded") turn green.',
+    command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All"], script: "Get-MgIdentityConditionalAccessPolicy | Select-Object DisplayName, @{ n = 'ExcludedUsers'; e = { $_.Conditions.Users.ExcludeUsers -join ', ' } }" },
+  },
+  undo: { text: "Add the account back under the policy's Users > Exclude." },
+  learn: [link("Update-MgIdentityConditionalAccessPolicy", S3_LEARN.updateCaPolicy), link("Manage emergency access accounts (exclusions)", S3_LEARN.emergencyAccess)],
+};
+
+// ---------------------------------------------------- Risky consented apps
+
+const revokeRiskyAppConsent: FixGuideDefinition = {
+  id: "revoke-risky-app-consent",
+  kind: "review",
+  title: "Review and revoke risky user-consented apps",
+  summary:
+    "For each unverified app that users consented to with access to mail, files or the directory: check what it is, then stop it signing in and revoke what it was granted. Disabling sign-in is reversible and immediate; revoking removes the permissions.",
+  stops: "A consent-phishing app reading mail or files with tokens that survive a password reset.",
+  prerequisites: { adminRole: "Cloud Application Administrator (or Application Administrator)" },
+  impact: "Users of the app lose access through it at once. If the app turns out to be legitimate, re-enable sign-in and have an admin grant the permissions it needs.",
+  steps: (ctx) => [
+    { title: "Review each app", note: `${ctx.items.length} app(s): ${itemList(ctx, "none")}. In Entra ID > Enterprise apps > the app > Permissions (User consent tab) and Sign-in logs, check who uses it and since when. Unknown publisher plus mail or file access plus few users is the consent-phishing pattern.` },
+    {
+      title: "Disable sign-in (reversible)",
+      portal: { url: "https://entra.microsoft.com", steps: ["Entra ID > Enterprise apps > All applications > the app > Properties.", "Enabled for users to sign-in?: No > Save."] },
+      ...(ctx.items.length > 0
+        ? {
+            command: {
+              shell: "MicrosoftGraph" as GuideShell,
+              graphScopes: ["Application.ReadWrite.All"],
+              script: ctx.items.map((i) => `# ${i.label}\nUpdate-MgServicePrincipal -ServicePrincipalId ${ps(i.principalId || "")} -AccountEnabled:$false`).join("\n\n"),
+            },
+          }
+        : {}),
+    },
+    ...(ctx.items.length > 0
+      ? [
+          {
+            title: "Revoke the permissions it was granted",
+            command: {
+              shell: "MicrosoftGraph" as GuideShell,
+              graphScopes: ["Application.ReadWrite.All", "DelegatedPermissionGrant.ReadWrite.All", "AppRoleAssignment.ReadWrite.All"],
+              script: ctx.items
+                .map(
+                  (i) => `# ${i.label}
+$spId = ${ps(i.principalId || "")}
+Get-MgOauth2PermissionGrant -All | Where-Object { $_.ClientId -eq $spId } | ForEach-Object { Remove-MgOauth2PermissionGrant -OAuth2PermissionGrantId $_.Id }
+Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $spId -All | ForEach-Object { Remove-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $spId -AppRoleAssignmentId $_.Id }`
+                )
+                .join("\n\n"),
+            },
+            note: "User-consent grants can't be revoked in the portal; Microsoft documents this script for it. Revoking doesn't stop users consenting again: keep user consent restricted (the \"User consent is restricted\" check).",
+          },
+        ]
+      : []),
+  ],
+  verify: { inClarity: 'Re-sync this tenant; "No user has consented to a risky unverified app" turns green.' },
+  undo: { text: "Set Enabled for users to sign-in back to Yes; permissions have to be consented again." },
+  learn: [link("Review permissions granted to enterprise applications", S3_LEARN.appPermissions), link("Disable user sign-in for an application", S3_LEARN.disableAppSignIn)],
+};
+
+// ------------------------------------------------ App registration permissions
+
+const reviewAppPermissions: FixGuideDefinition = {
+  id: "review-app-permissions",
+  kind: "review",
+  title: "Remove high-privilege permissions from app registrations",
+  summary:
+    "For each app registration holding high-privilege application permissions (for example Directory.ReadWrite.All, RoleManagement.ReadWrite.Directory, Mail.ReadWrite): confirm with its owner what it actually needs, remove the rest from the granted permissions, and take them off the registration so nobody consents them again.",
+  stops: "A leaked app secret being enough to read every mailbox or make anyone an admin.",
+  prerequisites: { adminRole: "Cloud Application Administrator (Privileged Role Administrator for directory-role permissions)" },
+  impact: "The app stops being able to do what the removed permission allowed. Integrations that relied on it break; agree a narrower permission (for example Sites.Selected instead of Sites.ReadWrite.All) with the owner first.",
+  steps: (ctx) => [
+    { title: "Review each app with its owner", note: `${ctx.items.length} app registration(s): ${itemList(ctx, "none")}. Also check its credentials: prefer certificates over secrets and remove unused secrets.` },
+    {
+      title: "Remove the permission in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          "Entra ID > Enterprise apps > the app > Permissions > Admin consent tab > the permission > ... > Revoke permission.",
+          "Entra ID > App registrations > the app > API permissions > the permission > ... > Remove permission, so it isn't consented again.",
+        ],
+      },
+    },
+    ...(ctx.items.some((i) => i.appId && (i.permissions || []).length > 0)
+      ? [
+          {
+            title: "Or revoke the granted permissions with Microsoft Graph PowerShell",
+            command: {
+              shell: "MicrosoftGraph" as GuideShell,
+              graphScopes: ["Application.Read.All", "AppRoleAssignment.ReadWrite.All"],
+              script: `$graph = Get-MgServicePrincipal -Filter "appId eq '00000003-0000-0000-c000-000000000000'"
+
+${ctx.items
+  .filter((i) => i.appId && (i.permissions || []).length > 0)
+  .map(
+    (i) => `# ${i.label}
+# Delete the permissions this app still needs from the list before running.
+$remove = @(${(i.permissions || []).map(ps).join(", ")})
+$sp = Get-MgServicePrincipal -Filter "appId eq '${i.appId}'"
+$roleIds = $graph.AppRoles | Where-Object { $_.Value -in $remove } | ForEach-Object { $_.Id }
+Get-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -All |
+    Where-Object { $_.ResourceId -eq $graph.Id -and $_.AppRoleId -in $roleIds } |
+    ForEach-Object { Remove-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $sp.Id -AppRoleAssignmentId $_.Id }`
+  )
+  .join("\n\n")}`,
+            },
+            note: "This revokes Microsoft Graph application permissions only. Remove them from the registration's API permissions too (portal step above). Permissions on other APIs (Exchange, SharePoint) are removed the same way in the portal.",
+          },
+        ]
+      : []),
+  ],
+  verify: { inClarity: 'Re-sync this tenant; "No app registration holds critical permissions" and "No app can assign roles or permissions" turn green when nothing high-privilege is left.' },
+  undo: { text: "Add the permission back on the registration's API permissions page and grant admin consent." },
+  learn: [link("Review permissions granted to enterprise applications", S3_LEARN.appPermissions), link("Remove-MgServicePrincipalAppRoleAssignment", S3_LEARN.removeAppRoleAssignment)],
+};
+
+// ----------------------------------------------------- Global Admin count
+
+const rightSizeGlobalAdmins: FixGuideDefinition = {
+  id: "right-size-global-admins",
+  kind: "review",
+  title: "Keep between two and five Global Administrators",
+  summary:
+    "Too many Global Admins: move day-to-day admins to the least-privileged role that covers their work (Exchange, SharePoint, User, Helpdesk, Security Administrator...) and remove Global Administrator. Only one: add a second, emergency-access account so one lost account can't lock the tenant.",
+  stops: "Every extra Global Admin being another account whose compromise gives an attacker the whole tenant.",
+  prerequisites: { adminRole: "Privileged Role Administrator" },
+  impact: "Admins moved to a narrower role lose Global Administrator rights; check what they do first so the new role covers it.",
+  steps: (ctx) => {
+    const holders = ctx.items;
+    const steps: FixGuideStep[] = [{ title: "Who holds Global Administrator", note: `${holders.length} account(s): ${itemList(ctx, "none")}.` }];
+    if (holders.length < 2) {
+      steps.push({
+        title: "Add an emergency-access account",
+        portal: {
+          url: "https://entra.microsoft.com",
+          steps: [
+            "Entra ID > Users > New user: a cloud-only account on the .onmicrosoft.com domain, not tied to any person's phone.",
+            "Assign Global Administrator (permanent active, not eligible).",
+            "Register a passkey (FIDO2 security key) for it, different from your normal admin method.",
+            "Exclude it from Conditional Access policies that block or restrict sign-in.",
+            "Store the key and password securely, alert on every sign-in, and test it every 90 days.",
+          ],
+        },
+        note: "Microsoft recommends two or more emergency-access accounts.",
+      });
+      return steps;
+    }
+    steps.push(
+      {
+        title: "Move each day-to-day admin to a narrower role",
+        portal: {
+          url: "https://entra.microsoft.com",
+          steps: [
+            "Decide the role each person needs (Roles & admins lists what each role can do).",
+            "Entra ID > Roles & admins > the new role > Add assignments > the user (or make it eligible in PIM).",
+            "Then Roles & admins > Global Administrator > the user > Remove assignment.",
+            "Keep two emergency-access accounts and at most a few named Global Admins.",
+          ],
+        },
+      },
+      {
+        title: "Remove Global Administrator with Microsoft Graph PowerShell (after the new role is in place)",
+        command: {
+          shell: "MicrosoftGraph",
+          graphScopes: ["RoleManagement.ReadWrite.Directory"],
+          script: holders
+            .filter((i) => i.principalId)
+            .map(
+              (i) => `# ${i.label}  (delete this block if they keep Global Administrator)
+Get-MgRoleManagementDirectoryRoleAssignment -Filter "principalId eq '${i.principalId}'" |
+    Where-Object { $_.RoleDefinitionId -eq '62e90394-69f5-4237-9190-012177145e10' } |
+    ForEach-Object { Remove-MgRoleManagementDirectoryRoleAssignment -UnifiedRoleAssignmentId $_.Id }`
+            )
+            .join("\n\n"),
+        },
+        note: "Delete the blocks for break-glass accounts and the admins who keep the role. If a removal fails because the assignment is managed by PIM, remove it in Privileged Identity Management.",
+      }
+    );
+    return steps;
+  },
+  verify: { inClarity: 'Re-sync this tenant; "Between two and five Global Admins" turns green.' },
+  undo: { text: "Re-assign Global Administrator under Roles & admins." },
+  learn: [link("Manage emergency access accounts", S3_LEARN.emergencyAccess), { title: "Remove-MgRoleManagementDirectoryRoleAssignment", url: "https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.identity.governance/remove-mgrolemanagementdirectoryroleassignment?view=graph-powershell-1.0", checked: CHECKED }],
+};
+
+// -------------------------------------------------- Standing admin -> PIM
+
+const makeAdminRolesEligible: FixGuideDefinition = {
+  id: "make-admin-roles-eligible",
+  kind: "review",
+  title: "Make admin roles just-in-time with PIM",
+  summary:
+    "Turns permanent admin role assignments into eligible ones in Privileged Identity Management: the person keeps the role but has to activate it (with MFA and a reason) for a few hours when they need it. Break-glass accounts stay permanent active, as Microsoft recommends.",
+  stops: "A stolen admin session or password giving standing admin rights at any moment (deleting users, adding mail flow rules, assigning roles).",
+  prerequisites: { licence: "Microsoft Entra ID P2 (or Microsoft Entra ID Governance) for each admin", adminRole: "Privileged Role Administrator" },
+  impact: "Admins activate their role before admin work (Entra ID > My roles, or PIM). Scripts and service accounts that rely on a standing role break; give them an app with the least permission it needs instead.",
+  rollout:
+    "Set the role settings first (step 1), then make the assignments eligible, then remove the active ones. Don't require approval without naming approvers: if every Global and Privileged Role Administrator is eligible and approval has no approvers, nobody can activate and the tenant is locked. The break-glass accounts prevent that.",
+  steps: (ctx) => {
+    const steps: FixGuideStep[] = [
+      { title: "Review the standing assignments", note: `${ctx.items.length} permanent assignment(s) outside break-glass: ${itemList(ctx, "none")}.` },
+      {
+        title: "1. Set the activation rules for each role",
+        portal: {
+          url: "https://entra.microsoft.com",
+          steps: [
+            "ID Governance > Privileged Identity Management > Microsoft Entra roles > Roles > the role (start with Global Administrator) > Role settings > Edit.",
+            "Activation maximum duration: 4 hours or less. On activation, require: Azure MFA (or a Conditional Access authentication context). Require justification on activation.",
+            "Require approval for Global Administrator and Privileged Role Administrator, with at least two named approvers > Update.",
+          ],
+        },
+      },
+    ];
+    const withIds = ctx.items.filter((i) => i.principalId && i.roleTemplateId);
+    if (withIds.length > 0) {
+      steps.push(
+        {
+          title: "2. Make each assignment eligible",
+          command: {
+            shell: "MicrosoftGraph",
+            graphScopes: ["RoleEligibilitySchedule.ReadWrite.Directory"],
+            script: withIds
+              .map(
+                (i) => `# ${i.label}
+New-MgRoleManagementDirectoryRoleEligibilityScheduleRequest -BodyParameter @{
+    action           = 'adminAssign'
+    justification    = 'Move standing admin access to just-in-time'
+    roleDefinitionId = '${i.roleTemplateId}'
+    directoryScopeId = '/'
+    principalId      = '${i.principalId}'
+    scheduleInfo     = @{ startDateTime = (Get-Date).ToUniversalTime(); expiration = @{ type = 'noExpiration' } }
+}`
+              )
+              .join("\n\n"),
+          },
+          note: "If the role setting requires eligible assignments to expire, use expiration @{ type = 'afterDateTime'; endDateTime = ... } instead.",
+        },
+        {
+          title: "3. Then remove the permanent active assignment",
+          command: {
+            shell: "MicrosoftGraph",
+            graphScopes: ["RoleAssignmentSchedule.ReadWrite.Directory"],
+            script: withIds
+              .map(
+                (i) => `# ${i.label}
+New-MgRoleManagementDirectoryRoleAssignmentScheduleRequest -BodyParameter @{
+    action           = 'adminRemove'
+    justification    = 'Replaced by an eligible assignment'
+    roleDefinitionId = '${i.roleTemplateId}'
+    directoryScopeId = '/'
+    principalId      = '${i.principalId}'
+}`
+              )
+              .join("\n\n"),
+          },
+          note: "Run step 3 only after step 2 succeeded for that person. If the active assignment was made outside PIM and this fails, remove it under Roles & admins > the role > Remove assignment.",
+        }
+      );
+    }
+    return steps;
+  },
+  verify: { inClarity: 'Re-sync this tenant; "Admin roles are just-in-time (PIM), not standing", "Admin roles need activation (PIM)", "Few accounts can delete users at any moment" and "Few accounts can change mail flow rules" improve.' },
+  undo: { text: "In PIM > Microsoft Entra roles > Assignments, assign the role as Active again, or remove the eligible assignment." },
+  learn: [link("New-MgRoleManagementDirectoryRoleEligibilityScheduleRequest", S3_LEARN.eligibilityRequest), link("New-MgRoleManagementDirectoryRoleAssignmentScheduleRequest", S3_LEARN.assignmentRequest), link("Configure Microsoft Entra role settings in PIM", S3_LEARN.pimSettings)],
+  missing: (ctx) => [
+    ...(ctx.entraP2Licensed === false
+      ? ['This tenant doesn\'t appear to have Microsoft Entra ID P2, so PIM isn\'t available and these commands will fail. Without P2, reduce standing admins instead: "Keep between two and five Global Administrators" and narrower roles.']
+      : []),
+    ...(ctx.items.some((i) => !i.principalId || !i.roleTemplateId) ? ["Some assignments came from role names only (PIM data not synced), so their commands are missing; use the portal for those."] : []),
+  ],
+};
+
+// --------------------------------------------- Role-assignable group owners
+
+const removeRoleGroupOwners: FixGuideDefinition = {
+  id: "remove-role-group-owners",
+  kind: "review",
+  title: "Remove non-admin owners from role-assignable groups",
+  summary: "Owners of a role-assignable group can add members, and every member gets the group's admin role. Removes owners who aren't admins themselves.",
+  stops: "A compromised ordinary account adding itself to a group that holds an admin role.",
+  prerequisites: { adminRole: "Privileged Role Administrator" },
+  impact: "The removed owners can no longer manage the group's members. A group's last owner can't be removed; add an admin as owner first.",
+  steps: (ctx) => [
+    { title: "Review the owners", note: `${ctx.items.length} owner(s): ${itemList(ctx, "none")}.` },
+    { title: "Remove them in the Entra admin center", portal: { url: "https://entra.microsoft.com", steps: ["Entra ID > Groups > the group > Owners.", "Add an admin as owner if needed, then select the non-admin owner > Remove."] } },
+    ...(ctx.items.length > 0
+      ? [
+          {
+            title: "Or with Microsoft Graph PowerShell",
+            command: {
+              shell: "MicrosoftGraph" as GuideShell,
+              graphScopes: ["Group.ReadWrite.All", "RoleManagement.ReadWrite.Directory"],
+              script: ctx.items
+                .map((i) => `# ${i.label}\n$owner = Get-MgUser -UserId ${ps(i.ownerUpn || "")}\nRemove-MgGroupOwnerDirectoryObjectByRef -GroupId '${i.groupId}' -DirectoryObjectId $owner.Id`)
+                .join("\n\n"),
+            },
+          },
+        ]
+      : []),
+  ],
+  verify: { inClarity: 'Re-sync this tenant; "Role-assignable groups are owned by admins only" turns green.' },
+  undo: { text: "Add the owner back under the group's Owners." },
+  learn: [link("Remove-MgGroupOwnerDirectoryObjectByRef", S3_LEARN.removeGroupOwner)],
+};
+
+// ------------------------------------------------- External mailbox forwarding
+
+const stopExternalMailboxForwarding: FixGuideDefinition = {
+  id: "stop-external-mailbox-forwarding",
+  kind: "review",
+  title: "Stop inbox rules and mailbox forwarding that send mail outside",
+  summary:
+    "Treats each external forward as a possible compromise: check it with the mailbox owner, disable the inbox rule or clear the mailbox forwarding, and if it wasn't theirs, reset the password and sign the account out everywhere.",
+  stops: "An attacker's hidden rule quietly copying a mailbox's mail to an outside address.",
+  prerequisites: { adminRole: "Exchange Administrator (rules); User Administrator or Authentication Administrator (password and sessions)" },
+  impact: "Forwarding stops at once. A forward the user set up on purpose (for example to a personal address) stops too, which is usually the right outcome; approved business forwarding should go through a mail flow rule or connector instead.",
+  steps: (ctx) => {
+    const rules = ctx.items.filter((i) => i.forwardKind === "inboxRule" && i.address && i.ruleName);
+    const mailboxes = ctx.items.filter((i) => i.forwardKind === "mailboxForwarding" && i.address);
+    const steps: FixGuideStep[] = [
+      { title: "Review each forward with the mailbox owner", note: `${ctx.items.length} external forward(s): ${itemList(ctx, "none")}. A rule the owner doesn't recognise means the mailbox was compromised: do the last step for it too.` },
+    ];
+    if (rules.length > 0) {
+      steps.push({
+        title: "Disable the inbox rules (reversible)",
+        command: { shell: "ExchangeOnline", script: rules.map((i) => `Disable-InboxRule -Mailbox ${ps(i.address!)} -Identity ${ps(i.ruleName!)} -Confirm:$false`).join("\n") },
+        note: "Changing inbox rules from PowerShell removes that mailbox's Outlook client-side rules (Microsoft warns about this). Once confirmed unwanted, delete the rule in Outlook on the web (Settings > Mail > Rules) or with Remove-InboxRule.",
+      });
+    }
+    if (mailboxes.length > 0) {
+      steps.push({
+        title: "Clear mailbox-level forwarding",
+        command: { shell: "ExchangeOnline", script: mailboxes.map((i) => `Set-Mailbox -Identity ${ps(i.address!)} -ForwardingSmtpAddress $null -ForwardingAddress $null -DeliverToMailboxAndForward $false`).join("\n") },
+      });
+    }
+    if (ctx.items.length > 0) {
+      steps.push({
+        title: "If it wasn't the owner: secure the account",
+        portal: { url: "https://entra.microsoft.com", steps: ["Entra ID > Users > the user > Reset password.", "Revoke sessions (same page), then check their sign-ins in the Sign-in Logs module and their MFA methods for anything they didn't add."] },
+        command: {
+          shell: "MicrosoftGraph",
+          graphScopes: ["User.RevokeSessions.All"],
+          script: [...new Set(ctx.items.map((i) => i.address).filter(Boolean) as string[])].map((a) => `# Only for compromised mailboxes:\n# Revoke-MgUserSignInSession -UserId ${ps(a)}`).join("\n"),
+        },
+        note: "The revoke lines are commented out; uncomment the ones for mailboxes that were compromised. Reset the password first, or the attacker signs straight back in.",
+      });
+    }
+    return steps;
+  },
+  verify: {
+    inClarity: 'Re-sync this tenant; "No mailbox forwards mail outside" turns green.',
+    command: { shell: "ExchangeOnline", script: "Get-Mailbox -ResultSize Unlimited | Where-Object { $_.ForwardingSmtpAddress -or $_.ForwardingAddress } | Format-Table UserPrincipalName, ForwardingSmtpAddress, ForwardingAddress" },
+  },
+  undo: { text: "Enable-InboxRule re-enables a disabled rule; mailbox forwarding is set again with Set-Mailbox -ForwardingSmtpAddress." },
+  learn: [link("Disable-InboxRule", S3_LEARN.disableInboxRule), link("Set-Mailbox", S3_LEARN.setMailbox), link("Revoke-MgUserSignInSession", S3_LEARN.revokeSessions)],
+};
+
+// ------------------------------------------------- External transport rules
+
+const disableExternalTransportRules: FixGuideDefinition = {
+  id: "disable-external-transport-rules",
+  kind: "review",
+  title: "Disable mail flow rules that copy or redirect mail outside",
+  summary: "For each enabled organisation-wide mail flow rule that copies (BCC) or redirects mail to an outside address: check who created it and why, disable it, and remove it once confirmed unwanted.",
+  stops: "A compromised Exchange admin silently copying the organisation's mail to an attacker.",
+  prerequisites: { adminRole: "Exchange Administrator" },
+  impact: "The copy or redirect stops for all mail the rule matched. An approved journaling or archiving rule should use a connector or journaling instead; agree that with its owner before disabling.",
+  steps: (ctx) => [
+    { title: "Review each rule", note: `${ctx.items.length} rule(s): ${itemList(ctx, "none")}.` },
+    ...(ctx.items.length > 0
+      ? [
+          {
+            title: "See who created or changed them",
+            command: {
+              shell: "ExchangeOnline" as GuideShell,
+              script: `# Who created or changed mail flow rules in the last 90 days (needs the audit log on):
+Search-UnifiedAuditLog -StartDate (Get-Date).AddDays(-90) -EndDate (Get-Date) -Operations New-TransportRule, Set-TransportRule, Enable-TransportRule -ResultSize 5000 | Format-Table CreationDate, UserIds, Operations`,
+            },
+          },
+          {
+            title: "Disable them (reversible)",
+            command: { shell: "ExchangeOnline" as GuideShell, script: ctx.items.map((i) => `Disable-TransportRule -Identity ${ps(i.ruleName || "")} -Confirm:$false`).join("\n") },
+            note: "Once confirmed unwanted, remove the rule in the Exchange admin center (Mail flow > Rules) or with Remove-TransportRule. If an admin you don't know created it, treat that admin account as compromised.",
+          },
+        ]
+      : []),
+    { title: "Or in the Exchange admin center", portal: { url: "https://admin.exchange.microsoft.com", steps: ["Mail flow > Rules > the rule > Disable (or Delete once confirmed)."] } },
+  ],
+  verify: { inClarity: 'Re-sync this tenant; "No mail flow rule sends mail outside" turns green.' },
+  undo: { text: "Enable-TransportRule -Identity <rule name> re-enables it." },
+  learn: [link("Disable-TransportRule", S3_LEARN.disableTransportRule), link("Search-UnifiedAuditLog", S3_LEARN.searchAuditLog)],
+};
+
 export const FIX_GUIDES: FixGuideDefinition[] = [
   blockDeviceCodeFlow,
   disableSmtpAuthOrg,
@@ -1860,6 +2418,15 @@ export const FIX_GUIDES: FixGuideDefinition[] = [
   protectSecurityInfoRegistration,
   requireRiskRemediation,
   protectSensitiveAdminActions,
+  mfaRegistrationDrive,
+  removeIndividualExclusions,
+  revokeRiskyAppConsent,
+  reviewAppPermissions,
+  rightSizeGlobalAdmins,
+  makeAdminRolesEligible,
+  removeRoleGroupOwners,
+  stopExternalMailboxForwarding,
+  disableExternalTransportRules,
 ];
 
 export function getFixGuideDefinition(id: string): FixGuideDefinition | undefined {

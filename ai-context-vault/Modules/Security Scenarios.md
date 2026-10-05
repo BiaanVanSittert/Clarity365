@@ -56,3 +56,16 @@ Checks can point at a guide (`guideId` on the check definition; carried on the r
 - Country blocking uses an allow list of the tenant's home country. The guide lists every other country its sign-ins came from.
 
 Part of [[Clarity365 MOC]].
+
+**2026-10-05, Stage 3 guides:** the review checks now have guides too. They cover:
+- MFA registration
+- individual exclusions (both checks)
+- risky consented apps
+- app registration permissions (both checks)
+- Global Admin count
+- standing admin roles to PIM (standing-access, pim, standing-deleters, exchange-admins)
+- role-assignable group owners
+- external mailbox forwarding
+- external mail flow rules
+
+Each guide acts on the items its check found. Only "intune" (a licence note) and "signin-logs" have no guide.

@@ -4,7 +4,7 @@ tags: [optimization, plan, security-simulations]
 
 # Scenario Fix Guides Plan
 
-Status: **Stages 0, 1 and 2 done 2026-10-05** (40 guides). Stage 3 (review and clean-up guides) next.
+Status: **Stages 0 to 3 done 2026-10-05** (49 guides). Stage 4 (Prevention plan / Hardening plan) next.
 
 ## Decisions (user, 2026-10-05)
 - **Guides only.** Clarity365 shows the portal steps and the commands; the operator runs them. Stage 5 ("apply from Clarity365") is dropped.
@@ -148,12 +148,46 @@ Two checks are information only (Intune licensed, sign-in logs available) and ge
 - dmafrica and Worldwide Advisory still have no break-glass account detected, so every CA guide warns there.
 - Not yet run by the operator.
 
+## Stage 3 record (2026-10-05)
+
+**9 review guides added (49 in total), linked from 15 checks.** Every cmdlet was checked on Microsoft Learn on 2026-10-05. Each guide:
+- starts with "review first";
+- puts a reversible step (disable) before an irreversible one (remove);
+- takes its items from the same data the check uses, through new `ITEM_SOURCES` in the builder.
+
+| Guide | Checks | What it gives |
+|---|---|---|
+| `mfa-registration-drive` | mfa-registered | Disable unused accounts. Protect registration (links the Stage 2 guide). Enable TAP, then one `New-MgUserAuthenticationTemporaryAccessPassMethod` per user (one-time, 480 min). Registration campaign via `PATCH /policies/authenticationMethodsPolicy` (Learn's JSON), break-glass excluded. |
+| `remove-individual-exclusions` | no-individual-exclusions, no-excluded-ga | Per policy: GET the policy and drop only the flagged refs from `excludeUsers`. PATCH back the whole `users` section, so groups, roles and guests are kept whichever way Graph merges. |
+| `revoke-risky-app-consent` | risky-grants | Disable sign-in (`Update-MgServicePrincipal -AccountEnabled:$false`, reversible), then Learn's revoke script (delegated grants plus app role assignments). |
+| `review-app-permissions` | app-registrations, apps-grant-roles | Maps the listed Graph permission names to app role ids and removes only those assignments (`Remove-MgServicePrincipalAppRoleAssignment`). Also remove them from the registration in the portal. |
+| `right-size-global-admins` | ga-count | More than 5: move admins to narrower roles, then a removal block per admin to keep or delete. Fewer than 2: emergency-access account steps (Learn's checklist), no commands. |
+| `make-admin-roles-eligible` | standing-access, pim, standing-deleters, exchange-admins | Role settings first. Then eligibility `adminAssign` (noExpiration), then assignment `adminRemove`, per standing assignment outside break-glass. Warns when the tenant has no P2, and about the approval lockout Learn describes. |
+| `remove-role-group-owners` | role-assignable-groups | `Remove-MgGroupOwnerDirectoryObjectByRef` per non-admin owner (the last owner can't be removed). |
+| `stop-external-mailbox-forwarding` | mailbox no-external-rules | `Disable-InboxRule` per rule. Learn warns this removes the mailbox's Outlook client-side rules. `Set-Mailbox` clears forwarding. Password reset and `Revoke-MgUserSignInSession` for compromised mailboxes (commented out, operator chooses). |
+| `disable-external-transport-rules` | transport no-external-rules | `Search-UnifiedAuditLog` for who created or changed rules, then `Disable-TransportRule` per rule. |
+
+**Learn findings:**
+- Learn's own Graph PowerShell revoke script calls `Remove-MgServicePrincipalAppRoleAssignedTo` with the client service principal's id. The guide uses `Remove-MgServicePrincipalAppRoleAssignment` (client SP plus assignment id), the documented form for "an assignment this service principal holds".
+- The registration campaign only nudges users who already do MFA (text or call, for Authenticator). That's why accounts with no method get a TAP.
+
+**Live data (read-only, local database, 11 snapshots):**
+- Item counts match the checks on every tenant.
+- Exclusion items are one per (account, policy): dmafrica has 1 account across 4 policies, Worldwide Advisory 4 accounts across 16.
+- MFA registration lists 13 to 152 accounts.
+- Worldwide Advisory has 3 risky consented apps and 5 external mailbox forwards.
+- The PIM guide is offered on 9 tenants. Those without P2 now show a warning.
+
+**CA08 fixed in the same session** (user chose the recommended country allow list). See [[Optimization Plan]].
+
+No Stage 3 guide has been run by the operator yet.
+
 ## Inventory (all checks)
 Kind letters as in the table above. "Stage" is when its guide gets built. Commands are the planned ones; each is checked on Microsoft Learn when its guide is written.
 
 | Scenario | Check | Kind | Planned fix | Stage |
 |---|---|---|---|---|
-| Sign-in from outside allowed countries | users / admins / guests | A | CA08 (in-app deploy) or a named-location block policy | 2 |
+| Sign-in from outside allowed countries | users / admins / guests | A | `block-foreign-countries` (country allow list; CA08 now uses the same approach) | 2 |
 | | unknown-country | A | Named location: include unknown countries/regions (`Update-MgIdentityConditionalAccessNamedLocation`) | 2 |
 | | device-registration | A + D | "Register or join devices" user-action policy requiring MFA; device setting "Require MFA to register or join devices" = No | 2 |
 | Stolen session token replay | token-protection | A | Token protection session control (report-only, admins first) | 2 |

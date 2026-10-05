@@ -60,6 +60,12 @@ Stage 2 follow-ups: the directory-roles step now also records each member's role
 
 **CA mapper moved (2026-10-05):** `mapConditionalAccessPolicy` now lives in `ca-policy-mapper.ts`, which is pure and can run in the browser. `graph-client.ts` imports it and re-exports it, so existing callers are unchanged. The fix guides' impact preview ([[CA Simulation Engine]]) maps proposed policies through it.
 
+**CA08 deploy writes a named location (2026-10-05):** `deployConditionalAccessPolicy` takes an optional `{ allowedCountries }`, which CA08 requires.
+- It POSTs `identity/conditionalAccess/namedLocations` (a `countryNamedLocation` named "CA08: Allowed countries"), then the policy excluding that id.
+- If the policy POST fails, it deletes the location again (best effort) and says so.
+- The policy POST itself moved into `postConditionalAccessPolicy`, with the CA05 error rewriting unchanged.
+- Covered by `graph-client.test.ts` ("CA08 deploy"), mocking only the network boundary.
+
 **Alert policies (2026-10-02):** sync step 26 calls `scc-client.ts`'s `fetchAlertPolicyInventory(tenant, headers)` and stores `snapshot.alertPolicies`. `TOTAL_SYNC_STEPS` = 26, sync schema version 5. Never a sync error: failures are recorded on the data as `unavailable`.
 
 ## scc-client.ts :  Security & Compliance PowerShell (read-only)

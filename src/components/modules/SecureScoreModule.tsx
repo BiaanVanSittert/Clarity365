@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
+import { detectMostCommonCountry } from "@/lib/utils/sign-in-country";
 import { TenantSecuritySnapshot, SecureScoreControl } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { EmptyStateRow } from "../common/EmptyStateRow";
@@ -78,6 +79,11 @@ export const SecureScoreModule: React.FC<SecureScoreModuleProps> = ({
   const [selectedControl, setSelectedControl] = useState<SecureScoreControl | null>(null);
   const [deployModalPolicy, setDeployModalPolicy] = useState<CABaselinePolicyDefinition | null>(null);
   const hasEntraP2 = hasEntraP2Capability(snapshot);
+  // CA08's starting allowed-countries list.
+  const suggestedCountries = useMemo(() => {
+    const home = detectMostCommonCountry(snapshot.signIns || []);
+    return home ? [home] : [];
+  }, [snapshot]);
 
   const categories = ["all", "Identity", "Device", "Apps", "Data", "Infrastructure"];
 
@@ -363,6 +369,7 @@ export const SecureScoreModule: React.FC<SecureScoreModuleProps> = ({
         tenantName={tenant.displayName}
         tenantDomain={tenant.defaultDomainName}
         hasEntraP2={hasEntraP2}
+        suggestedCountries={suggestedCountries}
         onPolicyDeployed={onRefresh}
       />
     </div>

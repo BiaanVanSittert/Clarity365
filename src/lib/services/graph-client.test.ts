@@ -17,6 +17,8 @@ import {
   invalidateGraphTokenCache,
   hasLifetimeValidationError,
   mapConditionalAccessPolicy,
+  buildGraphCaPolicyPayload,
+  deployConditionalAccessPolicy,
 } from "./graph-client";
 import { RECOMMENDED_BITLOCKER_POLICY } from "@/lib/types";
 import type { Tenant } from "@/lib/types";
@@ -872,5 +874,94 @@ describe("mapConditionalAccessPolicy", () => {
     const mapped = mapConditionalAccessPolicy(raw);
     expect(mapped.baselineCode).toBeNull();
     expect(mapped.matchesBaseline).toBe(false);
+  });
+});
+
+describe("CA08 deploy: allowed-countries named location", () => {
+  // CA08 used to exclude only "AllTrusted", which blocks home and mobile
+  // sign-ins on a tenant without trusted locations. It now creates a country
+  // named location first and excludes that. Network boundary mocked only.
+  const tenant = fakeTenant({ tenantId: "tid-ca08-test", clientId: "cid-ca08-test" });
+
+  beforeEach(() => invalidateGraphTokenCache(tenant.credentials));
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    invalidateGraphTokenCache(tenant.credentials);
+  });
+
+  function mockResponse(status: number, body: unknown = {}) {
+    return {
+      status,
+      ok: status >= 200 && status < 300,
+      headers: { get: () => null },
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+      clone() {
+        return mockResponse(status, body);
+      },
+    } as unknown as Response;
+  }
+
+  function record(policyStatus: number, deleteStatus = 204) {
+    const calls: { method: string; url: string; body?: any }[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method || "GET";
+      if (url.includes("/oauth2/v2.0/token")) return mockResponse(200, { access_token: "tok", expires_in: 3600 });
+      calls.push({ method, url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (method === "POST" && url.endsWith("/namedLocations")) return mockResponse(201, { id: "loc-1" });
+      if (method === "POST" && url.endsWith("/policies")) return mockResponse(policyStatus, policyStatus < 300 ? { id: "pol-1", displayName: "CA08" } : { error: { message: "Bad request" } });
+      if (method === "DELETE" && url.endsWith("/namedLocations/loc-1")) return mockResponse(deleteStatus);
+      throw new Error(`Unexpected call in test: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return calls;
+  }
+
+  it("refuses to build CA08 without the location id", () => {
+    expect(() => buildGraphCaPolicyPayload("CA08", "x")).toThrow(/allowed-countries/);
+    const payload = buildGraphCaPolicyPayload("CA08", "x", { allowedLocationId: "loc-1" }) as any;
+    expect(payload.conditions.locations).toEqual({ includeLocations: ["All"], excludeLocations: ["loc-1"] });
+    expect(payload.state).toBe("enabledForReportingButNotEnforced");
+  });
+
+  it("writes nothing when the country list is missing or invalid", async () => {
+    const calls = record(201);
+    expect(await deployConditionalAccessPolicy(tenant, "CA08")).toMatchObject({ success: false, error: expect.stringContaining("at least one allowed country") });
+    expect(await deployConditionalAccessPolicy(tenant, "CA08", { allowedCountries: ["South Africa"] })).toMatchObject({ success: false });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("creates the named location, then a policy that excludes it", async () => {
+    const calls = record(201);
+    const result = await deployConditionalAccessPolicy(tenant, "CA08", { allowedCountries: ["za", "NA"] });
+    expect(result.success).toBe(true);
+    expect(result.namedLocation).toMatchObject({ id: "loc-1", kind: "country", countries: ["ZA", "NA"], includeUnknownCountries: false });
+    const location = calls.find((c) => c.url.endsWith("/namedLocations"))!;
+    expect(location.body).toEqual({ "@odata.type": "#microsoft.graph.countryNamedLocation", displayName: "CA08: Allowed countries", countriesAndRegions: ["ZA", "NA"], includeUnknownCountriesAndRegions: false });
+    const policy = calls.find((c) => c.url.endsWith("/policies"))!;
+    expect(policy.body.conditions.locations.excludeLocations).toEqual(["loc-1"]);
+    expect(calls.findIndex((c) => c.url.endsWith("/namedLocations"))).toBeLessThan(calls.findIndex((c) => c.url.endsWith("/policies")));
+  });
+
+  it("removes the named location again when the policy can't be created", async () => {
+    const calls = record(400);
+    const result = await deployConditionalAccessPolicy(tenant, "CA08", { allowedCountries: ["ZA"] });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("was removed again");
+    expect(calls.some((c) => c.method === "DELETE")).toBe(true);
+  });
+
+  it("says where to clean up when removing the location fails too", async () => {
+    record(400, 500);
+    const result = await deployConditionalAccessPolicy(tenant, "CA08", { allowedCountries: ["ZA"] });
+    expect(result.error).toContain("could not be removed");
+  });
+
+  it("leaves the other baselines unchanged (no named location)", async () => {
+    const calls = record(201);
+    const result = await deployConditionalAccessPolicy(tenant, "CA01");
+    expect(result.success).toBe(true);
+    expect(result.namedLocation).toBeUndefined();
+    expect(calls.some((c) => c.url.includes("namedLocations"))).toBe(false);
   });
 });

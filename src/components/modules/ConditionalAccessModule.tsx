@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { detectMostCommonCountry } from "@/lib/utils/sign-in-country";
 import { TenantSecuritySnapshot, CAPolicyRule } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { CA_BASELINE_STANDARDS, CABaselinePolicyDefinition } from "@/lib/data/baseline-definitions";
@@ -96,6 +97,11 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
   // see entra-p2.ts for why the previous inline version here silently never
   // matched a live tenant's real capability data.
   const hasEntraP2 = hasEntraP2Capability(snapshot);
+  // CA08's starting allowed-countries list.
+  const suggestedCountries = useMemo(() => {
+    const home = detectMostCommonCountry(snapshot.signIns || []);
+    return home ? [home] : [];
+  }, [snapshot]);
 
   // Map deployed policies strictly by name AND verified properties
   const baselineMap = new Map<string, CAPolicyRule>();
@@ -541,6 +547,7 @@ export const ConditionalAccessModule: React.FC<ConditionalAccessModuleProps> = (
         tenantName={tenant.displayName}
         tenantDomain={tenant.defaultDomainName}
         hasEntraP2={hasEntraP2}
+        suggestedCountries={suggestedCountries}
         onPolicyDeployed={onRefresh}
       />
     </div>

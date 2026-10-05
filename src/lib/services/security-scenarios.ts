@@ -354,7 +354,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     description: "An attacker tries common passwords against many accounts; any account without MFA that uses a weak password falls.",
     checks: [
       {
-        id: "mfa-registered",
+        id: "mfa-registered", guideId: "mfa-registration-drive",
         evaluate: (c) => {
           const missing = (c.snapshot.mfaAudit || []).filter((u) => u.accountEnabled && !u.mfaRegistered && !isGuestUpn(u.userPrincipalName));
           return missing.length === 0
@@ -371,7 +371,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
       { id: "mfa-enforced", guideId: "require-mfa-all-users", evaluate: (c) => fromCell(c, "users", "mfa", "MFA is enforced for all users", "Require MFA for all users on all resources (CA02).", CA_DOCS.mfaAllUsers) },
       { id: "legacy-blocked", guideId: "block-legacy-auth", evaluate: (c) => fromCell(c, "users", "legacyBlocked", "Legacy authentication is blocked", "Block the Exchange ActiveSync and Other clients client app types (CA01).", CA_DOCS.legacyAuth) },
       {
-        id: "no-individual-exclusions",
+        id: "no-individual-exclusions", guideId: "remove-individual-exclusions",
         evaluate: (c) => {
           const all = [...c.accounts.globalAdmins, ...c.accounts.otherAdmins, ...c.accounts.standardUsers];
           const excluded = all.filter((a) => a.excludedFrom && !a.breakGlassReasons);
@@ -468,7 +468,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
       { id: "desktop", guideId: "require-compliant-device-admins", evaluate: (c) => fromSituation(c, "ga-desktop-unmanaged", "Desktop apps on an unmanaged PC are blocked for admins") },
       { id: "macos", guideId: "require-compliant-device-admins", evaluate: (c) => fromSituation(c, "ga-macos-unmanaged", "Unmanaged Macs are blocked for admins") },
       {
-        id: "no-excluded-ga",
+        id: "no-excluded-ga", guideId: "remove-individual-exclusions",
         evaluate: (c) => {
           const excluded = c.accounts.globalAdmins.filter((a) => a.excludedFrom && !a.breakGlassReasons);
           return excluded.length === 0
@@ -516,7 +516,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
           ),
       },
       {
-        id: "risky-grants",
+        id: "risky-grants", guideId: "revoke-risky-app-consent",
         evaluate: (c) => {
           const o = c.snapshot.oauthConsentGrants;
           const label = "No user has consented to a risky unverified app";
@@ -538,7 +538,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "app-registrations",
+        id: "app-registrations", guideId: "review-app-permissions",
         evaluate: (c) => {
           const risky = (c.snapshot.appRegistrations || []).filter((a) => a.riskCategory === "critical" || a.riskCategory === "high");
           return risky.length === 0
@@ -585,7 +585,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     description: "An attacker who controls one admin, an app or a group owner assigns themselves a more powerful role.",
     checks: [
       {
-        id: "ga-count",
+        id: "ga-count", guideId: "right-size-global-admins",
         evaluate: (c) => {
           const all = holdersOf(c, new Set([GLOBAL_ADMIN_TEMPLATE_ID]));
           const count = all.length;
@@ -598,7 +598,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "standing-access",
+        id: "standing-access", guideId: "make-admin-roles-eligible",
         evaluate: (c) => {
           const pr = c.snapshot.privilegedRoleAssignments;
           const label = "Admin roles are just-in-time (PIM), not standing";
@@ -622,7 +622,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "role-assignable-groups",
+        id: "role-assignable-groups", guideId: "remove-role-group-owners",
         evaluate: (c) => {
           const adminUpns = new Set((c.snapshot.mfaAudit || []).filter((u) => u.isAdmin).map((u) => u.userPrincipalName.toLowerCase()));
           const risky = (c.snapshot.groups || []).filter((g) => g.isAssignableToRole && (g.owners || []).some((o) => !adminUpns.has(o.toLowerCase())));
@@ -632,7 +632,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "apps-grant-roles",
+        id: "apps-grant-roles", guideId: "review-app-permissions",
         evaluate: (c) => {
           const risky = (c.snapshot.appRegistrations || []).filter((a) =>
             a.highPrivilegePermissions.some((p) => /RoleManagement\.ReadWrite\.Directory|AppRoleAssignment\.ReadWrite\.All|Directory\.ReadWrite\.All/i.test(p))
@@ -738,7 +738,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     description: "A compromised admin deletes many users (or disables them) to disrupt the business. Deleted users can be restored for 30 days.",
     checks: [
       {
-        id: "standing-deleters",
+        id: "standing-deleters", guideId: "make-admin-roles-eligible",
         evaluate: (c) => {
           const holders = holdersOf(c, new Set([GLOBAL_ADMIN_TEMPLATE_ID, USER_ADMIN, PRIV_AUTH_ADMIN]), new Set(["activePermanent"])).filter((h) => !isBreakGlass(c, h));
           const label = "Few accounts can delete users at any moment";
@@ -749,7 +749,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "pim",
+        id: "pim", guideId: "make-admin-roles-eligible",
         evaluate: (c) => {
           const pr = c.snapshot.privilegedRoleAssignments;
           const label = "Admin roles need activation (PIM)";
@@ -792,7 +792,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     description: "After compromising a mailbox, an attacker adds an inbox rule (or mailbox forwarding) that quietly sends copies of mail outside.",
     checks: [
       {
-        id: "no-external-rules",
+        id: "no-external-rules", guideId: "stop-external-mailbox-forwarding",
         evaluate: (c) => {
           if (!c.snapshot.tenant.isDemo && c.snapshot.mailboxAuditingEnabled === undefined && (c.snapshot.emailForwarding || []).length === 0) {
             return { label: "No mailbox forwards mail outside", status: "notAssessed", detail: EXO_NOT_CONNECTED };
@@ -850,7 +850,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     description: "A compromised Exchange admin adds an organisation-wide mail flow rule that copies (BCC) or redirects mail outside.",
     checks: [
       {
-        id: "no-external-rules",
+        id: "no-external-rules", guideId: "disable-external-transport-rules",
         evaluate: (c) => {
           const rules = c.snapshot.mailflowTransportRules || [];
           if (!c.snapshot.tenant.isDemo && rules.length === 0 && c.snapshot.mailboxAuditingEnabled === undefined) return { label: "No mail flow rule sends mail outside", status: "notAssessed", detail: EXO_NOT_CONNECTED };
@@ -861,7 +861,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "exchange-admins",
+        id: "exchange-admins", guideId: "make-admin-roles-eligible",
         evaluate: (c) => {
           const holders = holdersOf(c, new Set([GLOBAL_ADMIN_TEMPLATE_ID, EXCHANGE_ADMIN]), new Set(["activePermanent"])).filter((h) => !isBreakGlass(c, h));
           const label = "Few accounts can change mail flow rules";

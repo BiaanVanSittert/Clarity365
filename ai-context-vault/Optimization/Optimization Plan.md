@@ -47,9 +47,16 @@ Recommendation: write tests for these four before adding new fleet-wide features
 
 - **Exchange app-only access** (built 2026-09-30, client-secret option): see [[Exchange App-Only Access Plan]]. Consolidated ~20 separate `exoRefreshToken` checks into `exchange-access.ts`. Remaining: first live write under Exchange Administrator, optional certificate upgrade.
 
-- **CA08 baseline locks out every untrusted location** (found 2026-10-05, not fixed, needs a decision). `baseline-definitions.ts`'s CA08 "Block Access from Untrusted Countries" includes all locations and excludes only `AllTrusted`, so it blocks everything not marked trusted. Only 1 of 10 live tenants has trusted locations. Enforced as written, it would block every sign-in from home, mobile data or any non-office network. The country fix guide (`block-foreign-countries`, [[Scenario Fix Guides Plan]] Stage 2) uses an allow list of countries instead. Options: change CA08 to a country allow list, or warn before deploying when the tenant has no trusted locations.
+- **CA08 baseline locked out every untrusted location: fixed 2026-10-05.** Found 2026-10-05: CA08 "Block Access from Untrusted Countries" included all locations and excluded only `AllTrusted`, so it blocked everything not marked trusted, and only 1 of 10 live tenants has trusted locations. The user chose the recommended fix, a country allow list. CA08 is now "Block Access from Outside Allowed Countries":
+  - The deploy (`deployConditionalAccessPolicy(tenant, "CA08", { allowedCountries })`) first creates a "CA08: Allowed countries" country named location, then a policy that excludes that location by id.
+  - If the policy then fails, the location is deleted again. The error says whether that worked.
+  - Countries are validated by `parseAllowedCountries` (`src/lib/utils/allowed-countries.ts`) in the route and in graph-client, before anything is written.
+  - `DeployCaPolicyModal` asks for the countries for CA08, pre-filled with the tenant's most common sign-in country, and the PowerShell template uses the same list.
+  - `buildGraphCaPolicyPayload("CA08")` refuses to build without the location id.
+  - Existing CA08 policies still match (same `CA08:` prefix, block plus locations).
+  - Not changed: the local-only simulations in `drift-analyzer.ts` and `fleet-operations.ts` still write the old shape into snapshots. They never reach Graph and are overwritten at the next sync.
 
-- **Scenario fix guides** (Stages 0 to 2 done 2026-10-05, 40 guides): see [[Scenario Fix Guides Plan]]. `mapConditionalAccessPolicy` moved to `ca-policy-mapper.ts` (graph-client re-exports it) so the guides' impact preview can map a proposed policy the same way as the sync.
+- **Scenario fix guides** (Stages 0 to 3 done 2026-10-05, 49 guides): see [[Scenario Fix Guides Plan]]. `mapConditionalAccessPolicy` moved to `ca-policy-mapper.ts` (graph-client re-exports it) so the guides' impact preview can map a proposed policy the same way as the sync.
 
 - **Recommendations after Security Simulations** (2026-10-01, for review): see [[Recommendations Plan]]. Headline: every live tenant is permanently "degraded" because two sync steps need permissions that no list asks for.
 

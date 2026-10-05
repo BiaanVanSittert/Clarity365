@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Modal } from "../common/Modal";
 import { CABaselinePolicyDefinition } from "@/lib/data/baseline-definitions";
+import { parseAllowedCountries } from "@/lib/utils/allowed-countries";
 import { Copy, Check, Terminal, AlertTriangle, Info, ShieldAlert, Zap, RefreshCw, CheckCircle2, Key } from "lucide-react";
 
 interface DeployCaPolicyModalProps {
@@ -11,6 +12,8 @@ interface DeployCaPolicyModalProps {
   tenantName: string;
   tenantDomain: string;
   hasEntraP2?: boolean;
+  // CA08: the starting allowed-countries list (the tenant's most common sign-in country).
+  suggestedCountries?: string[];
   onPolicyDeployed?: () => void;
 }
 
@@ -22,6 +25,7 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
   tenantName,
   tenantDomain,
   hasEntraP2 = false,
+  suggestedCountries = [],
   onPolicyDeployed,
 }) => {
   const [copied, setCopied] = useState(false);
@@ -29,10 +33,19 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
   const [deploySuccess, setDeploySuccess] = useState<string | null>(null);
+  const [countriesText, setCountriesText] = useState(suggestedCountries.join(", "));
+  const suggestedKey = suggestedCountries.join(", ");
+  // Start from this tenant's suggestion each time the modal opens.
+  useEffect(() => {
+    if (isOpen) setCountriesText(suggestedKey);
+  }, [isOpen, policy?.code, suggestedKey]);
 
   if (!policy) return null;
 
-  const script = policy.powershellTemplate(tenantDomain);
+  const needsCountries = policy.code === "CA08";
+  const parsedCountries = needsCountries ? parseAllowedCountries(countriesText) : { countries: undefined };
+  const script = policy.powershellTemplate(tenantDomain, { allowedCountries: parsedCountries.countries });
+  const deployBlocked = needsCountries && !parsedCountries.countries;
 
   const handleCopy = async () => {
     try {
@@ -54,7 +67,7 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
       const res = await fetch(`/api/tenants/${tenantId}/deploy-ca`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ baselineCode: policy.code }),
+        body: JSON.stringify({ baselineCode: policy.code, allowedCountries: parsedCountries.countries }),
       });
 
       const data = await res.json();
@@ -186,6 +199,27 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
           )
         )}
 
+        {needsCountries && (
+          <div className="p-3 border border-slate-200 dark:border-slate-700 text-xs rounded-sm space-y-1.5">
+            <label htmlFor="ca08-countries" className="font-semibold text-slate-800 dark:text-slate-200 block">
+              Allowed countries (two-letter codes, comma separated)
+            </label>
+            <input
+              id="ca08-countries"
+              value={countriesText}
+              onChange={(e) => setCountriesText(e.target.value)}
+              placeholder="ZA, NA"
+              className="w-full px-2 py-1 border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-sm font-mono"
+            />
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              Sign-ins from every other country, and from addresses with no known country, are blocked once the policy is switched on.
+              {suggestedCountries.length > 0 ? ` Started with ${suggestedCountries.join(", ")}, where most of this tenant's sign-ins come from.` : ""} Add every country your users genuinely work from.
+              A &quot;CA08: Allowed countries&quot; named location is created with the policy.
+            </p>
+            {parsedCountries.error && <p className="text-[11px] text-rose-700 dark:text-red-400">{parsedCountries.error}</p>}
+          </div>
+        )}
+
         {/* Policy Metadata Summary */}
         <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
           <div>
@@ -219,7 +253,7 @@ export const DeployCaPolicyModal: React.FC<DeployCaPolicyModalProps> = ({
                   setDeployError(null);
                   setShowConfirmDeploy(true);
                 }}
-                disabled={policy.requiresEntraP2 && !hasEntraP2}
+                disabled={(policy.requiresEntraP2 && !hasEntraP2) || deployBlocked}
                 title={
                   policy.requiresEntraP2 && !hasEntraP2
                     ? "Requires Microsoft Entra ID Plan 2 license to implement."

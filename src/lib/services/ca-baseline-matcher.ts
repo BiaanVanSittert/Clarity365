@@ -255,7 +255,7 @@ export function validateCaPolicyCompliance(
     if (userRisks.length === 0) missing.push("Condition 'User Risk: high'");
   } else if (codeUpper === "CA08") {
     if (!controlsInclude(policy, "block")) missing.push("Grant control 'block'");
-    if (!hasLocations(policy)) missing.push("Condition 'Locations (untrusted)'");
+    if (!hasLocations(policy)) missing.push("Condition 'Locations: all except the allowed countries'");
   } else if (codeUpper === "CA09") {
     if (
       !controlsInclude(policy, "compliantDevice") &&

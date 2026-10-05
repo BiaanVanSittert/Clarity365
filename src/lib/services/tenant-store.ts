@@ -908,14 +908,17 @@ class TenantStore {
     return { status: result.status, error: result.error };
   }
 
+  // options.allowedCountries: CA08 only (see graph-client's deployConditionalAccessPolicy).
   public async deployBaselinePolicy(
     tenantId: string,
-    baselineCode: string
+    baselineCode: string,
+    options: { allowedCountries?: string[] } = {}
   ): Promise<{ success: boolean; policy?: any; snapshot?: TenantSecuritySnapshot; error?: string }> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return { success: false, error: "Tenant not found" };
 
-    const deployResult = await deployConditionalAccessPolicy(tenant, baselineCode);
+    const deployResult = await deployConditionalAccessPolicy(tenant, baselineCode, options);
+    const allowedLocation = deployResult.namedLocation;
     this.addAuditLogEntry({
       timestamp: new Date().toISOString(),
       category: "ca_policy_deploy",
@@ -924,7 +927,7 @@ class TenantStore {
       tenantName: tenant.displayName,
       success: deployResult.success,
       detail: deployResult.success
-        ? `Created '${deployResult.policy?.displayName || baselineCode}' in Report-Only mode.`
+        ? `Created '${deployResult.policy?.displayName || baselineCode}' in Report-Only mode.${allowedLocation ? ` Allowed countries: ${(allowedLocation.countries || []).join(", ")}.` : ""}`
         : deployResult.error,
     });
 
@@ -984,7 +987,7 @@ class TenantStore {
             clientAppTypes: baselineCode === "CA01" ? ["exchangeActiveSync", "other"] : ["all"],
             ...(baselineCode === "CA06" ? { signInRiskLevels: ["medium", "high"] } : {}),
             ...(baselineCode === "CA07" ? { userRiskLevels: ["high"] } : {}),
-            ...(baselineCode === "CA08" ? { locations: { include: ["All"], exclude: ["AllTrusted"] } } : {}),
+            ...(baselineCode === "CA08" ? { locations: { include: ["All"], exclude: allowedLocation ? [allowedLocation.id] : [] } } : {}),
             ...(baselineCode === "CA09" ? { platforms: { include: ["windows", "macOS", "iOS", "android"], exclude: [] } } : {}),
           },
           matchesBaseline: true,
@@ -994,6 +997,7 @@ class TenantStore {
       snap.conditionalAccess = {
         ...snap.conditionalAccess,
         policies: updatedPolicies,
+        ...(allowedLocation ? { namedLocations: [...(snap.conditionalAccess?.namedLocations || []), allowedLocation] } : {}),
       };
       this.saveSnapshot(tenantId, snap);
     }

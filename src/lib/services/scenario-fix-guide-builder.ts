@@ -10,13 +10,14 @@ import {
   SHELL_CONNECT,
   getFixGuideDefinition,
 } from "../data/scenario-fix-guides";
-import { detectLikelyBreakGlassAccounts } from "./ca-sim-context";
-import { getRoleTemplateById } from "../utils/directory-role-templates";
+import { detectLikelyBreakGlassAccounts, isLikelyBreakGlassRef, listSimAccounts } from "./ca-sim-context";
+import { DIRECTORY_ROLE_TEMPLATES, getRoleTemplateById } from "../utils/directory-role-templates";
 import { smtpAuthEnabledFor } from "./security-posture-mapper";
 import { mapConditionalAccessPolicy } from "./ca-policy-mapper";
 import { mapCaBetaSessionExtras } from "./ca-environment-mapper";
 import { PolicyImpactPreview, previewPolicyImpact } from "./ca-policy-impact";
 import { normalizeCountryCode, UNKNOWN_COUNTRY } from "../utils/sign-in-country";
+import { hasEntraP2Capability } from "../utils/entra-p2";
 
 // Turns a guide definition into the guide for ONE tenant: commands carry
 // that tenant's real object ids and break-glass accounts, and anything that
@@ -139,6 +140,120 @@ export function signInCountries(snapshot: TenantSecuritySnapshot): { code: strin
   return [...counts.entries()].map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
 }
 
+// ------------------------------------------------ Stage 3 review item sources
+// Each mirrors the check that offers the guide (security-scenarios.ts), so
+// the guide acts on exactly what the check reported.
+
+const GLOBAL_ADMIN = "62e90394-69f5-4237-9190-012177145e10";
+const USER_ADMIN = "fe930be7-5e62-47db-91af-98c3a49a38b1";
+const EXCHANGE_ADMIN = "29232cdf-9323-42fd-ade2-1d097af3e4de";
+// Roles the standing-access, standing-deleters and exchange-admins checks look at.
+const STANDING_ROLE_IDS = new Set([...DIRECTORY_ROLE_TEMPLATES.filter((t) => t.isPrivileged).map((t) => t.templateId), USER_ADMIN, EXCHANGE_ADMIN]);
+
+function isBreakGlassRef(snapshot: TenantSecuritySnapshot, ...refs: (string | undefined)[]): boolean {
+  const candidates = detectLikelyBreakGlassAccounts(snapshot);
+  return refs.some((r) => !!r && !!isLikelyBreakGlassRef(r, candidates));
+}
+
+function mfaUnregisteredItems(snapshot: TenantSecuritySnapshot): FixGuideItem[] {
+  return (snapshot.mfaAudit || [])
+    .filter((u) => u.accountEnabled && !u.mfaRegistered && !isGuestUpn(u.userPrincipalName))
+    .map((u) => ({ label: u.userPrincipalName, principalId: u.id, userPrincipalName: u.userPrincipalName }));
+}
+
+// One item per (account, policy) where an enabled or report-only policy
+// excludes a non-break-glass member account by name.
+function individualExclusionItems(snapshot: TenantSecuritySnapshot): FixGuideItem[] {
+  const lists = listSimAccounts(snapshot);
+  const accounts = [...lists.globalAdmins, ...lists.otherAdmins, ...lists.standardUsers].filter((a) => a.excludedFrom && !a.breakGlassReasons);
+  const items: FixGuideItem[] = [];
+  for (const a of accounts) {
+    for (const p of snapshot.conditionalAccess?.policies || []) {
+      if (p.state === "disabled") continue;
+      const ref = (p.conditions.users.exclude || []).find((e) => {
+        const key = e.replace(/^upn:/i, "").toLowerCase();
+        return key === a.id.toLowerCase() || key === a.userPrincipalName.toLowerCase();
+      });
+      if (!ref) continue;
+      items.push({ label: `${a.userPrincipalName}: ${p.name}`, principalId: a.id, userPrincipalName: a.userPrincipalName, policyId: p.id, policyName: p.name, excludeRef: ref.replace(/^upn:/i, "") });
+    }
+  }
+  return items;
+}
+
+function riskyConsentItems(snapshot: TenantSecuritySnapshot): FixGuideItem[] {
+  return (snapshot.oauthConsentGrants?.grants || [])
+    .filter((g) => g.consentType === "Principal" && g.highRiskScopes.length > 0 && !g.isMicrosoftApp && g.publisherVerified !== true)
+    .map((g) => ({ label: `${g.appDisplayName || g.servicePrincipalId} (${g.userCount} user(s)): ${g.highRiskScopes.join(", ")}`, principalId: g.servicePrincipalId }));
+}
+
+const ROLE_GRANTING = /RoleManagement\.ReadWrite\.Directory|AppRoleAssignment\.ReadWrite\.All|Directory\.ReadWrite\.All/i;
+function riskyAppRegistrationItems(snapshot: TenantSecuritySnapshot): FixGuideItem[] {
+  return (snapshot.appRegistrations || [])
+    .filter((a) => a.riskCategory === "critical" || a.riskCategory === "high" || a.highPrivilegePermissions.some((p) => ROLE_GRANTING.test(p)))
+    .map((a) => ({ label: `${a.displayName}: ${a.highPrivilegePermissions.join(", ")}`, appId: a.appId, permissions: a.highPrivilegePermissions }));
+}
+
+// Role holders from PIM data when synced, otherwise from directory roles.
+function roleHolderItems(snapshot: TenantSecuritySnapshot, roleIds: Set<string>, onlyStanding: boolean): FixGuideItem[] {
+  const items: FixGuideItem[] = [];
+  const pr = snapshot.privilegedRoleAssignments;
+  if (pr) {
+    for (const a of pr.assignments) {
+      if (!roleIds.has(a.roleTemplateId) || a.principalType === "servicePrincipal" || a.principalType === "group") continue;
+      if (onlyStanding && a.kind !== "activePermanent") continue;
+      const upn = a.principalUserPrincipalName || a.principalDisplayName || a.principalId;
+      const roleName = getRoleTemplateById(a.roleTemplateId)?.displayName || "Directory role";
+      items.push({ label: `${upn} (${roleName}, ${a.kind})`, principalId: a.principalId, userPrincipalName: a.principalUserPrincipalName, roleTemplateId: a.roleTemplateId, roleName, assignmentKind: a.kind });
+    }
+    return items;
+  }
+  for (const u of snapshot.mfaAudit || []) {
+    for (const id of (u.adminRoleTemplateIds || []).map((x) => x.toLowerCase())) {
+      if (!roleIds.has(id)) continue;
+      const roleName = getRoleTemplateById(id)?.displayName || "Directory role";
+      items.push({ label: `${u.userPrincipalName} (${roleName})`, principalId: u.id, userPrincipalName: u.userPrincipalName, roleTemplateId: id, roleName, assignmentKind: "activePermanent" });
+    }
+  }
+  return items;
+}
+
+// One line per Global Administrator, whatever the assignment kind.
+function globalAdminItems(snapshot: TenantSecuritySnapshot): FixGuideItem[] {
+  const seen = new Set<string>();
+  return roleHolderItems(snapshot, new Set([GLOBAL_ADMIN]), false).filter((i) => {
+    if (!i.principalId || seen.has(i.principalId)) return false;
+    seen.add(i.principalId);
+    return true;
+  });
+}
+
+function standingAdminItems(snapshot: TenantSecuritySnapshot): FixGuideItem[] {
+  return roleHolderItems(snapshot, STANDING_ROLE_IDS, true).filter((i) => !isBreakGlassRef(snapshot, i.principalId, i.userPrincipalName));
+}
+
+function roleGroupOwnerItems(snapshot: TenantSecuritySnapshot): FixGuideItem[] {
+  const adminUpns = new Set((snapshot.mfaAudit || []).filter((u) => u.isAdmin).map((u) => u.userPrincipalName.toLowerCase()));
+  return (snapshot.groups || [])
+    .filter((g) => g.isAssignableToRole)
+    .flatMap((g) => (g.owners || []).filter((o) => !adminUpns.has(o.toLowerCase())).map((o) => ({ label: `${g.displayName}: ${o}`, groupId: g.id, ownerUpn: o })));
+}
+
+function externalMailboxForwardItems(snapshot: TenantSecuritySnapshot): FixGuideItem[] {
+  return (snapshot.emailForwarding || [])
+    .filter((r) => r.isExternal && r.state === "Enabled" && r.scope !== "transport_rule")
+    .map((r) => ({
+      label: `${r.mailboxOwner || r.name} → ${r.forwardingAddress}${r.scope === "inbox_rule" ? ` (rule "${r.name}")` : " (mailbox forwarding)"}`,
+      address: r.mailboxOwner,
+      ruleName: r.scope === "inbox_rule" ? r.name : undefined,
+      forwardKind: r.scope === "inbox_rule" ? ("inboxRule" as const) : ("mailboxForwarding" as const),
+    }));
+}
+
+function externalTransportRuleItems(snapshot: TenantSecuritySnapshot): FixGuideItem[] {
+  return (snapshot.mailflowTransportRules || []).filter((r) => r.state === "Enabled" && r.redirectsExternally).map((r) => ({ label: `${r.name} → ${r.externalRedirectAddress || "external address"}`, ruleName: r.name }));
+}
+
 // Which offending items each guide works on.
 const ITEM_SOURCES: Record<string, (snapshot: TenantSecuritySnapshot) => FixGuideItem[]> = {
   "remove-guest-admin-roles": guestRoleItems,
@@ -147,6 +262,15 @@ const ITEM_SOURCES: Record<string, (snapshot: TenantSecuritySnapshot) => FixGuid
   "sharepoint-restrict-anyone-sites": anyoneSiteItems,
   "include-unknown-countries": unknownCountryLocationItems,
   "keep-cae-on": caeDisabledPolicyItems,
+  "mfa-registration-drive": mfaUnregisteredItems,
+  "remove-individual-exclusions": individualExclusionItems,
+  "revoke-risky-app-consent": riskyConsentItems,
+  "review-app-permissions": riskyAppRegistrationItems,
+  "right-size-global-admins": globalAdminItems,
+  "make-admin-roles-eligible": standingAdminItems,
+  "remove-role-group-owners": roleGroupOwnerItems,
+  "stop-external-mailbox-forwarding": externalMailboxForwardItems,
+  "disable-external-transport-rules": externalTransportRuleItems,
 };
 
 export function buildFixGuideContext(guideId: string, snapshot: TenantSecuritySnapshot): FixGuideContext {
@@ -159,6 +283,7 @@ export function buildFixGuideContext(guideId: string, snapshot: TenantSecuritySn
     sharePointAdminUrl: sharePointAdminUrlFrom(snapshot),
     homeCountry: countries[0]?.code,
     observedCountries: countries.slice(1),
+    entraP2Licensed: hasEntraP2Capability(snapshot),
   };
 }
 

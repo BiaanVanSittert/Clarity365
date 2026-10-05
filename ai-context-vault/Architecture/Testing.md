@@ -30,6 +30,11 @@ UI tests are almost absent (no React Testing Library, no Playwright/Cypress). Th
 
 **2026-10-05:** 878 tests in 79 files. New: `scenario-fix-guide-builder.test.ts` (guide catalogue rules and per-guide resolution) and `FixGuideModal.test.ts` (every guide renders for every demo tenant).
 
+**2026-10-05 (Stage 3 fix guides, CA08):** 1,125 tests in 85 files.
+- New: `scenario-fix-guides-stage3.test.ts`. On every demo tenant, a review guide works on items whenever its check lists some. It also covers each guide's commands: exclusions per policy keep break-glass; PIM assigns eligible before removing active; names with quotes are escaped.
+- New: `allowed-countries.test.ts`.
+- `graph-client.test.ts` gains the CA08 deploy sequence: location, then policy, cleanup on failure, nothing written on bad input.
+
 **2026-10-05 (Stage 2 fix guides):** 1,068 tests in 83 files. New: `ca-policy-impact.test.ts`. It covers sign-in mapping, preview counts and wording. It also proves that every Conditional Access guide's policy, switched on alone, turns the checks it is offered on away from "not prevented" on every demo tenant. Also new: `powershell-literal.test.ts`.
 
 **2026-10-05 (later):** 978 tests in 81 files. `scenario-fix-guide-builder.test.ts` now also covers per-mailbox and per-site commands, the SharePoint admin URL and long-list capping; `single-flight.test.ts` and `sync-errors.test.ts` were added with the sync fixes.

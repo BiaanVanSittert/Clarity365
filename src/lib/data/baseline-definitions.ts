@@ -2,7 +2,8 @@ import { CABaselineItem } from "../types";
 
 export interface CABaselinePolicyDefinition extends CABaselineItem {
   requiresEntraP2?: boolean;
-  powershellTemplate: (domainName: string) => string;
+  // options.allowedCountries: CA08 only (ISO two-letter codes).
+  powershellTemplate: (domainName: string, options?: { allowedCountries?: string[] }) => string;
 }
 
 export const CA_BASELINE_STANDARDS: CABaselinePolicyDefinition[] = [
@@ -342,13 +343,16 @@ try {
   },
   {
     code: "CA08",
-    name: "Block Access from Untrusted Countries",
-    description: "Restricts authentication requests originating from geographic locations where the organization has no legitimate operations or presence.",
+    name: "Block Access from Outside Allowed Countries",
+    description:
+      "Blocks sign-ins from every country except the ones the organisation works in. The allowed countries are a country named location created with the policy; addresses that don't map to any country are blocked too. (Until 2026-10-05 this baseline excluded only trusted locations, which blocks home and mobile sign-ins on a tenant without trusted locations.)",
     recommendedState: "enabled",
-    targetScope: "All users, Named Locations (Blocked Geographies list)",
+    targetScope: "All users, all resources, all locations except the \"CA08: Allowed countries\" named location",
     riskMitigated: "Offshore cybercrime syndicates, hostile state-sponsored reconnaissance, and foreign proxy attacks.",
-    powershellTemplate: (domain: string) => `# Connect to Microsoft Graph
-Connect-MgGraph -Scopes "Policy.ReadWrite.ConditionalAccess"
+    powershellTemplate: (domain: string, options?: { allowedCountries?: string[] }) => {
+      const countries = options?.allowedCountries && options.allowedCountries.length > 0 ? options.allowedCountries : ["<two-letter country code>"];
+      return `# Connect to Microsoft Graph
+Connect-MgGraph -Scopes "Policy.Read.All","Policy.ReadWrite.ConditionalAccess"
 
 # Optional: Safely lookup emergency account GUID if present
 $excludeUserIds = @()
@@ -358,9 +362,18 @@ if ($emergencyUser) {
     Write-Host "Excluded break-glass account: $($emergencyUser.UserPrincipalName)" -ForegroundColor Cyan
 }
 
-# Deploy CA08: Block Access from Untrusted Countries in Report-Only Mode
+# 1. The countries sign-ins are allowed from (ISO two-letter codes). Add every
+#    country your users genuinely work from before switching the policy on.
+$allowedLocation = New-MgIdentityConditionalAccessNamedLocation -BodyParameter @{
+    "@odata.type" = "#microsoft.graph.countryNamedLocation"
+    displayName = "CA08: Allowed countries"
+    countriesAndRegions = @(${countries.map((c) => `"${c}"`).join(", ")})
+    includeUnknownCountriesAndRegions = $false
+}
+
+# 2. Deploy CA08: block every location except the allowed countries, in Report-Only Mode
 $ca08Params = @{
-    displayName = "CA08: Block Access from Untrusted Countries"
+    displayName = "CA08: Block Access from Outside Allowed Countries"
     state = "enabledForReportingButNotEnforced" # REPORT-ONLY MODE
     conditions = @{
         users = @{
@@ -373,7 +386,7 @@ $ca08Params = @{
         clientAppTypes = @("all")
         locations = @{
             includeLocations = @("All")
-            excludeLocations = @("AllTrusted") # Excludes corporate trusted IP ranges and countries
+            excludeLocations = @($allowedLocation.Id)
         }
     }
     grantControls = @{
@@ -388,7 +401,8 @@ try {
     Write-Host "Review sign-in logs before manually enabling the policy in Microsoft Entra Admin Center." -ForegroundColor Yellow
 } catch {
     Write-Error "Deployment failed: $($_.Exception.Message)"
-}`,
+}`;
+    },
   },
   {
     code: "CA09",

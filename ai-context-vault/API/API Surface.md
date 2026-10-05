@@ -35,7 +35,7 @@ All eight → [[Audit Log Investigator]].
 ## Tenant actions (writes)
 | Route | Calls |
 |---|---|
-| `/api/tenants/[id]/deploy-ca` | `deployBaselinePolicy` → [[Conditional Access Policy Scanner]] |
+| `/api/tenants/[id]/deploy-ca` | `deployBaselinePolicy` → [[Conditional Access Policy Scanner]]. CA08 also needs `allowedCountries` (two-letter codes, validated, 400 if missing). |
 | `/api/tenants/[id]/groups` | `addGroup` → [[Groups & Distribution Management]] |
 | `/api/tenants/[id]/sharepoint` | `updateSharePointPolicy` → [[SharePoint & Storage Policies]] |
 | `/api/tenants/[id]/tabl` | `addTablEntry`/`removeTablEntry` → [[Defender for Office 365 & TABL]] |

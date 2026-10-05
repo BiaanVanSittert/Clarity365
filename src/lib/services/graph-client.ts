@@ -1,4 +1,5 @@
 import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SignInCoverage, SecretExpiry, AlertPolicyInventory, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability, TenantLicenseSku, SecurityIncidentItem, AsrRuleMode, AsrRuleState, AsrRuleActivitySummary, AsrDetectionEvent, MdeConnectorSettings, AtpOnboardingDeviceState, DefenderAvPolicySettings, IntuneAssignmentTarget, AsrDetectionTimeRange, EdrPolicySettings, BitLockerPolicySettings, DeviceComplianceReason, CaNamedLocation, CaSessionControls, TenantIdentitySettings, ExchangeSecuritySettings, PrivilegedRoleAssignments, OAuthConsentGrantSummary } from "../types";
+import { CA08_ALLOWED_LOCATION_NAME, buildCa08AllowedCountriesLocation, parseAllowedCountries } from "../utils/allowed-countries";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { classifyPolicyBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
@@ -493,7 +494,10 @@ export async function testAppRegistrationPermissions(tenant: Tenant): Promise<Te
   };
 }
 
-export function buildGraphCaPolicyPayload(code: string, domain: string) {
+// options.allowedLocationId: CA08 only - the id of the "CA08: Allowed
+// countries" named location the policy excludes (created first by
+// deployConditionalAccessPolicy).
+export function buildGraphCaPolicyPayload(code: string, domain: string, options: { allowedLocationId?: string } = {}) {
   switch (code) {
     case "CA01":
       return {
@@ -592,14 +596,19 @@ export function buildGraphCaPolicyPayload(code: string, domain: string) {
         grantControls: { operator: "AND", builtInControls: ["mfa", "passwordChange"] },
       };
     case "CA08":
+      // Until 2026-10-05 this excluded only "AllTrusted", which blocks every
+      // sign-in from home or mobile networks on a tenant without trusted
+      // locations (9 of 10 live tenants). It now excludes an allow list of
+      // countries instead.
+      if (!options.allowedLocationId) throw new Error("CA08 needs the allowed-countries named location id.");
       return {
-        displayName: "CA08: Block Access from Untrusted Countries",
+        displayName: "CA08: Block Access from Outside Allowed Countries",
         state: "enabledForReportingButNotEnforced",
         conditions: {
           users: { includeUsers: ["All"], excludeUsers: [] },
           applications: { includeApplications: ["All"] },
           clientAppTypes: ["all"],
-          locations: { includeLocations: ["All"], excludeLocations: ["AllTrusted"] },
+          locations: { includeLocations: ["All"], excludeLocations: [options.allowedLocationId] },
         },
         grantControls: { operator: "OR", builtInControls: ["block"] },
       };
@@ -646,8 +655,18 @@ export function buildGraphCaPolicyPayload(code: string, domain: string) {
 
 export async function deployConditionalAccessPolicy(
   tenant: Tenant,
-  baselineCode: string
-): Promise<{ success: boolean; policy?: any; error?: string }> {
+  baselineCode: string,
+  options: { allowedCountries?: string[] } = {}
+): Promise<{ success: boolean; policy?: any; namedLocation?: CaNamedLocation; error?: string }> {
+  // CA08 creates its allowed-countries named location first, so the list
+  // must be valid before anything is written.
+  let allowedCountries: string[] | undefined;
+  if (baselineCode === "CA08") {
+    const parsed = parseAllowedCountries(options.allowedCountries);
+    if (!parsed.countries) return { success: false, error: `CA08: ${parsed.error}` };
+    allowedCountries = parsed.countries;
+  }
+
   if (tenant.credentials.authMode === "mock") {
     const baselineDef = CA_BASELINE_STANDARDS.find((b) => b.code === baselineCode);
     const mockPolicy = {
@@ -657,7 +676,10 @@ export async function deployConditionalAccessPolicy(
       createdDateTime: new Date().toISOString(),
       modifiedDateTime: new Date().toISOString(),
     };
-    return { success: true, policy: mockPolicy };
+    const namedLocation: CaNamedLocation | undefined = allowedCountries
+      ? { id: `loc-${tenant.id}-ca08-allowed`, displayName: CA08_ALLOWED_LOCATION_NAME, kind: "country", countries: allowedCountries, includeUnknownCountries: false }
+      : undefined;
+    return { success: true, policy: mockPolicy, namedLocation };
   }
 
   const { token, error } = await getGraphAccessToken(tenant.credentials);
@@ -665,8 +687,59 @@ export async function deployConditionalAccessPolicy(
     return { success: false, error: `Authentication Error: ${error}` };
   }
 
-  const payload = buildGraphCaPolicyPayload(baselineCode, tenant.defaultDomainName);
+  let namedLocation: CaNamedLocation | undefined;
+  if (allowedCountries) {
+    const created = await createCa08AllowedCountriesLocation(token, allowedCountries);
+    if (!created.location) return { success: false, error: created.error };
+    namedLocation = created.location;
+  }
 
+  const payload = buildGraphCaPolicyPayload(baselineCode, tenant.defaultDomainName, { allowedLocationId: namedLocation?.id });
+
+  // A policy that fails after its named location was created would leave an
+  // orphaned location behind; remove it (best effort) and say what happened.
+  const withLocationCleanup = async (result: { success: boolean; policy?: any; error?: string }) => {
+    if (result.success || !namedLocation) return { ...result, namedLocation: result.success ? namedLocation : undefined };
+    const removed = await deleteNamedLocation(token, namedLocation.id);
+    const note = removed
+      ? ` The "${CA08_ALLOWED_LOCATION_NAME}" named location created for it was removed again.`
+      : ` The "${CA08_ALLOWED_LOCATION_NAME}" named location created for it (id ${namedLocation.id}) could not be removed; delete it in Entra ID > Conditional Access > Named locations.`;
+    return { ...result, error: `${result.error}${note}` };
+  };
+  return withLocationCleanup(await postConditionalAccessPolicy(token, baselineCode, payload));
+}
+
+async function createCa08AllowedCountriesLocation(token: string, countries: string[]): Promise<{ location?: CaNamedLocation; error?: string }> {
+  try {
+    const res = await graphFetch(
+      "https://graph.microsoft.com/v1.0/identity/conditionalAccess/namedLocations",
+      { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(buildCa08AllowedCountriesLocation(countries)) },
+      { retryOnNetworkError: false }
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.id) {
+      return { error: `Could not create the "${CA08_ALLOWED_LOCATION_NAME}" named location: ${data?.error?.message || `HTTP ${res.status}`}. Nothing was created.` };
+    }
+    return { location: { id: data.id, displayName: CA08_ALLOWED_LOCATION_NAME, kind: "country", countries, includeUnknownCountries: false } };
+  } catch (err: any) {
+    return { error: `Could not create the "${CA08_ALLOWED_LOCATION_NAME}" named location: ${err.message || "network error"}. Check Named locations before retrying, in case it was created.` };
+  }
+}
+
+async function deleteNamedLocation(token: string, id: string): Promise<boolean> {
+  try {
+    const res = await graphFetch(
+      `https://graph.microsoft.com/v1.0/identity/conditionalAccess/namedLocations/${encodeURIComponent(id)}`,
+      { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+      { retryOnNetworkError: false }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function postConditionalAccessPolicy(token: string, baselineCode: string, payload: unknown): Promise<{ success: boolean; policy?: any; error?: string }> {
   try {
     const res = await graphFetch(
       "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies",
