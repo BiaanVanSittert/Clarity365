@@ -764,6 +764,7 @@ export const AppShell: React.FC = () => {
               {activeView === "sim_scenarios" && snapshot && (
                 <SecurityScenariosModule
                   snapshot={snapshot}
+                  onRefresh={handleLocalRefresh}
                   onOpenSituations={(persona) => {
                     setSimPersona(persona);
                     setActiveView("sim_signin");

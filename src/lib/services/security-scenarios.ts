@@ -1,4 +1,6 @@
-import { TenantSecuritySnapshot } from "../types";
+import { ScenarioConfirmation, ScenarioConfirmationKey, TenantSecuritySnapshot } from "../types";
+import { AUDIT_CONFIG_OPERATIONS, USER_DELETION_OPERATIONS, describeAlertTrigger, findAlertCoverage } from "./alert-policy-mapper";
+import { CONFIRMATION_VALID_DAYS, ConfirmationState, getConfirmationState } from "../utils/scenario-confirmations";
 import { CA_DOCS, CaGapAnalysis, CaGapCellState, CaGapControl, CaGapPersona, analyzeCaGaps } from "./ca-gap-analyzer";
 import { CaEnvironment, CaEvaluationResult, SignInContext, evaluateSignIn } from "./ca-policy-evaluator";
 import { BreakGlassCandidate, SimAccountLists, buildCaEnvironment, buildSyntheticSimUser, detectLikelyBreakGlassAccounts, isLikelyBreakGlassRef, listSimAccounts } from "./ca-sim-context";
@@ -34,6 +36,15 @@ export interface ScenarioCheckResult {
   docsUrl?: string;
   // Offers "simulate in Sign-in Situations" for this persona.
   simulatePersona?: SituationPersona;
+  // A command that puts the fix in place, shown in a copyable box.
+  command?: string;
+  // Set when Clarity365 can't see this for itself and the operator may
+  // confirm it once for the tenant (scenario-confirmations.ts).
+  confirmKey?: ScenarioConfirmationKey;
+  // The operator's confirmation for this check, if there is one.
+  confirmation?: ConfirmationState;
+  // "How to fix" guide for this check (scenario-fix-guides.ts); set only while it isn't green.
+  guideId?: string;
 }
 
 export interface ScenarioResult {
@@ -177,6 +188,8 @@ const EXCHANGE_ADMIN = "29232cdf-9323-42fd-ade2-1d097af3e4de";
 
 interface CheckDef {
   id: string;
+  // The "How to fix" guide (scenario-fix-guides.ts), offered while the check isn't green.
+  guideId?: string;
   evaluate: (ctx: ScenarioContext) => Omit<ScenarioCheckResult, "id">;
 }
 
@@ -297,6 +310,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     checks: [
       {
         id: "no-guest-admins",
+        guideId: "remove-guest-admin-roles",
         evaluate: (c) => {
           const fromProfiles = (c.snapshot.mfaAudit || []).filter((u) => u.isAdmin && isGuestUpn(u.userPrincipalName)).map((u) => `${u.userPrincipalName} (${(u.adminRoles || []).join(", ")})`);
           const fromPim = (c.snapshot.privilegedRoleAssignments?.assignments || [])
@@ -384,6 +398,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
       { id: "ca-legacy", evaluate: (c) => fromCell(c, "users", "legacyBlocked", "Conditional Access blocks legacy authentication", "Block the Exchange ActiveSync and Other clients client app types (CA01).", CA_DOCS.legacyAuth) },
       {
         id: "smtp-auth-org",
+        guideId: "disable-smtp-auth-org",
         evaluate: (c) =>
           boolCheck(
             c.snapshot.exchangeSecurity?.smtpClientAuthDisabledOrgWide,
@@ -539,9 +554,9 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     title: "Device-code phishing",
     description: "An attacker sends a device code and asks the victim to enter it at microsoft.com/devicelogin, receiving a token that already satisfies MFA.",
     checks: [
-      { id: "users", evaluate: (c) => fromSituation(c, "user-devicecode", "Device code flow is blocked for users") },
-      { id: "admins", evaluate: (c) => fromSituation(c, "ga-devicecode", "Device code flow is blocked for admins") },
-      { id: "guests", evaluate: (c) => fromSituation(c, "guest-devicecode", "Device code flow is blocked for guests") },
+      { id: "users", guideId: "block-device-code-flow", evaluate: (c) => fromSituation(c, "user-devicecode", "Device code flow is blocked for users") },
+      { id: "admins", guideId: "block-device-code-flow", evaluate: (c) => fromSituation(c, "ga-devicecode", "Device code flow is blocked for admins") },
+      { id: "guests", guideId: "block-device-code-flow", evaluate: (c) => fromSituation(c, "guest-devicecode", "Device code flow is blocked for guests") },
       {
         id: "auth-transfer",
         evaluate: (c) => {
@@ -704,13 +719,16 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
       },
       {
         id: "alerting",
-        evaluate: () => ({
-          label: "Someone is alerted if auditing is changed",
-          status: "notAssessed",
-          detail: "Manual check: Clarity365 can't read Defender or Purview alert policies. Confirm an alert fires on Set-AdminAuditLogConfig and Set-OrganizationConfig -AuditDisabled.",
-          fix: "Create an alert policy (or a Sentinel rule) for audit-configuration changes.",
-          docsUrl: SCENARIO_DOCS.auditLog,
-        }),
+        evaluate: (c) =>
+          alertPolicyCheck(c, {
+            label: "Someone is alerted if auditing is changed",
+            operations: AUDIT_CONFIG_OPERATIONS,
+            confirmKey: "alert-audit-config",
+            watched: "the audit log configuration is changed (Set-AdminAuditLogConfig)",
+            fix: "Create an alert policy for audit-configuration changes (run the command in Security & Compliance PowerShell), or a Sentinel rule and confirm it here.",
+            command: 'New-ProtectionAlert -Name "Audit logging changed" -Category ThreatManagement -ThreatType Activity -Operation "Set-AdminAuditLogConfig" -AggregationType None -Severity High -NotifyUser "<alert mailbox>"',
+            docsUrl: SCENARIO_DOCS.auditLog,
+          }),
       },
     ],
   },
@@ -755,12 +773,15 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
       },
       {
         id: "alerting",
-        evaluate: () => ({
-          label: "Mass deletion raises an alert",
-          status: "notAssessed",
-          detail: "Manual check: Clarity365 can't read alert policies. Confirm an alert fires on bulk user deletion (for example a Sentinel or Defender rule on \"Delete user\" events).",
-          fix: "Create an alert for more than a handful of user deletions in a short period.",
-        }),
+        evaluate: (c) =>
+          alertPolicyCheck(c, {
+            label: "User deletion raises an alert",
+            operations: USER_DELETION_OPERATIONS,
+            confirmKey: "alert-user-deletion",
+            watched: "a user is deleted",
+            fix: "Create an alert policy for user deletion (run the command in Security & Compliance PowerShell). With an E5 licence, add -AggregationType SimpleAggregation -Threshold 5 -TimeWindow 60 to alert only on bulk deletion. Or use a Sentinel rule and confirm it here.",
+            command: 'New-ProtectionAlert -Name "User deleted" -Category AccessGovernance -ThreatType Activity -Operation "Delete user." -AggregationType None -Severity Medium -NotifyUser "<alert mailbox>"',
+          }),
       },
     ],
   },
@@ -934,7 +955,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
           const sp = c.snapshot.sharePoint;
           const label = "Anyone links expire";
           if (!sp || sp.tenantSharingLevel !== "Anyone") return { label, status: "prevented", detail: "Not needed: Anyone links are off." };
-          if (sp.linkDefaultsReported === false) return { label, status: "notAssessed", detail: "Microsoft's API doesn't report the Anyone-link expiry, so it can't be checked from here.", fix: "Check it in the SharePoint admin center > Sharing > Advanced settings for Anyone links." };
+          if (sp.linkDefaultsReported === false) return { label, status: "notAssessed", detail: "Microsoft's API doesn't report the Anyone-link expiry, so it can't be checked from here.", fix: "Check it in the SharePoint admin center > Sharing > Advanced settings for Anyone links (30 days or fewer), then confirm it here.", confirmKey: "sharepoint-anyone-link-expiry" };
           return sp.anonymousLinkExpirationDays > 0 && sp.anonymousLinkExpirationDays <= 30
             ? { label, status: "prevented", detail: `Anyone links expire after ${sp.anonymousLinkExpirationDays} day(s).` }
             : { label, status: "notPrevented", detail: sp.anonymousLinkExpirationDays > 0 ? `Anyone links last ${sp.anonymousLinkExpirationDays} days.` : "Anyone links never expire.", fix: "Set Anyone links to expire within 30 days." };
@@ -946,7 +967,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
           const sp = c.snapshot.sharePoint;
           const label = "The default link isn't an Anyone link";
           if (!sp || sp.tenantSharingLevel !== "Anyone") return { label, status: "prevented", detail: "Not needed: Anyone links are off." };
-          if (sp.linkDefaultsReported === false) return { label, status: "notAssessed", detail: "Microsoft's API doesn't report the default link type, so it can't be checked from here.", fix: "Check it in the SharePoint admin center > Sharing > File and folder links." };
+          if (sp.linkDefaultsReported === false) return { label, status: "notAssessed", detail: "Microsoft's API doesn't report the default link type, so it can't be checked from here.", fix: "Check it in the SharePoint admin center > Sharing > File and folder links (the default should not be Anyone), then confirm it here.", confirmKey: "sharepoint-default-link" };
           return sp.defaultLinkType === "Anyone"
             ? { label, status: "notPrevented", detail: "New links default to Anyone links.", fix: "Set the default link to \"Specific people\" or \"Only people in your organization\"." }
             : { label, status: "prevented", detail: `New links default to ${sp.defaultLinkType === "SpecificPeople" ? "specific people" : "people in the organisation"}.` };
@@ -1014,6 +1035,69 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
 // green only when every check is prevented, orange otherwise (partial
 // checks, or checks that couldn't be assessed). Green and red lead, per the
 // user's colour decision.
+// "Someone is alerted when X happens": answered from the tenant's Microsoft
+// 365 alert policies when they could be read. Only a policy that is enabled,
+// watches the activity and emails someone counts as prevented. When no
+// policy is found the check is red, with the option to confirm that the
+// alert lives somewhere Clarity365 can't see (Sentinel, another SIEM).
+function alertPolicyCheck(
+  c: ScenarioContext,
+  spec: { label: string; operations: string[]; confirmKey: ScenarioConfirmationKey; watched: string; fix: string; command: string; docsUrl?: string }
+): Omit<ScenarioCheckResult, "id"> {
+  const { label, confirmKey, docsUrl } = spec;
+  const inventory = c.snapshot.alertPolicies;
+  const coverage = findAlertCoverage(inventory, spec.operations);
+  const names = coverage.policies.map((p) => `"${p.name}"`).join(", ");
+  switch (coverage.state) {
+    case "alerting": {
+      const p = coverage.policies[0];
+      const trigger = describeAlertTrigger(p);
+      return { label, status: "prevented", detail: `Alert policy ${names} emails ${p.notifyRecipients} recipient(s) when ${spec.watched}${trigger ? ` (${trigger})` : ""}.` };
+    }
+    case "raisedNotEmailed":
+      return { label, status: "partial", detail: `Alert policy ${names} raises an alert when ${spec.watched}, but emails nobody, so it is only seen if someone opens the Defender portal.`, fix: "Add an email recipient to the alert policy.", docsUrl };
+    case "disabledOnly":
+      return { label, status: "notPrevented", detail: `Alert policy ${names} watches this but is turned off.`, fix: "Turn the alert policy on (Defender portal > Policies & rules > Alert policy).", docsUrl };
+    case "none":
+      return {
+        label,
+        status: "notPrevented",
+        detail: `None of this tenant's ${inventory!.policies.length} Microsoft 365 alert policies fires when ${spec.watched}. If you alert on it elsewhere (Sentinel or another monitoring tool), confirm that here.`,
+        fix: spec.fix,
+        command: spec.command,
+        docsUrl,
+        confirmKey,
+      };
+    default: {
+      const reason = !inventory
+        ? "Alert policies haven't been synced yet. Re-sync this tenant."
+        : inventory.unavailable === "notSetUp"
+          ? "Alert policies can't be read until Exchange app access is set up for this tenant (see the Permissions check)."
+          : `Alert policies couldn't be read: ${inventory.detail || "unknown error"}.`;
+      return { label, status: "notAssessed", detail: reason, fix: "Until they can be read, check it in the Defender portal (Policies & rules > Alert policy) and confirm it here.", command: spec.command, docsUrl, confirmKey };
+    }
+  }
+}
+
+const shortDate = (iso: string) => iso.slice(0, 10);
+
+// A valid confirmation settles a check Clarity365 can't see for itself:
+// "in place" turns it green, "not in place" red. A lapsed one no longer
+// counts and the check says so. Checks without a confirmKey are never touched.
+export function applyManualConfirmation(check: ScenarioCheckResult, confirmations: Partial<Record<ScenarioConfirmationKey, ScenarioConfirmation>> | undefined, now: Date): ScenarioCheckResult {
+  if (!check.confirmKey) return check;
+  const state = getConfirmationState(confirmations?.[check.confirmKey], now);
+  if (!state) return check;
+  if (state.expired) {
+    return { ...check, confirmation: state, detail: `${check.detail} Your confirmation from ${shortDate(state.confirmedAt)} is more than ${CONFIRMATION_VALID_DAYS} days old and no longer counts; please check again.` };
+  }
+  const note = state.note ? ` Note: ${state.note}` : "";
+  if (state.status === "inPlace") {
+    return { ...check, confirmation: state, status: "prevented", detail: `Confirmed manually on ${shortDate(state.confirmedAt)} (valid until ${shortDate(state.expiresAt)}).${note}`, fix: undefined, command: undefined };
+  }
+  return { ...check, confirmation: state, status: "notPrevented", detail: `Marked as not in place on ${shortDate(state.confirmedAt)}.${note}` };
+}
+
 export function rollUpVerdict(checks: { status: ScenarioCheckStatus }[]): ScenarioCheckStatus {
   if (checks.some((c) => c.status === "notPrevented")) return "notPrevented";
   if (checks.length > 0 && checks.every((c) => c.status === "prevented")) return "prevented";
@@ -1022,6 +1106,7 @@ export function rollUpVerdict(checks: { status: ScenarioCheckStatus }[]): Scenar
 }
 
 export function evaluateScenarios(snapshot: TenantSecuritySnapshot, options: { foreignCountry?: string; now?: Date } = {}): ScenarioResult[] {
+  const now = options.now || new Date();
   const env = buildCaEnvironment(snapshot);
   const homeCountry = detectHomeCountry(snapshot);
   const foreignCountry = options.foreignCountry || (homeCountry === "RU" ? "CN" : "RU");
@@ -1061,7 +1146,10 @@ export function evaluateScenarios(snapshot: TenantSecuritySnapshot, options: { f
   };
 
   return SCENARIO_DEFINITIONS.map((def) => {
-    const checks = def.checks.map((check) => ({ id: check.id, ...check.evaluate(ctx) }));
+    const checks = def.checks.map((check) => {
+      const result = applyManualConfirmation({ id: check.id, ...check.evaluate(ctx) }, snapshot.tenant?.scenarioConfirmations, now);
+      return check.guideId && result.status !== "prevented" ? { ...result, guideId: check.guideId } : result;
+    });
     const counts: Record<ScenarioCheckStatus, number> = { prevented: 0, partial: 0, notPrevented: 0, notAssessed: 0 };
     for (const c of checks) counts[c.status] += 1;
     return {

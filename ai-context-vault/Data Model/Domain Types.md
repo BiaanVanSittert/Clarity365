@@ -56,6 +56,10 @@ tags: [data-model]
 - `SyncHealth.missingPermissions`: required Graph permissions the app registration didn't have at sync time.
 - `TenantCredentials.secretExpiry` (`SecretExpiry`: `expiresAt`, `exact`, `checkedAt`) and `FleetTenantPosture.secretExpiry` (read-only fleet visibility).
 
+## Added 2026-10-02 (all optional)
+- `TenantSecuritySnapshot.alertPolicies` (`AlertPolicyInventory`: `policies`, `unavailable`, `detail`, `checkedAt`; `AlertPolicySummary` keeps the watched `operations`, `disabled`, recipient **count**, aggregation). Empty `policies` with `unavailable` set means "couldn't be read", not "none".
+- `Tenant.scenarioConfirmations` (`ScenarioConfirmationKey` → `ScenarioConfirmation`: `status`, `confirmedAt`, `note`).
+
 ## See also
 - [[Baseline Definitions & Mock Data]] :  the 39 baseline rules these types score against
 - [[API Surface]] :  every route that reads/writes these types

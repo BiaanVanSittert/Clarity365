@@ -26,4 +26,27 @@ New helper: `src/lib/utils/intune-capability.ts` (`hasIntuneCapability`), recogn
 
 Tests: `security-scenarios.test.ts` (catalog, roll-up, demo tenants), `SecurityScenariosModule.test.ts` (render smoke test), `intune-capability.test.ts`.
 
+## Alert checks read automatically, and "confirm once" (2026-10-02)
+
+**Alert policies.** The two "someone is alerted" checks (`silent-tenant.alerting`, `mass-deletion.alerting`) no longer say "Manual check". `alertPolicyCheck()` answers them from `snapshot.alertPolicies`, which the sync reads through Security & Compliance PowerShell (`scc-client.ts`, see [[Core Graph Layer]]). Matching (`alert-policy-mapper.ts`, `findAlertCoverage`) is on the policy's `Operation` only, never its name:
+
+| What was found | Result |
+|---|---|
+| Enabled policy on the activity that emails someone | Prevented, naming the policy |
+| Enabled, but no email recipient (or notifications off) | Partly prevented |
+| Only a disabled policy | Not prevented |
+| Policies read, none on the activity | Not prevented, with the `New-ProtectionAlert` command and a confirm button (it may be covered in Sentinel) |
+| Couldn't be read (not synced, Exchange app access not set up, error) | Not assessed, with a confirm button |
+
+Activities: `Set-AdminAuditLogConfig` for auditing (not `Set-OrganizationConfig`, which is too broad to mean anything), `Delete user` for deletion (case, spacing and Entra's trailing full stop ignored). The deletion check was renamed "User deletion raises an alert": any enabled policy on that activity counts, aggregated or per event.
+
+**Confirm once.** Four checks rest on things Clarity365 can't see: the two alert checks when no policy is found or they can't be read, and SharePoint's Anyone-link expiry and default link type (absent from Graph v1.0 and beta). Each carries a `confirmKey`. The operator records "it's in place" or "not in place" for that one tenant; `applyManualConfirmation()` then turns the check green or red. Stored on the tenant record (`Tenant.scenarioConfirmations`) in Clarity365 only, nothing is sent to Microsoft 365. Valid for 365 days (`scenario-confirmations.ts`), after which it stops counting and the check says so. A confirmation never overrides something Clarity365 read for itself.
+
+**Verified live (read-only, 2026-10-02):** the app's own reader returned 48 to 55 policies on the 3 tenants with Exchange app access (7 to 14 seconds each) and "not set up" on the other 7. No tenant has an audit or deletion alert, so the green path has only been seen on demo data and tests. **Verified against real policies the same day:** the user created both alerts on Crimson Line Live Demo with the commands the checks show. After a sync they are stored as `Operation: ["Set-AdminAuditLogConfig"]` and `["Delete user."]`, both checks read Prevented, and the "Silent tenant" scenario is fully green.
+
+Demo tenants cover each outcome: Woodgrove (both alerting), Contoso (no recipient / switched off), Northwind (none), Fabrikam (not set up).
+
+## How to fix guides (2026-10-05)
+Checks can point at a guide (`guideId` on the check definition; carried on the result only while the check isn't green). "How to fix" opens `FixGuideModal` with the portal path, copyable commands filled in with this tenant's values, confirm and undo steps. Guides only: Clarity365 never makes the change. Pilots: device code flow, SMTP AUTH, guest admin roles. See [[Scenario Fix Guides Plan]].
+
 Part of [[Clarity365 MOC]].

@@ -12,6 +12,7 @@ tags: [api]
 | `/api/tenants` | GET/POST/DELETE | Tenant Store |
 | `/api/tenants/[id]` | GET/PUT | Tenant Store |
 | `/api/tenants/[id]/sync` | POST | Tenant Store (`syncTenant`, live Graph pull w/ cache fallback) |
+| `/api/tenants/[id]/scenario-confirmations` | POST | Tenant Store (`setScenarioConfirmation`): record or clear a "confirmed once" answer for one Security Scenarios check. Local only |
 | `/api/tenants/[id]/sync-progress` | GET | Tenant Store (`getSyncProgress`) - polled during a sync for the live step/percent progress bar |
 | `/api/tenants/[id]/permissions` | GET | Tenant Store (`testPermissions`) |
 | `/api/tenants/[id]/exo-permissions` | GET | Tenant Store (`testExoConnectivity`) |

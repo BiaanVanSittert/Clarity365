@@ -68,6 +68,44 @@ export interface TenantCredentials {
   verifiedAt?: string;
 }
 
+// Microsoft 365 alert policies, read by the sync through Security &
+// Compliance PowerShell (scc-client.ts).
+export interface AlertPolicySummary {
+  name: string;
+  // The audit-log activities the policy watches. Empty for Microsoft's malware-type policies.
+  operations: string[];
+  disabled: boolean;
+  // True for Microsoft's built-in policies.
+  isSystemRule: boolean;
+  // How many addresses are emailed (the addresses themselves aren't stored).
+  notifyRecipients: number;
+  notificationEnabled?: boolean;
+  aggregation?: string;
+  threshold?: number;
+  timeWindowMinutes?: number;
+  severity?: string;
+  category?: string;
+}
+
+export interface AlertPolicyInventory {
+  policies: AlertPolicySummary[];
+  // Set when the policies couldn't be read; `policies` is then empty and
+  // must not be read as "no alert policies".
+  unavailable?: "notSetUp" | "error";
+  detail?: string;
+  checkedAt: string;
+}
+
+// Security Scenarios checks an operator can confirm once per tenant because
+// Microsoft doesn't expose the setting (see scenario-confirmations.ts).
+export type ScenarioConfirmationKey = "alert-audit-config" | "alert-user-deletion" | "sharepoint-anyone-link-expiry" | "sharepoint-default-link";
+
+export interface ScenarioConfirmation {
+  status: "inPlace" | "notInPlace";
+  confirmedAt: string;
+  note?: string;
+}
+
 export interface SecretExpiry {
   expiresAt: string;
   // True when the secret in use was identified exactly; false when this is
@@ -87,6 +125,9 @@ export interface Tenant {
   lastSyncTimestamp: string;
   connectionStatus: "healthy" | "degraded" | "disconnected" | "error";
   credentials: TenantCredentials;
+  // "Confirmed once" answers for Security Scenarios checks. Local to
+  // Clarity365; lapse after a year.
+  scenarioConfirmations?: Partial<Record<ScenarioConfirmationKey, ScenarioConfirmation>>;
   isDemo?: boolean;
   // Deliberate per-tenant opt-in for endpoint-security deploy features
   // (MDE connector toggles, Defender AV policy, ASR rule deployment) -
@@ -1286,6 +1327,8 @@ export interface TenantSecuritySnapshot {
   // and snapshots synced before 2026-10-01 - read it through
   // getSignInCoverage() (sign-in-coverage.ts), which fills that gap.
   signInCoverage?: SignInCoverage;
+  // Undefined until a sync has tried to read alert policies.
+  alertPolicies?: AlertPolicyInventory;
   mfaAudit: UserMfaProfile[];
   accountClassification: TenantAccountSummary;
   mailboxes: MailboxItem[];

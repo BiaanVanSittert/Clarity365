@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from "react";
-import { Swords, ShieldCheck, ShieldAlert, ShieldX, HelpCircle, ChevronDown, ChevronRight, AlertTriangle, ExternalLink, PlayCircle, Wrench } from "lucide-react";
+import { CONFIRMATION_VALID_DAYS } from "@/lib/utils/scenario-confirmations";
+import { buildFixGuide } from "@/lib/services/scenario-fix-guide-builder";
+import { FixGuideModal } from "./FixGuideModal";
+import { Swords, ShieldCheck, ShieldAlert, ShieldX, HelpCircle, ChevronDown, ChevronRight, AlertTriangle, ExternalLink, PlayCircle, Wrench, Copy, Check, BookOpen } from "lucide-react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { SCENARIO_SECTIONS, ScenarioCheckResult, ScenarioCheckStatus, ScenarioResult, evaluateScenarios } from "@/lib/services/security-scenarios";
 import { SituationPersona } from "@/lib/data/signin-situation-definitions";
@@ -8,6 +11,8 @@ interface SecurityScenariosModuleProps {
   snapshot: TenantSecuritySnapshot;
   // Opens Sign-in Situations preset to a persona.
   onOpenSituations?: (persona: SituationPersona) => void;
+  // Reloads the tenant after a check is confirmed.
+  onRefresh?: () => void;
 }
 
 // Colour rules from the Security Simulations review: green and red lead;
@@ -61,7 +66,9 @@ function countsText(r: ScenarioResult): string {
   return `${r.checks.length} checks: ${parts.join(" · ")}`;
 }
 
-export const SecurityScenariosModule: React.FC<SecurityScenariosModuleProps> = ({ snapshot, onOpenSituations }) => {
+export const SecurityScenariosModule: React.FC<SecurityScenariosModuleProps> = ({ snapshot, onOpenSituations, onRefresh }) => {
+  const [openGuideId, setOpenGuideId] = useState<string | null>(null);
+  const openGuide = useMemo(() => (openGuideId ? buildFixGuide(openGuideId, snapshot) : undefined), [openGuideId, snapshot]);
   const results = useMemo(() => evaluateScenarios(snapshot), [snapshot]);
   const [filter, setFilter] = useState<ScenarioCheckStatus | "all">("all");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -138,11 +145,15 @@ export const SecurityScenariosModule: React.FC<SecurityScenariosModuleProps> = (
                 expanded={!!expanded[r.id]}
                 onToggle={() => setExpanded((prev) => ({ ...prev, [r.id]: !prev[r.id] }))}
                 onOpenSituations={onOpenSituations}
+                tenantId={snapshot.tenant.id}
+                onRefresh={onRefresh}
+                onOpenGuide={setOpenGuideId}
               />
             ))}
           </section>
         );
       })}
+      {openGuide && <FixGuideModal guide={openGuide} onClose={() => setOpenGuideId(null)} />}
     </div>
   );
 };
@@ -152,7 +163,10 @@ export const ScenarioCard: React.FC<{
   expanded: boolean;
   onToggle: () => void;
   onOpenSituations?: (persona: SituationPersona) => void;
-}> = ({ result: r, expanded, onToggle, onOpenSituations }) => {
+  tenantId?: string;
+  onRefresh?: () => void;
+  onOpenGuide?: (guideId: string) => void;
+}> = ({ result: r, expanded, onToggle, onOpenSituations, tenantId, onRefresh, onOpenGuide }) => {
   const style = STATUS_STYLE[r.verdict];
   const Icon = style.icon;
   return (
@@ -187,7 +201,7 @@ export const ScenarioCard: React.FC<{
           )}
           <ul className="space-y-2">
             {r.checks.map((c) => (
-              <CheckRow key={c.id} check={c} onOpenSituations={onOpenSituations} />
+              <CheckRow key={c.id} check={c} onOpenSituations={onOpenSituations} tenantId={tenantId} onRefresh={onRefresh} onOpenGuide={onOpenGuide} />
             ))}
           </ul>
         </div>
@@ -196,9 +210,42 @@ export const ScenarioCard: React.FC<{
   );
 };
 
-const CheckRow: React.FC<{ check: ScenarioCheckResult; onOpenSituations?: (persona: SituationPersona) => void }> = ({ check: c, onOpenSituations }) => {
+export const CheckRow: React.FC<{
+  check: ScenarioCheckResult;
+  onOpenSituations?: (persona: SituationPersona) => void;
+  tenantId?: string;
+  onRefresh?: () => void;
+  onOpenGuide?: (guideId: string) => void;
+}> = ({ check: c, onOpenSituations, tenantId, onRefresh, onOpenGuide }) => {
   const style = STATUS_STYLE[c.status];
   const Icon = style.icon;
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  // A confirmation that still counts (not lapsed).
+  const confirmed = !!c.confirmation && !c.confirmation.expired;
+
+  // Records the answer for THIS tenant in Clarity365 only; nothing is sent to Microsoft 365.
+  const confirm = async (status: "inPlace" | "notInPlace" | "clear") => {
+    if (!tenantId || !c.confirmKey) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`/api/tenants/${tenantId}/scenario-confirmations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: c.confirmKey, status }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "Could not save.");
+      onRefresh?.();
+    } catch (err: any) {
+      setSaveError(err.message || "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const confirmButton = "inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded-sm border disabled:opacity-50";
   return (
     <li className="border border-slate-200 dark:border-slate-700 rounded-sm p-2.5 flex flex-col md:flex-row md:items-start gap-2">
       <Icon size={14} className={`mt-0.5 shrink-0 ${style.text}`} aria-label={style.label} />
@@ -221,8 +268,61 @@ const CheckRow: React.FC<{ check: ScenarioCheckResult; onOpenSituations?: (perso
             <span>{c.fix}</span>
           </p>
         )}
+        {c.command && (
+          <div className="mt-1 flex items-start gap-1.5">
+            <code className="flex-1 min-w-0 break-all px-2 py-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-sm font-mono text-[10px] text-slate-800 dark:text-slate-200">{c.command}</code>
+            <button
+              type="button"
+              title="Copy the command"
+              onClick={() => {
+                navigator.clipboard?.writeText(c.command!);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+              className="shrink-0 p-1 border border-[#CBD5E1] dark:border-slate-600 rounded-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+            >
+              {copied ? <Check size={11} /> : <Copy size={11} />}
+            </button>
+          </div>
+        )}
+        {c.confirmKey && tenantId && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {confirmed ? (
+              <button type="button" disabled={saving} onClick={() => confirm("clear")} className={`${confirmButton} border-[#CBD5E1] dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700`}>
+                Clear my confirmation
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => confirm("inPlace")}
+                  title={`Records that you checked this yourself. Stored in Clarity365 for this tenant only; counts for ${CONFIRMATION_VALID_DAYS} days.`}
+                  className={`${confirmButton} border-emerald-400 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40`}
+                >
+                  <Check size={10} /> I&apos;ve checked: it&apos;s in place
+                </button>
+                {c.status !== "notPrevented" && (
+                  <button type="button" disabled={saving} onClick={() => confirm("notInPlace")} className={`${confirmButton} border-rose-300 text-rose-700 dark:text-red-400 hover:bg-rose-50 dark:hover:bg-red-950/40`}>
+                    Not in place
+                  </button>
+                )}
+              </>
+            )}
+            {saveError && <span className="text-[10px] text-rose-600 dark:text-red-400">{saveError}</span>}
+          </div>
+        )}
       </div>
       <div className="flex md:flex-col gap-2 shrink-0">
+        {c.guideId && onOpenGuide && (
+          <button
+            type="button"
+            onClick={() => onOpenGuide(c.guideId!)}
+            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded-sm border border-indigo-400 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+          >
+            <BookOpen size={10} /> How to fix
+          </button>
+        )}
         {c.docsUrl && c.status !== "prevented" && (
           <a
             href={c.docsUrl}

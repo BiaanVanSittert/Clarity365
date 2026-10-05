@@ -1,4 +1,4 @@
-import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SignInCoverage, SecretExpiry, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability, TenantLicenseSku, SecurityIncidentItem, AsrRuleMode, AsrRuleState, AsrRuleActivitySummary, AsrDetectionEvent, MdeConnectorSettings, AtpOnboardingDeviceState, DefenderAvPolicySettings, IntuneAssignmentTarget, AsrDetectionTimeRange, EdrPolicySettings, BitLockerPolicySettings, DeviceComplianceReason, CaNamedLocation, CaSessionControls, TenantIdentitySettings, ExchangeSecuritySettings, PrivilegedRoleAssignments, OAuthConsentGrantSummary } from "../types";
+import { Tenant, TenantSecuritySnapshot, CAPolicyRule, UserMfaProfile, TenantAccountSummary, SignInEvent, SignInStatus, SignInCoverage, SecretExpiry, AlertPolicyInventory, SyncHealth, IntuneDevice, TenantSecureScore, MdoThreatPolicy, TablEntry, MdoThreatAlert, MailboxItem, EmailForwardingRule, MailflowTransportRule, DomainAuthStatus, MailflowConnector, TenantGroup, SharePointTenantPolicy, AppRegistrationItem, TenantCapability, TenantLicenseSku, SecurityIncidentItem, AsrRuleMode, AsrRuleState, AsrRuleActivitySummary, AsrDetectionEvent, MdeConnectorSettings, AtpOnboardingDeviceState, DefenderAvPolicySettings, IntuneAssignmentTarget, AsrDetectionTimeRange, EdrPolicySettings, BitLockerPolicySettings, DeviceComplianceReason, CaNamedLocation, CaSessionControls, TenantIdentitySettings, ExchangeSecuritySettings, PrivilegedRoleAssignments, OAuthConsentGrantSummary } from "../types";
 import { CA_BASELINE_STANDARDS } from "../data/baseline-definitions";
 import { classifyPolicyBaselineCode, computeBaselineCoveragePercent } from "./ca-baseline-matcher";
 import { fetchAllPages } from "./graph-pagination";
@@ -41,6 +41,7 @@ import { resolveSyncErrors } from "../utils/sync-permission-errors";
 import { SIGN_IN_WINDOW_DAYS, computeSignInCoverage } from "../utils/sign-in-coverage";
 import { mapSignInAuthentication } from "../utils/sign-in-authentication";
 import { resolveOwnAppSecretExpiry } from "../utils/credential-expiry";
+import { fetchAlertPolicyInventory } from "./scc-client";
 import { UNCONFIRMED_ADMIN_ROLE_LABEL } from "../utils/directory-role-templates";
 
 
@@ -1976,7 +1977,7 @@ function extractIntentAsrProperties(definitionValues: any[]): { propertyName: st
 // hand-maintained duplicate count would. Steps 9/10 (local computation,
 // snapshot assembly) aren't included - they're fast enough that reaching
 // 100% right at the last Graph fetch reads correctly.
-export const TOTAL_SYNC_STEPS = 25;
+export const TOTAL_SYNC_STEPS = 26;
 
 // Maps one raw Graph conditionalAccessPolicy into Clarity365's CAPolicyRule
 // shape. Pulled out of fetchLiveTenantSnapshot's inline .map() so this
@@ -2991,7 +2992,7 @@ export async function fetchLiveTenantSnapshot(
   let incidentsLive: SecurityIncidentItem[] | null = null;
   try {
     const incidentsResult = await fetchAllPages<any>(
-      "https://graph.microsoft.com/v1.0/security/incidents?$top=100&$expand=alerts",
+      "https://graph.microsoft.com/v1.0/security/incidents?$top=50&$expand=alerts",
       headers
     );
     if (incidentsResult.error) {
@@ -3284,6 +3285,20 @@ export async function fetchLiveTenantSnapshot(
     syncErrors.push(`OAuth consent grants: ${err.message || "Unexpected error."}`);
   }
 
+  onProgress?.("Alert policies", 26, TOTAL_SYNC_STEPS);
+  // 8.9996. Microsoft 365 alert policies, for the Security Scenarios "someone
+  // is alerted if ..." checks. Read through Security & Compliance PowerShell
+  // as the app itself (scc-client.ts) - same setup as Exchange app-only
+  // access. Never a sync error: a tenant without that setup, or a routing
+  // change on Microsoft's side, is recorded on the data as "couldn't be
+  // read" and the checks say so.
+  let alertPoliciesLive: AlertPolicyInventory | null = null;
+  try {
+    alertPoliciesLive = await fetchAlertPolicyInventory(tenant, headers);
+  } catch (err: any) {
+    console.error("[Graph Client] Error fetching alert policies:", err);
+  }
+
   // 9. Compute baseline coverage
   const deployedBaselineCodes = new Set(livePolicies.map((p) => p.baselineCode).filter(Boolean));
   const coveragePercent = computeBaselineCoveragePercent(deployedBaselineCodes.size, CA_BASELINE_STANDARDS.length);
@@ -3330,6 +3345,9 @@ export async function fetchLiveTenantSnapshot(
   }
   if (oauthGrantsLive !== null) {
     base.oauthConsentGrants = oauthGrantsLive;
+  }
+  if (alertPoliciesLive !== null) {
+    base.alertPolicies = alertPoliciesLive;
   }
 
   if (mfaProfilesList.length > 0) {

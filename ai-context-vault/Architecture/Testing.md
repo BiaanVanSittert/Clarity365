@@ -26,4 +26,8 @@ UI tests are almost absent (no React Testing Library, no Playwright/Cypress). Th
 
 **Sync all tenants (2026-10-01):** `sync-all.test.ts` (one at a time and in order, failures don't stop the pass, no second pass while running, stop after the current tenant) and `SyncAllTenantsControl.test.ts`. 820 tests in 74 files. Not exercised against live tenants yet.
 
+**2026-10-02:** 855 tests in 77 files. New: `alert-policy-mapper.test.ts`, `scc-client.test.ts` (routing, caching, not-set-up and failure paths; only `fetch` mocked), `scenario-confirmations.test.ts`, and alert-check / confirm-once cases in `security-scenarios.test.ts`.
+
+**2026-10-05:** 878 tests in 79 files. New: `scenario-fix-guide-builder.test.ts` (guide catalogue rules and per-guide resolution) and `FixGuideModal.test.ts` (every guide renders for every demo tenant).
+
 Part of [[Clarity365 MOC]].

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MOCK_TENANT_DATA } from "../data/mock-tenants";
-import { SCENARIO_DEFINITIONS, SCENARIO_SECTIONS, evaluateScenarios, rollUpVerdict } from "./security-scenarios";
+import { SCENARIO_DEFINITIONS, SCENARIO_SECTIONS, applyManualConfirmation, evaluateScenarios, rollUpVerdict } from "./security-scenarios";
+import { TenantSecuritySnapshot } from "../types";
 
 const NOW = new Date("2026-09-30T12:00:00Z");
 const run = (tenantId: string) => evaluateScenarios(MOCK_TENANT_DATA[tenantId], { now: NOW });
@@ -40,9 +41,13 @@ describe("Woodgrove (strict)", () => {
     expect(find(r, "foreign-country").verdict).toBe("notPrevented");
   });
 
-  it("marks manual checks as not assessed, never green", () => {
-    expect(check(r, "silent-tenant", "alerting").status).toBe("notAssessed");
-    expect(find(r, "silent-tenant").verdict).toBe("partial");
+  it("answers the alert checks from the tenant's alert policies", () => {
+    const audit = check(r, "silent-tenant", "alerting");
+    expect(audit.status).toBe("prevented");
+    expect(audit.detail).toBe('Alert policy "Audit logging changed" emails 1 recipient(s) when the audit log configuration is changed (Set-AdminAuditLogConfig).');
+    // Nothing to confirm by hand when Clarity365 can see it.
+    expect(audit.confirmKey).toBeUndefined();
+    expect(check(r, "mass-deletion", "alerting").detail).toMatch(/"Bulk user deletion".*\(more than 5 in 60 minutes\)/);
   });
 });
 
@@ -95,5 +100,88 @@ describe("OAuth consent grants unavailable", () => {
     const c = evaluateScenarios(noPerm, { now: NOW }).find((x) => x.id === "oauth-consent")!.checks.find((x) => x.id === "risky-grants")!;
     expect(c.status).toBe("notAssessed");
     expect(c.fix).toMatch(/DelegatedPermissionGrant\.Read\.All/);
+  });
+});
+
+describe("alert policy checks", () => {
+  it("is red when policies were read and none watches the activity", () => {
+    const c = check(run("tenant-northwind-health"), "silent-tenant", "alerting");
+    expect(c.status).toBe("notPrevented");
+    expect(c.detail).toMatch(/^None of this tenant's 3 Microsoft 365 alert policies fires when/);
+    expect(c.command).toContain('New-ProtectionAlert -Name "Audit logging changed"');
+    // It may be covered in a tool Clarity365 can't see, so it can be confirmed.
+    expect(c.confirmKey).toBe("alert-audit-config");
+  });
+
+  it("is orange when an alert is raised but nobody is emailed, and red when it is switched off", () => {
+    const r = run("tenant-contoso-corp");
+    expect(check(r, "silent-tenant", "alerting")).toMatchObject({ status: "partial", fix: "Add an email recipient to the alert policy." });
+    expect(check(r, "mass-deletion", "alerting").status).toBe("notPrevented");
+    expect(check(r, "mass-deletion", "alerting").detail).toMatch(/turned off/);
+  });
+
+  it("is not assessed - never red - when alert policies couldn't be read", () => {
+    const fabrikam = check(run("tenant-fabrikam-logistics"), "silent-tenant", "alerting");
+    expect(fabrikam.status).toBe("notAssessed");
+    expect(fabrikam.detail).toMatch(/until Exchange app access is set up/);
+    expect(fabrikam.confirmKey).toBe("alert-audit-config");
+
+    const snap = MOCK_TENANT_DATA["tenant-woodgrove-fsi"];
+    const neverSynced = evaluateScenarios({ ...snap, alertPolicies: undefined }, { now: NOW });
+    expect(check(neverSynced, "silent-tenant", "alerting").detail).toMatch(/haven't been synced yet/);
+    const failed = evaluateScenarios({ ...snap, alertPolicies: { policies: [], unavailable: "error", detail: "Server busy", checkedAt: "" } }, { now: NOW });
+    expect(check(failed, "silent-tenant", "alerting")).toMatchObject({ status: "notAssessed", detail: "Alert policies couldn't be read: Server busy." });
+  });
+});
+
+describe("confirm once", () => {
+  const withConfirmation = (tenantId: string, confirmations: TenantSecuritySnapshot["tenant"]["scenarioConfirmations"]) => {
+    const snap = MOCK_TENANT_DATA[tenantId];
+    return evaluateScenarios({ ...snap, tenant: { ...snap.tenant, scenarioConfirmations: confirmations } }, { now: NOW });
+  };
+
+  it("turns a check Clarity365 can't see green once it has been confirmed, and says until when", () => {
+    const r = withConfirmation("tenant-northwind-health", { "alert-audit-config": { status: "inPlace", confirmedAt: "2026-09-01T08:00:00Z", note: "Sentinel rule AUD-01" } });
+    const c = check(r, "silent-tenant", "alerting");
+    expect(c.status).toBe("prevented");
+    expect(c.detail).toBe("Confirmed manually on 2026-09-01 (valid until 2027-09-01). Note: Sentinel rule AUD-01");
+    expect(c.command).toBeUndefined();
+    expect(c.confirmation).toMatchObject({ status: "inPlace", expired: false });
+    // The other confirmable check is untouched.
+    expect(check(r, "mass-deletion", "alerting").status).toBe("notPrevented");
+  });
+
+  it("stops counting after twelve months and asks for a fresh check", () => {
+    const r = withConfirmation("tenant-northwind-health", { "alert-audit-config": { status: "inPlace", confirmedAt: "2025-09-29T08:00:00Z" } });
+    const c = check(r, "silent-tenant", "alerting");
+    expect(c.status).toBe("notPrevented");
+    expect(c.detail).toMatch(/Your confirmation from 2025-09-29 is more than 365 days old and no longer counts/);
+    expect(c.confirmation?.expired).toBe(true);
+  });
+
+  it("turns red when marked as not in place", () => {
+    const r = withConfirmation("tenant-fabrikam-logistics", { "alert-audit-config": { status: "notInPlace", confirmedAt: "2026-09-01T08:00:00Z" } });
+    expect(check(r, "silent-tenant", "alerting")).toMatchObject({ status: "notPrevented", detail: "Marked as not in place on 2026-09-01." });
+  });
+
+  it("never overrides what Clarity365 can read for itself", () => {
+    // Contoso's audit alert emails nobody: a confirmation can't paper over that.
+    const r = withConfirmation("tenant-contoso-corp", { "alert-audit-config": { status: "inPlace", confirmedAt: "2026-09-01T08:00:00Z" } });
+    expect(check(r, "silent-tenant", "alerting").status).toBe("partial");
+    const untouched = { id: "x", label: "L", status: "notPrevented" as const, detail: "d" };
+    expect(applyManualConfirmation(untouched, { "alert-audit-config": { status: "inPlace", confirmedAt: "2026-09-01T08:00:00Z" } }, NOW)).toBe(untouched);
+  });
+
+  it("covers the SharePoint link settings Microsoft doesn't report", () => {
+    const snap = MOCK_TENANT_DATA["tenant-fabrikam-logistics"];
+    const anyone = { ...snap, sharePoint: { ...snap.sharePoint, tenantSharingLevel: "Anyone" as const, linkDefaultsReported: false } };
+    const before = evaluateScenarios(anyone, { now: NOW }).find((x) => x.id === "anyone-link")!;
+    expect(before.checks.find((x) => x.id === "expiry")!.confirmKey).toBe("sharepoint-anyone-link-expiry");
+    expect(before.checks.find((x) => x.id === "default-link")!.confirmKey).toBe("sharepoint-default-link");
+
+    const confirmed = { ...anyone, tenant: { ...anyone.tenant, scenarioConfirmations: { "sharepoint-anyone-link-expiry": { status: "inPlace" as const, confirmedAt: "2026-09-20T08:00:00Z" } } } };
+    const after = evaluateScenarios(confirmed, { now: NOW }).find((x) => x.id === "anyone-link")!;
+    expect(after.checks.find((x) => x.id === "expiry")!.status).toBe("prevented");
+    expect(after.checks.find((x) => x.id === "default-link")!.status).toBe("notAssessed");
   });
 });

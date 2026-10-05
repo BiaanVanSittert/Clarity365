@@ -1,4 +1,4 @@
-import { TenantSecuritySnapshot, Tenant, CAPolicyRule } from "../types";
+import { TenantSecuritySnapshot, Tenant, CAPolicyRule, AlertPolicyInventory, AlertPolicySummary } from "../types";
 import { DIRECTORY_ROLE_TEMPLATES } from "../utils/directory-role-templates";
 import { CA_BASELINE_STANDARDS } from "./baseline-definitions";
 
@@ -2868,3 +2868,53 @@ export const MOCK_TENANT_DATA: Record<string, TenantSecuritySnapshot> = {
     },
   },
 };
+
+// Alert policies for the demo tenants, one per outcome the Security
+// Scenarios alert checks can show. Applied here rather than inline so the
+// four cases sit side by side.
+const DEMO_ALERT_CHECKED_AT = "2026-10-01T06:00:00Z";
+const demoAlert = (name: string, operation: string, overrides: Partial<AlertPolicySummary> = {}): AlertPolicySummary => ({
+  name,
+  operations: [operation],
+  disabled: false,
+  isSystemRule: false,
+  notifyRecipients: 1,
+  notificationEnabled: true,
+  aggregation: "None",
+  severity: "High",
+  category: "ThreatManagement",
+  ...overrides,
+});
+const DEMO_SYSTEM_ALERTS: AlertPolicySummary[] = [
+  demoAlert("Creation of forwarding/redirect rule", "MailRedirect", { isSystemRule: true, severity: "Informational" }),
+  demoAlert("Elevation of Exchange admin privilege", "GrantAdminPermission", { isSystemRule: true, severity: "Low", category: "AccessGovernance" }),
+  demoAlert("Suspicious Email Forwarding Activity", "SuspiciousForwarding", { isSystemRule: true }),
+];
+const DEMO_ALERT_POLICIES: Record<string, AlertPolicyInventory> = {
+  // Both alerts in place and emailing someone.
+  "tenant-woodgrove-fsi": {
+    checkedAt: DEMO_ALERT_CHECKED_AT,
+    policies: [
+      ...DEMO_SYSTEM_ALERTS,
+      demoAlert("Audit logging changed", "Set-AdminAuditLogConfig"),
+      demoAlert("Bulk user deletion", "Delete user.", { aggregation: "SimpleAggregation", threshold: 5, timeWindowMinutes: 60, category: "AccessGovernance" }),
+    ],
+  },
+  // An audit alert exists but emails nobody; the deletion alert is switched off.
+  "tenant-contoso-corp": {
+    checkedAt: DEMO_ALERT_CHECKED_AT,
+    policies: [...DEMO_SYSTEM_ALERTS, demoAlert("Audit config change", "Set-AdminAuditLogConfig", { notifyRecipients: 0 }), demoAlert("User deleted", "Delete user.", { disabled: true })],
+  },
+  // Only Microsoft's built-in policies: nothing watches either activity.
+  "tenant-northwind-health": { checkedAt: DEMO_ALERT_CHECKED_AT, policies: DEMO_SYSTEM_ALERTS },
+  // Exchange was never connected, so alert policies can't be read either.
+  "tenant-fabrikam-logistics": {
+    checkedAt: DEMO_ALERT_CHECKED_AT,
+    policies: [],
+    unavailable: "notSetUp",
+    detail: "Exchange app access isn't set up for this tenant.",
+  },
+};
+for (const [tenantId, inventory] of Object.entries(DEMO_ALERT_POLICIES)) {
+  if (MOCK_TENANT_DATA[tenantId]) MOCK_TENANT_DATA[tenantId].alertPolicies = inventory;
+}

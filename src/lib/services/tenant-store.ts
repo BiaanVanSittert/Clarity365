@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import Papa from "papaparse";
 import {
   Tenant,
+  ScenarioConfirmationKey,
   TenantSecuritySnapshot,
   SystemSettings,
   AuditLogEntry,
@@ -506,6 +507,7 @@ class TenantStore {
       exchangeSecurity: snapshot.tenant.isDemo && mockSnap ? mockSnap.exchangeSecurity : snapshot.exchangeSecurity,
       privilegedRoleAssignments: snapshot.tenant.isDemo && mockSnap ? mockSnap.privilegedRoleAssignments : snapshot.privilegedRoleAssignments,
       oauthConsentGrants: snapshot.tenant.isDemo && mockSnap ? mockSnap.oauthConsentGrants : snapshot.oauthConsentGrants,
+      alertPolicies: snapshot.tenant.isDemo && mockSnap ? mockSnap.alertPolicies : snapshot.alertPolicies,
       accountClassification: {
         ...blank.accountClassification,
         ...snapshot.accountClassification,
@@ -758,6 +760,10 @@ class TenantStore {
     if (snapshot) {
       // Never let a decrypted secret end up persisted in the snapshot's embedded tenant.
       snapshot.tenant = this.encryptTenantSecret(snapshot.tenant);
+      // A confirmation saved while this sync was running must not be lost:
+      // the sync started from a copy of the tenant row taken before it.
+      const latestRow = this.getTenantRow(tenantId);
+      if (latestRow) snapshot.tenant.scenarioConfirmations = latestRow.scenarioConfirmations;
       this.putSnapshotRow(tenantId, snapshot);
       // The snapshot's embedded tenant carries the freshly-computed connectionStatus/
       // lastSyncTimestamp (see graph-client.ts), but that's a copy living inside the
@@ -1337,6 +1343,29 @@ class TenantStore {
       const snap = this.getSnapshotRow(id);
       if (snap) {
         snap.tenant = updated;
+        this.putSnapshotRow(id, snap);
+      }
+    });
+    write();
+    return this.sanitizeTenant(updated);
+  }
+
+  // "Confirmed once" answer for one Security Scenarios check on one tenant
+  // (see scenario-confirmations.ts). Local to Clarity365: nothing is sent to
+  // Microsoft 365. Pass null to clear. Unlike updateTenant(), this leaves
+  // lastSyncTimestamp alone.
+  public setScenarioConfirmation(id: string, key: ScenarioConfirmationKey, value: { status: "inPlace" | "notInPlace"; note?: string } | null): Tenant | undefined {
+    const existing = this.getTenantRow(id);
+    if (!existing) return undefined;
+    const confirmations = { ...(existing.scenarioConfirmations || {}) };
+    if (value === null) delete confirmations[key];
+    else confirmations[key] = { status: value.status, note: value.note, confirmedAt: new Date().toISOString() };
+    const updated: Tenant = { ...existing, scenarioConfirmations: confirmations };
+    const write = this.db.transaction(() => {
+      this.putTenantRow(updated);
+      const snap = this.getSnapshotRow(id);
+      if (snap) {
+        snap.tenant = { ...snap.tenant, scenarioConfirmations: confirmations };
         this.putSnapshotRow(id, snap);
       }
     });

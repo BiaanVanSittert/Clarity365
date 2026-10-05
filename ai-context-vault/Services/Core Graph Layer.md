@@ -58,6 +58,13 @@ Stage 2 follow-ups: the directory-roles step now also records each member's role
 - **Secret expiry.** The App Registrations step finds Clarity365's own app and stores `credentials.secretExpiry`.
 - Sync schema version 4.
 
+**Alert policies (2026-10-02):** sync step 26 calls `scc-client.ts`'s `fetchAlertPolicyInventory(tenant, headers)` and stores `snapshot.alertPolicies`. `TOTAL_SYNC_STEPS` = 26, sync schema version 5. Never a sync error: failures are recorded on the data as `unavailable`.
+
+## scc-client.ts :  Security & Compliance PowerShell (read-only)
+Reads Microsoft 365 alert policies as the app registration itself, with the client secret, no sign-in. Only ever invokes `Get-ProtectionAlert`. Same prerequisite as Exchange app access (Exchange.ManageAsApp + a role such as Global Reader); a token without that role, or a 401/403, comes back as `unavailable: "notSetUp"`.
+
+Routing is observed behaviour, not documented by Microsoft: the global host `ps.compliance.protection.outlook.com` can't serve a tenant directly. POSTed with `X-AnchorMailbox: UPN:SystemMailbox{bb558c35-...}@<initial onmicrosoft domain>` (read from Graph `organization.verifiedDomains`), it answers 302 to `<region>.admin.protection.outlook.com:446`, which isn't reachable; the read then goes to `<region>.ps.compliance.protection.outlook.com`. Token and region are cached in memory; a failed regional read drops the cached region. If Microsoft changes the routing the result is `unavailable: "error"`, never an empty list. Tested in `scc-client.test.ts` with only `fetch` mocked. `alert-policy-mapper.ts` holds the pure mapping and matching.
+
 ## exo-client.ts :  Exchange Online
 **App-only first (2026-09-30):** every cmdlet now authenticates as the app registration itself (client secret, scope `https://outlook.office365.com/.default`) when it has Exchange.ManageAsApp and an Entra role, and only falls back to the delegated device-code token when that isn't set up. See [[Exchange App-Only Access Plan]] and `exchange-access.ts`. OAuth device-code flow + `invokeExoCommand`, `fetchMdoPoliciesAndTabl`, `fetchMailflowData`, `fetchAcceptedDomainsAndDkim`, `fetchExchangeSecuritySettings` (Stage 5), TABL writes, `disableForwardingRule`, `removeMailboxDelegation`, `setMailboxAuditingEnabled`.
 

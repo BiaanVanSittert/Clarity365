@@ -28,4 +28,6 @@ Also fixed: Contoso's `ca-pol-04` was mislabeled - named/scoped as CA01 to CA10'
 
 **`graph-permissions.ts` (2026-10-01):** the single list of Microsoft Graph application permissions (`GRAPH_PERMISSIONS`: 16 required read-only rows covering 17 permission names, 4 optional), with the name(s) to grant, the sync steps each unlocks and the self-test endpoint. Client-safe. Add a permission here and it appears in onboarding, the Permissions check and the sync's error handling at once. Guard tests in `sync-permission-errors.test.ts`.
 
+**Demo alert policies (2026-10-02):** `DEMO_ALERT_POLICIES` at the end of `mock-tenants.ts` gives each demo tenant a different outcome for the Security Scenarios alert checks; `backfillSnapshot()` refreshes `alertPolicies` for demo tenants like the other Stage 5 fields.
+
 Part of [[Clarity365 MOC]].

@@ -19,7 +19,8 @@
 //              OAuth consent grants
 //   4        - sign-in coverage and authentication details (beta sign-in
 //              log), missing-permission list on sync health
-export const SNAPSHOT_SYNC_SCHEMA_VERSION = 4;
+//   5        - alert policies (Security & Compliance PowerShell)
+export const SNAPSHOT_SYNC_SCHEMA_VERSION = 5;
 
 export function storedSchemaVersion(snapshot: { syncSchemaVersion?: number } | undefined): number {
   return typeof snapshot?.syncSchemaVersion === "number" ? snapshot.syncSchemaVersion : 0;

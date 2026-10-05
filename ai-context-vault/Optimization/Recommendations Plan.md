@@ -21,10 +21,23 @@ All of this needs **one sync per tenant** (after restarting the server) to take 
 
 - **Sync all tenants** (added on request): a button on the fleet overview that syncs every live tenant one at a time on the server, with progress and Stop. See [[Security Infra]] (`sync-all.ts`).
 
+- **Security Incidents page size (found and fixed 2026-10-02).** Once `SecurityIncident.Read.All` was granted, the step failed with "The limit of '50' for Top query has been exceeded": the query used `$top=100`. Now `$top=50`; checked live on the two tenants that have the permission. It was hidden until then by the missing-permission error.
+
 **New findings from this work**
 - **Busy tenants: 5,000 sign-ins is only a few days.** Live: 3 days on the largest tenant, 10 and 13 days on two others. The report says so, but can't cover a month there. Raising the limit means a slimmer stored record (a sign-in is roughly 1 KB and the whole snapshot is sent to the browser) or a separate on-demand fetch for the report.
 - **The sign-in log endpoint is slow** (29 to 41 seconds for one small page). Sync time for sign-ins on a busy tenant is now bounded by 20 pages x up to 90s.
 - **Beta dependency.** MFA details come only from Microsoft's beta sign-in log; if beta refuses, the sync falls back to v1.0 and the report says the MFA method isn't available.
+
+## Alert policies can be read without sign-in (test 2026-10-02; **built the same day**, see [[Security Scenarios]])
+
+Question: can the two "Someone is alerted if ..." checks in [[Security Scenarios]] (auditing changed, bulk user deletion) be automated instead of "Manual check"? Read-only test, `Get-ProtectionAlert` only.
+
+- **Works.** Security & Compliance PowerShell's REST endpoint accepts an app-only token from the **client secret** (scope `https://ps.compliance.protection.outlook.com/.default`). The token carried `Exchange.ManageAsApp` and the Global Reader role on every tenant that already has Exchange app access; nothing extra was granted. Read 48 to 55 alert policies on 3 of 3 such tenants, in two regions.
+- **Routing matters.** The global host fails ("Could not find the organization container"). First POST to `ps.compliance.protection.outlook.com/adminapi/beta/{tenantId}/InvokeCommand` with header `X-AnchorMailbox: UPN:SystemMailbox{bb558c35-97f1-4cb9-8ff7-d53741dc928c}@<initial onmicrosoft domain>` (the tenant GUID in the anchor does not work); it answers 302 to `<region>.admin.protection.outlook.com:446`, which is not reachable. Take `<region>` (seen: zaf01b, eur01b, eur02b, eur03b) and call `https://<region>.ps.compliance.protection.outlook.com/adminapi/beta/{tenantId}/InvokeCommand`. Region discovery worked on all 10 tenants. This mapping is observed, not documented.
+- **The 7 tenants without Exchange app access get 401.** Same prerequisite as [[Exchange App-Only Access Plan]].
+- **Fields returned:** `Name`, `Operation` (array; the audit-log activity name, per Microsoft Learn's New-ProtectionAlert), `Disabled`, `IsSystemRule`, `NotifyUser`, `NotificationEnabled`, `AggregationType`, `Threshold`, `TimeWindow`, `Severity`, `Category`, `Filter`.
+- **No tenant has an alert for audit changes or user deletion.** Custom policies found were DLP, forwarding, sending limit, Exchange privilege and quarantine release. So the matching rule (enabled policy whose `Operation` is `Set-AdminAuditLogConfig`, or `Delete user`) rests on the documentation only; it has not been seen against a real policy.
+- **Not reachable this way:** Sentinel or third-party SIEM rules; SharePoint default link type and Anyone-link expiry (absent from Graph v1.0 and beta, confirmed on Microsoft Learn).
 
 ## 1. Fix first: things that are wrong today
 
