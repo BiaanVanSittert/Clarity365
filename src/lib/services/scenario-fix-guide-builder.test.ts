@@ -93,7 +93,7 @@ describe("disable-smtp-auth-org", () => {
   it("gives the portal path, the command, the per-mailbox exception, a check and an undo", () => {
     const g = buildFixGuide("disable-smtp-auth-org", snapshot())!;
     expect(g.steps[0].portal!.url).toBe("https://admin.exchange.microsoft.com");
-    expect(g.steps[1].command).toMatchObject({ shell: "ExchangeOnline", script: "Set-TransportConfig -SmtpClientAuthenticationDisabled $true", connect: "Connect-ExchangeOnline -UserPrincipalName <your admin account>" });
+    expect(g.steps[1].command).toMatchObject({ shell: "ExchangeOnline", script: "Set-TransportConfig -SmtpClientAuthenticationDisabled $true", connect: "Connect-ExchangeOnline -UserPrincipalName '<your admin account>'" });
     expect(g.steps[2].command!.script).toContain("Set-CASMailbox");
     expect(g.verify.command!.script).toBe("Get-TransportConfig | Format-List SmtpClientAuthenticationDisabled");
     expect(g.undo.command!.script).toBe("Set-TransportConfig -SmtpClientAuthenticationDisabled $false");
@@ -177,7 +177,7 @@ describe("Stage 1 guides: per-item commands", () => {
   it("warns when the SharePoint admin address can't be worked out", () => {
     const g = buildFixGuide("sharepoint-block-legacy-auth", snapshot())!;
     expect(g.warnings.some((w) => /SharePoint admin address/.test(w))).toBe(true);
-    expect(g.steps.find((s) => s.command)!.command!.connect).toBe("Connect-SPOService -Url https://<tenant>-admin.sharepoint.com");
+    expect(g.steps.find((s) => s.command)!.command!.connect).toBe("Connect-SPOService -Url 'https://<tenant>-admin.sharepoint.com'");
   });
 });
 

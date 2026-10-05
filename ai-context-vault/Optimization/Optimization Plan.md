@@ -56,7 +56,7 @@ Recommendation: write tests for these four before adding new fleet-wide features
   - Existing CA08 policies still match (same `CA08:` prefix, block plus locations).
   - Not changed: the local-only simulations in `drift-analyzer.ts` and `fleet-operations.ts` still write the old shape into snapshots. They never reach Graph and are overwritten at the next sync.
 
-- **Scenario fix guides** (Stages 0 to 3 done 2026-10-05, 49 guides): see [[Scenario Fix Guides Plan]]. `mapConditionalAccessPolicy` moved to `ca-policy-mapper.ts` (graph-client re-exports it) so the guides' impact preview can map a proposed policy the same way as the sync.
+- **Scenario fix guides** (Stages 0 to 4 done 2026-10-05, 49 guides plus Hardening / Prevention plans): see [[Scenario Fix Guides Plan]]. `mapConditionalAccessPolicy` moved to `ca-policy-mapper.ts` (graph-client re-exports it) so the guides' impact preview can map a proposed policy the same way as the sync.
 
 - **Recommendations after Security Simulations** (2026-10-01, for review): see [[Recommendations Plan]]. Headline: every live tenant is permanently "degraded" because two sync steps need permissions that no list asks for.
 

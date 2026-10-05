@@ -51,3 +51,5 @@ Sign-in report for one tenant: period and user filter, headline numbers, finding
 `AddTenantModal` no longer keeps its own permission arrays; it reads `REQUIRED_GRAPH_PERMISSION_NAMES` and `OPTIONAL_GRAPH_PERMISSIONS` from `src/lib/data/graph-permissions.ts`, the same list the Permissions check tests. `PermissionsModal` shows the client secret's expiry next to the auth mode.
 
 Part of [[Clarity365 MOC]].
+
+**Stacking (2026-10-05):** `common/Modal.tsx` keeps a stack of open modals, so one can open on top of another (a fix guide opened from [[Hardening Plan]]). Only the top modal answers Escape, and the page scroll lock is released when the last one closes.

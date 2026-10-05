@@ -6,7 +6,7 @@ import { CaEnvironment, CaEvaluationResult, SignInContext, evaluateSignIn } from
 import { BreakGlassCandidate, SimAccountLists, buildCaEnvironment, buildSyntheticSimUser, detectLikelyBreakGlassAccounts, isLikelyBreakGlassRef, listSimAccounts } from "./ca-sim-context";
 import { SituationRunResult, detectHomeCountry, runSituation } from "./signin-situation-runner";
 import { SIGNIN_SITUATIONS, SituationPersona } from "../data/signin-situation-definitions";
-import { smtpAuthEnabledFor } from "./security-posture-mapper";
+import { isSystemMailbox, smtpAuthEnabledFor } from "./security-posture-mapper";
 import { GLOBAL_ADMIN_TEMPLATE_ID, DIRECTORY_ROLE_TEMPLATES, getRoleTemplateById } from "../utils/directory-role-templates";
 import { hasIntuneCapability } from "../utils/intune-capability";
 
@@ -415,7 +415,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
           const ex = c.snapshot.exchangeSecurity;
           const label = "Only mailboxes that need SMTP AUTH have it";
           if (!ex?.casMailboxes) return { label, status: "notAssessed", detail: EXO_NOT_CONNECTED };
-          const enabled = ex.casMailboxes.filter((m) => smtpAuthEnabledFor(m, ex.smtpClientAuthDisabledOrgWide) === true);
+          const enabled = ex.casMailboxes.filter((m) => !isSystemMailbox(m.primarySmtpAddress) && smtpAuthEnabledFor(m, ex.smtpClientAuthDisabledOrgWide) === true);
           if (enabled.length === 0) return { label, status: "prevented", detail: "No mailbox can use SMTP AUTH." };
           return {
             label,
@@ -433,7 +433,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
           const ex = c.snapshot.exchangeSecurity;
           const label = "POP and IMAP are off where they aren't used";
           if (!ex?.casMailboxes) return { label, status: "notAssessed", detail: EXO_NOT_CONNECTED };
-          const open = ex.casMailboxes.filter((m) => m.popEnabled || m.imapEnabled);
+          const open = ex.casMailboxes.filter((m) => !isSystemMailbox(m.primarySmtpAddress) && (m.popEnabled || m.imapEnabled));
           if (open.length === 0) return { label, status: "prevented", detail: "POP and IMAP are off on every mailbox checked." };
           return {
             label,

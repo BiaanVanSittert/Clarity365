@@ -2,7 +2,8 @@ import React, { useMemo, useState } from "react";
 import { CONFIRMATION_VALID_DAYS } from "@/lib/utils/scenario-confirmations";
 import { buildFixGuide } from "@/lib/services/scenario-fix-guide-builder";
 import { FixGuideModal } from "./FixGuideModal";
-import { Swords, ShieldCheck, ShieldAlert, ShieldX, HelpCircle, ChevronDown, ChevronRight, AlertTriangle, ExternalLink, PlayCircle, Wrench, Copy, Check, BookOpen } from "lucide-react";
+import { HardeningPlanModal } from "./HardeningPlanModal";
+import { Swords, ShieldCheck, ShieldAlert, ShieldX, HelpCircle, ChevronDown, ChevronRight, AlertTriangle, ExternalLink, PlayCircle, Wrench, Copy, Check, BookOpen, ListChecks } from "lucide-react";
 import { TenantSecuritySnapshot } from "@/lib/types";
 import { SCENARIO_SECTIONS, ScenarioCheckResult, ScenarioCheckStatus, ScenarioResult, evaluateScenarios } from "@/lib/services/security-scenarios";
 import { SituationPersona } from "@/lib/data/signin-situation-definitions";
@@ -68,6 +69,8 @@ function countsText(r: ScenarioResult): string {
 
 export const SecurityScenariosModule: React.FC<SecurityScenariosModuleProps> = ({ snapshot, onOpenSituations, onRefresh }) => {
   const [openGuideId, setOpenGuideId] = useState<string | null>(null);
+  // "tenant" = Hardening plan; a scenario id = that scenario's Prevention plan.
+  const [openPlan, setOpenPlan] = useState<string | null>(null);
   const openGuide = useMemo(() => (openGuideId ? buildFixGuide(openGuideId, snapshot) : undefined), [openGuideId, snapshot]);
   const results = useMemo(() => evaluateScenarios(snapshot), [snapshot]);
   const [filter, setFilter] = useState<ScenarioCheckStatus | "all">("all");
@@ -84,9 +87,17 @@ export const SecurityScenariosModule: React.FC<SecurityScenariosModuleProps> = (
   return (
     <div className="p-5 space-y-4 max-w-[1600px] mx-auto">
       <div className="bg-[#F8FAFC] dark:bg-slate-900/50 border border-[#CBD5E1] dark:border-slate-700 p-4 rounded-sm">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Swords size={18} className="text-slate-800 dark:text-slate-200" />
           <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100 tracking-tight">Security Scenarios</h2>
+          <button
+            type="button"
+            onClick={() => setOpenPlan("tenant")}
+            title="Every outstanding fix for this tenant, in order, as a printable checklist and one PowerShell script"
+            className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-sm bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
+          >
+            <ListChecks size={13} /> Hardening plan
+          </button>
         </div>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
           Common attacks, each broken into the defences that would stop it. A scenario is red when any one defence would let the attack through.
@@ -148,11 +159,14 @@ export const SecurityScenariosModule: React.FC<SecurityScenariosModuleProps> = (
                 tenantId={snapshot.tenant.id}
                 onRefresh={onRefresh}
                 onOpenGuide={setOpenGuideId}
+                onOpenPlan={setOpenPlan}
               />
             ))}
           </section>
         );
       })}
+      {openPlan && <HardeningPlanModal snapshot={snapshot} scenarioId={openPlan === "tenant" ? undefined : openPlan} onClose={() => setOpenPlan(null)} onOpenGuide={setOpenGuideId} />}
+      {/* After the plan, so a guide opened from the plan shows on top of it. */}
       {openGuide && <FixGuideModal guide={openGuide} onClose={() => setOpenGuideId(null)} />}
     </div>
   );
@@ -166,7 +180,8 @@ export const ScenarioCard: React.FC<{
   tenantId?: string;
   onRefresh?: () => void;
   onOpenGuide?: (guideId: string) => void;
-}> = ({ result: r, expanded, onToggle, onOpenSituations, tenantId, onRefresh, onOpenGuide }) => {
+  onOpenPlan?: (scenarioId: string) => void;
+}> = ({ result: r, expanded, onToggle, onOpenSituations, tenantId, onRefresh, onOpenGuide, onOpenPlan }) => {
   const style = STATUS_STYLE[r.verdict];
   const Icon = style.icon;
   return (
@@ -192,7 +207,18 @@ export const ScenarioCard: React.FC<{
 
       {expanded && (
         <div className="px-4 pb-4 pt-1 space-y-3 border-t border-slate-100 dark:border-slate-700">
-          <p className="text-[11px] text-slate-500 dark:text-slate-400">{r.description}</p>
+          <div className="flex flex-wrap items-start gap-2">
+            <p className="flex-1 min-w-[200px] text-[11px] text-slate-500 dark:text-slate-400">{r.description}</p>
+            {onOpenPlan && r.checks.some((c) => c.guideId) && (
+              <button
+                type="button"
+                onClick={() => onOpenPlan(r.id)}
+                className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded-sm border border-indigo-400 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+              >
+                <ListChecks size={10} /> Prevention plan
+              </button>
+            )}
+          </div>
           {r.warning && (
             <div className="flex items-start gap-2 p-2.5 rounded-sm border text-[11px] bg-amber-50 border-amber-300 text-amber-900 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-200">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />

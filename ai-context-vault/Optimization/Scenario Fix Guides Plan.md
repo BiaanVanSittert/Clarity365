@@ -4,7 +4,7 @@ tags: [optimization, plan, security-simulations]
 
 # Scenario Fix Guides Plan
 
-Status: **Stages 0 to 3 done 2026-10-05** (49 guides). Stage 4 (Prevention plan / Hardening plan) next.
+Status: **Stages 0 to 4 done 2026-10-05** (49 guides, Hardening and Prevention plans). Next: Stage 6 (operator runs the guides on Crimson Line Live Demo). Stage 5 (apply from Clarity365) still needs an explicit decision.
 
 ## Decisions (user, 2026-10-05)
 - **Guides only.** Clarity365 shows the portal steps and the commands; the operator runs them. Stage 5 ("apply from Clarity365") is dropped.
@@ -181,6 +181,18 @@ Two checks are information only (Intune licensed, sign-in logs available) and ge
 **CA08 fixed in the same session** (user chose the recommended country allow list). See [[Optimization Plan]].
 
 No Stage 3 guide has been run by the operator yet.
+
+## Stage 4 record (2026-10-05)
+
+**Hardening plan** (whole tenant) and **Prevention plan** (one scenario) are built; see [[Hardening Plan]]. Each lists the outstanding guides once each, in a curated order of six phases plus "check what Clarity365 couldn't see". It comes as a printable checklist and one PowerShell script that asks before every section.
+
+**Verified:** 30 generated scripts (11 live tenants, 4 demo tenants, 15 Prevention plans) parse under PowerShell 7 and Windows PowerShell 5.1. They were parsed only, never run.
+
+**That check found two bugs in earlier stages, both fixed:**
+- Unquoted `<placeholders>` in commands (connect lines, `-Identity <mailbox>`, `<site URL>`, the SharePoint admin URL) are a PowerShell parse error. A test now guards every guide command.
+- The built-in `DiscoverySearchMailbox{…}` was counted as a POP/IMAP and SMTP AUTH mailbox.
+
+**Live plan sizes:** 32 to 38 fixes per tenant, covering 44 to 53 checks. Tenants without Exchange connected show 15 to 19 checks as "not assessed".
 
 ## Inventory (all checks)
 Kind letters as in the table above. "Stage" is when its guide gets built. Commands are the planned ones; each is checked on Microsoft Learn when its guide is written.

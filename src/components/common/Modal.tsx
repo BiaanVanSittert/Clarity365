@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 
 interface ModalProps {
@@ -10,6 +10,13 @@ interface ModalProps {
   maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl";
 }
 
+// Open modals, innermost last. Modals can stack (a fix guide opened from a
+// hardening plan): only the top one answers Escape, and the page scroll is
+// locked while any is open and restored when the last one closes, whatever
+// order React runs the cleanups in.
+const openStack: symbol[] = [];
+let overflowBeforeFirst = "";
+
 export const Modal: React.FC<ModalProps> = ({
   isOpen,
   onClose,
@@ -18,19 +25,26 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   maxWidth = "lg",
 }) => {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
     if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    const prevOverflow = document.body.style.overflow;
+    const id = Symbol("modal");
+    if (openStack.length === 0) overflowBeforeFirst = document.body.style.overflow;
+    openStack.push(id);
     document.body.style.overflow = "hidden";
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && openStack[openStack.length - 1] === id) onCloseRef.current();
+    };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = prevOverflow;
+      const i = openStack.indexOf(id);
+      if (i >= 0) openStack.splice(i, 1);
+      if (openStack.length === 0) document.body.style.overflow = overflowBeforeFirst;
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

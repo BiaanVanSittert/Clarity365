@@ -69,3 +69,5 @@ Part of [[Clarity365 MOC]].
 - external mail flow rules
 
 Each guide acts on the items its check found. Only "intune" (a licence note) and "signin-logs" have no guide.
+
+**2026-10-05, Stage 4:** the **Hardening plan** button (header) and **Prevention plan** (inside each scenario card) open `HardeningPlanModal`. It shows the outstanding guides in order, and offers a printable checklist and one PowerShell script. See [[Hardening Plan]].

@@ -30,6 +30,17 @@ UI tests are almost absent (no React Testing Library, no Playwright/Cypress). Th
 
 **2026-10-05:** 878 tests in 79 files. New: `scenario-fix-guide-builder.test.ts` (guide catalogue rules and per-guide resolution) and `FixGuideModal.test.ts` (every guide renders for every demo tenant).
 
+**2026-10-05 (Stage 4 plans):** 1,141 tests in 87 files.
+- New: `hardening-plan.test.ts`:
+  - each guide is in exactly one phase;
+  - every outstanding check is counted, in phase order;
+  - the unassessed-investigation move;
+  - one Graph connect with every scope, and a prompt plus try/catch per step;
+  - **no unquoted placeholder in any guide command or plan script**;
+  - HTML escaping.
+- New: `HardeningPlanModal.test.ts`.
+- The generated scripts were also run through the PowerShell 7 and 5.1 parsers (not executed) with a temporary probe.
+
 **2026-10-05 (Stage 3 fix guides, CA08):** 1,125 tests in 85 files.
 - New: `scenario-fix-guides-stage3.test.ts`. On every demo tenant, a review guide works on items whenever its check lists some. It also covers each guide's commands: exclusions per policy keep break-glass; PIM assigns eligible before removing active; names with quotes are escaped.
 - New: `allowed-countries.test.ts`.

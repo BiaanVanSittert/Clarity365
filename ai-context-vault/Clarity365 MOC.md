@@ -17,7 +17,7 @@ Start here, then follow links outward :  every note links back to this one, so y
 
 ## Services (the backbone)
 [[Tenant Store]] :  the god service everything calls
-[[Core Graph Layer]] · [[Baseline Matchers]] · [[Data Mappers]] · [[Analysis & Generation]] · [[Fleet Operations]] · [[Security Infra]] · [[CA Simulation Engine]] · [[Sign-in Report]]
+[[Core Graph Layer]] · [[Baseline Matchers]] · [[Data Mappers]] · [[Analysis & Generation]] · [[Fleet Operations]] · [[Security Infra]] · [[CA Simulation Engine]] · [[Sign-in Report]] · [[Hardening Plan]]
 
 ## API & MCP
 [[API Surface]] :  all 33 routes

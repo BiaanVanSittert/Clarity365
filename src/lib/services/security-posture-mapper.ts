@@ -79,6 +79,14 @@ export function smtpAuthEnabledFor(mailbox: CasMailboxProtocols, orgWideDisabled
   return orgWideDisabled === undefined ? undefined : !orgWideDisabled;
 }
 
+// Exchange's built-in eDiscovery mailbox (DiscoverySearchMailbox{GUID}@...)
+// is returned by Get-CASMailbox with POP and IMAP on, but nobody signs in to
+// it; found live in a generated hardening plan (2026-10-05). It isn't a
+// mailbox to report or fix.
+export function isSystemMailbox(address: string | undefined): boolean {
+  return /^DiscoverySearchMailbox\{/i.test(address || "");
+}
+
 // ------------------------------------------------------------------- PIM
 
 function principalOf(raw: any): Pick<PrivilegedRoleAssignment, "principalType" | "principalDisplayName" | "principalUserPrincipalName"> {

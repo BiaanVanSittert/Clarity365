@@ -138,12 +138,12 @@ export const SHELL_CONNECT: Record<GuideShell, { label: string; install: string;
   ExchangeOnline: {
     label: "Exchange Online PowerShell",
     install: "Install-Module ExchangeOnlineManagement",
-    connect: () => "Connect-ExchangeOnline -UserPrincipalName <your admin account>",
+    connect: () => "Connect-ExchangeOnline -UserPrincipalName '<your admin account>'",
   },
   SecurityCompliance: {
     label: "Security & Compliance PowerShell",
     install: "Install-Module ExchangeOnlineManagement",
-    connect: () => "Connect-IPPSSession -UserPrincipalName <your admin account>",
+    connect: () => "Connect-IPPSSession -UserPrincipalName '<your admin account>'",
   },
   MicrosoftGraph: {
     label: "Microsoft Graph PowerShell",
@@ -160,7 +160,7 @@ export const SHELL_CONNECT: Record<GuideShell, { label: string; install: string;
   SharePointOnline: {
     label: "SharePoint Online Management Shell",
     install: "Install-Module Microsoft.Online.SharePoint.PowerShell",
-    connect: ({ sharePointAdminUrl }) => `Connect-SPOService -Url ${sharePointAdminUrl || "https://<tenant>-admin.sharepoint.com"}`,
+    connect: ({ sharePointAdminUrl }) => `Connect-SPOService -Url ${sharePointAdminUrl || "'https://<tenant>-admin.sharepoint.com'"}`,
   },
 };
 
@@ -283,7 +283,7 @@ const disableSmtpAuthOrg: FixGuideDefinition = {
     },
     {
       title: "Switch it back on only where it's needed",
-      command: { shell: "ExchangeOnline", script: "Set-CASMailbox -Identity <mailbox that must send with SMTP AUTH> -SmtpClientAuthenticationDisabled $false" },
+      command: { shell: "ExchangeOnline", script: "Set-CASMailbox -Identity '<mailbox that must send with SMTP AUTH>' -SmtpClientAuthenticationDisabled $false" },
       note: "Or in the Microsoft 365 admin center: Users > Active users > the user > Mail > Manage email apps > tick Authenticated SMTP. Better still, move those devices to OAuth or a mail-flow connector.",
     },
   ],
@@ -445,7 +445,7 @@ const restrictSmtpAuthMailboxes: FixGuideDefinition = {
         script:
           ctx.items.length > 0
             ? ctx.items.map((i) => `Set-CASMailbox -Identity "${i.address}" -SmtpClientAuthenticationDisabled $true`).join("\n")
-            : `Set-CASMailbox -Identity <mailbox> -SmtpClientAuthenticationDisabled $true`,
+            : `Set-CASMailbox -Identity '<mailbox>' -SmtpClientAuthenticationDisabled $true`,
       },
       note: "$true turns it off for that mailbox; $null hands the mailbox back to the organisation setting.",
     },
@@ -454,7 +454,7 @@ const restrictSmtpAuthMailboxes: FixGuideDefinition = {
     inClarity: 'Re-sync this tenant; "Only mailboxes that need SMTP AUTH have it" turns green.',
     command: { shell: "ExchangeOnline", script: "Get-CASMailbox -ResultSize Unlimited | Where-Object { $_.SmtpClientAuthenticationDisabled -eq $false } | Select-Object PrimarySmtpAddress" },
   },
-  undo: { text: "Turn it back on for a mailbox that needs it.", command: { shell: "ExchangeOnline", script: "Set-CASMailbox -Identity <mailbox> -SmtpClientAuthenticationDisabled $false" } },
+  undo: { text: "Turn it back on for a mailbox that needs it.", command: { shell: "ExchangeOnline", script: "Set-CASMailbox -Identity '<mailbox>' -SmtpClientAuthenticationDisabled $false" } },
   learn: [link("Enable or disable SMTP AUTH in Exchange Online", LEARN.smtpAuth), link("Set-CASMailbox", LEARN.setCasMailbox)],
 };
 
@@ -479,7 +479,7 @@ const disablePopImap: FixGuideDefinition = {
         script:
           ctx.items.length > 0
             ? ctx.items.map((i) => `Set-CASMailbox -Identity "${i.address}" -PopEnabled $false -ImapEnabled $false`).join("\n")
-            : `Set-CASMailbox -Identity <mailbox> -PopEnabled $false -ImapEnabled $false`,
+            : `Set-CASMailbox -Identity '<mailbox>' -PopEnabled $false -ImapEnabled $false`,
       },
     },
     {
@@ -492,7 +492,7 @@ const disablePopImap: FixGuideDefinition = {
     inClarity: 'Re-sync this tenant; "POP and IMAP are off where they aren\'t used" turns green.',
     command: { shell: "ExchangeOnline", script: "Get-CASMailbox -ResultSize Unlimited | Where-Object { $_.PopEnabled -or $_.ImapEnabled } | Select-Object PrimarySmtpAddress, PopEnabled, ImapEnabled" },
   },
-  undo: { text: "Turn a protocol back on for a mailbox that needs it.", command: { shell: "ExchangeOnline", script: "Set-CASMailbox -Identity <mailbox> -ImapEnabled $true" } },
+  undo: { text: "Turn a protocol back on for a mailbox that needs it.", command: { shell: "ExchangeOnline", script: "Set-CASMailbox -Identity '<mailbox>' -ImapEnabled $true" } },
   learn: [link("Set-CASMailbox", LEARN.setCasMailbox), link("Set-CASMailboxPlan", LEARN.setCasMailboxPlan)],
 };
 
@@ -703,7 +703,7 @@ const sharePointRestrictAnyoneSites: FixGuideDefinition = {
         script:
           ctx.items.filter((i) => i.url).length > 0
             ? ctx.items.filter((i) => i.url).map((i) => `Set-SPOSite -Identity "${i.url}" -SharingCapability ExternalUserSharingOnly`).join("\n")
-            : `Set-SPOSite -Identity <site URL> -SharingCapability ExternalUserSharingOnly`,
+            : `Set-SPOSite -Identity '<site URL>' -SharingCapability ExternalUserSharingOnly`,
       },
     },
   ],

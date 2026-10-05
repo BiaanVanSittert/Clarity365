@@ -12,7 +12,7 @@ import {
 } from "../data/scenario-fix-guides";
 import { detectLikelyBreakGlassAccounts, isLikelyBreakGlassRef, listSimAccounts } from "./ca-sim-context";
 import { DIRECTORY_ROLE_TEMPLATES, getRoleTemplateById } from "../utils/directory-role-templates";
-import { smtpAuthEnabledFor } from "./security-posture-mapper";
+import { isSystemMailbox, smtpAuthEnabledFor } from "./security-posture-mapper";
 import { mapConditionalAccessPolicy } from "./ca-policy-mapper";
 import { mapCaBetaSessionExtras } from "./ca-environment-mapper";
 import { PolicyImpactPreview, previewPolicyImpact } from "./ca-policy-impact";
@@ -96,11 +96,11 @@ function guestRoleItems(snapshot: TenantSecuritySnapshot): FixGuideItem[] {
 // Mailboxes that can use SMTP AUTH, and mailboxes with POP or IMAP on.
 function smtpAuthMailboxItems(snapshot: TenantSecuritySnapshot): FixGuideItem[] {
   const ex = snapshot.exchangeSecurity;
-  return (ex?.casMailboxes || []).filter((m) => smtpAuthEnabledFor(m, ex?.smtpClientAuthDisabledOrgWide) === true).map((m) => ({ label: m.primarySmtpAddress, address: m.primarySmtpAddress }));
+  return (ex?.casMailboxes || []).filter((m) => !isSystemMailbox(m.primarySmtpAddress) && smtpAuthEnabledFor(m, ex?.smtpClientAuthDisabledOrgWide) === true).map((m) => ({ label: m.primarySmtpAddress, address: m.primarySmtpAddress }));
 }
 function popImapMailboxItems(snapshot: TenantSecuritySnapshot): FixGuideItem[] {
   return (snapshot.exchangeSecurity?.casMailboxes || [])
-    .filter((m) => m.popEnabled || m.imapEnabled)
+    .filter((m) => !isSystemMailbox(m.primarySmtpAddress) && (m.popEnabled || m.imapEnabled))
     .map((m) => ({ label: `${m.primarySmtpAddress} (${[m.popEnabled ? "POP" : "", m.imapEnabled ? "IMAP" : ""].filter(Boolean).join(" + ")})`, address: m.primarySmtpAddress }));
 }
 // Sites that allow Anyone links.

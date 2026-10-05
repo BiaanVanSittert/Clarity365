@@ -176,3 +176,17 @@ describe("make-admin-roles-eligible licence warning", () => {
     expect(g.warnings.some((w) => /Entra ID P2/.test(w))).toBe(true);
   });
 });
+
+describe("system mailboxes", () => {
+  it("leaves the built-in eDiscovery mailbox out of the POP/IMAP and SMTP AUTH lists", () => {
+    const mailboxes = [
+      { primarySmtpAddress: "DiscoverySearchMailbox{D919BA05-46A6-415f-80AD-7E09334BB852}@contoso.onmicrosoft.com", popEnabled: true, imapEnabled: true, activeSyncEnabled: false, smtpClientAuthDisabled: null },
+      { primarySmtpAddress: "ann@contoso.com", popEnabled: true, imapEnabled: false, activeSyncEnabled: true, smtpClientAuthDisabled: null },
+    ];
+    const snap = snapshot({ exchangeSecurity: { smtpClientAuthDisabledOrgWide: false, casMailboxes: mailboxes } } as any);
+    expect(buildFixGuideContext("disable-pop-imap", snap).items.map((i) => i.address)).toEqual(["ann@contoso.com"]);
+    expect(buildFixGuideContext("restrict-smtp-auth-mailboxes", snap).items.map((i) => i.address)).toEqual(["ann@contoso.com"]);
+    const popCheck = evaluateScenarios(snap).flatMap((r) => r.checks).find((c) => c.id === "pop-imap")!;
+    expect((popCheck.items || []).join(" ")).not.toContain("DiscoverySearchMailbox");
+  });
+});
