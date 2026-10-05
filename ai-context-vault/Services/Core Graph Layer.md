@@ -58,6 +58,8 @@ Stage 2 follow-ups: the directory-roles step now also records each member's role
 - **Secret expiry.** The App Registrations step finds Clarity365's own app and stores `credentials.secretExpiry`.
 - Sync schema version 4.
 
+**CA mapper moved (2026-10-05):** `mapConditionalAccessPolicy` now lives in `ca-policy-mapper.ts`, which is pure and can run in the browser. `graph-client.ts` imports it and re-exports it, so existing callers are unchanged. The fix guides' impact preview ([[CA Simulation Engine]]) maps proposed policies through it.
+
 **Alert policies (2026-10-02):** sync step 26 calls `scc-client.ts`'s `fetchAlertPolicyInventory(tenant, headers)` and stores `snapshot.alertPolicies`. `TOTAL_SYNC_STEPS` = 26, sync schema version 5. Never a sync error: failures are recorded on the data as `unavailable`.
 
 ## scc-client.ts :  Security & Compliance PowerShell (read-only)

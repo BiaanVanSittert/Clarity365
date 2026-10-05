@@ -51,4 +51,8 @@ Checks can point at a guide (`guideId` on the check definition; carried on the r
 
 **2026-10-05, Stage 1 guides:** 24 checks across Exchange, SharePoint, Entra settings and alerts now have "How to fix" guides. The alert checks no longer carry the `New-ProtectionAlert` command themselves; it is in their guides. The Guest re-share sprawl check "Invitations can only be redeemed by the invited account" was **removed**: Microsoft deprecated `RequireAcceptingAccountMatchInvitedAccount` when SharePoint moved to Entra B2B invitations.
 
+**2026-10-05, Stage 2 guides:** 23 Conditional Access checks now link to 16 CA guides.
+- Each guide's policy is created report-only with break-glass excluded. It comes with portal steps, a generated Graph PowerShell command (beta for token protection), and a "What this policy would have done" preview. The preview replays the tenant's synced sign-ins against the proposed policy ([[CA Simulation Engine]], `ca-policy-impact.ts`).
+- Country blocking uses an allow list of the tenant's home country. The guide lists every other country its sign-ins came from.
+
 Part of [[Clarity365 MOC]].

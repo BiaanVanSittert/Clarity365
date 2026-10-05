@@ -14,7 +14,11 @@
 // tenant's real values (object ids, break-glass accounts); the builder
 // (scenario-fix-guide-builder.ts) creates the context from the snapshot.
 
-export type GuideShell = "ExchangeOnline" | "MicrosoftGraph" | "SecurityCompliance" | "SharePointOnline";
+import { CaNamedLocation } from "../types";
+import { DIRECTORY_ROLE_TEMPLATES } from "../utils/directory-role-templates";
+import { toPowerShell } from "../utils/powershell-literal";
+
+export type GuideShell = "ExchangeOnline" | "MicrosoftGraph" | "MicrosoftGraphBeta" | "SecurityCompliance" | "SharePointOnline";
 
 export interface GuideCommand {
   shell: GuideShell;
@@ -72,6 +76,24 @@ export interface FixGuideContext {
   items: FixGuideItem[];
   // https://<tenant>-admin.sharepoint.com, when it can be worked out from the synced sites.
   sharePointAdminUrl?: string;
+  // Most common country of successful sign-ins (ISO alpha-2), for the country allow list.
+  homeCountry?: string;
+  // Other countries successful sign-ins came from, busiest first.
+  observedCountries: { code: string; count: number }[];
+}
+
+// A Conditional Access policy a guide proposes, as the Microsoft Graph body
+// the command sends. The builder replays the tenant's sign-ins against the
+// same body (ca-policy-impact.ts).
+export interface ProposedCaPolicy {
+  body: Record<string, unknown>;
+  // A named location the command creates first; the policy refers to it by
+  // NEW_LOCATION_ID until it exists.
+  namedLocation?: { body: Record<string, unknown>; preview: CaNamedLocation };
+  // false when the policy's condition isn't in the synced data (user actions,
+  // token binding, authentication transfer...).
+  previewable: boolean;
+  previewNote?: string;
 }
 
 export interface FixGuideDefinition {
@@ -93,6 +115,8 @@ export interface FixGuideDefinition {
   learn: FixGuideLearnLink[];
   // Values the guide needs that Clarity365 couldn't fill in; shown as warnings.
   missing?: (ctx: FixGuideContext) => string[];
+  // Conditional Access guides: the policy the command creates.
+  proposedPolicy?: (ctx: FixGuideContext) => ProposedCaPolicy;
 }
 
 // How to connect for each kind of command. Shown above the first command of that kind.
@@ -110,6 +134,12 @@ export const SHELL_CONNECT: Record<GuideShell, { label: string; install: string;
   MicrosoftGraph: {
     label: "Microsoft Graph PowerShell",
     install: "Install-Module Microsoft.Graph",
+    connect: ({ tenantId, graphScopes }) =>
+      `Connect-MgGraph -TenantId "${tenantId || "<tenant ID>"}" -Scopes ${(graphScopes || []).map((s) => `"${s}"`).join(",")}`,
+  },
+  MicrosoftGraphBeta: {
+    label: "Microsoft Graph PowerShell (beta)",
+    install: "Install-Module Microsoft.Graph.Beta",
     connect: ({ tenantId, graphScopes }) =>
       `Connect-MgGraph -TenantId "${tenantId || "<tenant ID>"}" -Scopes ${(graphScopes || []).map((s) => `"${s}"`).join(",")}`,
   },
@@ -941,6 +971,854 @@ const alertUserDeletion: FixGuideDefinition = {
   learn: [link("New-ProtectionAlert", LEARN.newProtectionAlert), link("Alert policies in the Microsoft Defender portal", LEARN.alertPolicies)],
 };
 
+// ================================================== Stage 2 (2026-10-05)
+// Conditional Access. Each policy is built ONCE as a Microsoft Graph object
+// (proposedPolicy); the command is written from that object
+// (toPowerShell) and the impact preview replays the tenant's sign-ins
+// against the same object, so the two can't disagree. Every policy is
+// created in report-only with the break-glass accounts excluded.
+
+const REPORT_ONLY = "enabledForReportingButNotEnforced";
+const NEW_LOCATION_ID = "{{NEW_LOCATION_ID}}";
+const MFA_STRENGTH_ID = "00000000-0000-0000-0000-000000000002";
+const PHISHING_RESISTANT_STRENGTH_ID = "00000000-0000-0000-0000-000000000004";
+const EXCHANGE_ONLINE_APP_ID = "00000002-0000-0ff1-ce00-000000000000";
+const SHAREPOINT_ONLINE_APP_ID = "00000003-0000-0ff1-ce00-000000000000";
+const TEAMS_SERVICES_APP_ID = "cc15fd57-2c6c-4117-a88c-83b1d56b4bbe";
+// The 14 roles Microsoft's "Require MFA for administrators" template targets.
+const ADMIN_ROLE_IDS = DIRECTORY_ROLE_TEMPLATES.filter((t) => t.isPrivileged).map((t) => t.templateId);
+
+const CA_LEARN = {
+  blockByLocation: "https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-block-by-location",
+  newNamedLocation: "https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.identity.signins/new-mgidentityconditionalaccessnamedlocation?view=graph-powershell-1.0",
+  newPolicy: "https://learn.microsoft.com/en-us/powershell/module/microsoft.graph.identity.signins/new-mgidentityconditionalaccesspolicy?view=graph-powershell-1.0",
+  policyResource: "https://learn.microsoft.com/en-us/graph/api/resources/conditionalaccesspolicy?view=graph-rest-1.0",
+  deviceRegistration: "https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-all-users-device-registration",
+  securityInfo: "https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-all-users-security-info-registration",
+  tokenProtection: "https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-token-protection",
+  tokenProtectionWindows: "https://learn.microsoft.com/en-us/entra/identity/conditional-access/deployment-guide-token-protection-windows",
+  reauthentication: "https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-all-users-persistent-browser",
+  sessionControls: "https://learn.microsoft.com/en-us/graph/api/resources/conditionalaccesssessioncontrols?view=graph-rest-1.0",
+  authStrengths: "https://learn.microsoft.com/en-us/entra/identity/authentication/concept-authentication-strengths",
+  cae: "https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-continuous-access-evaluation",
+  riskUser: "https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-risk-based-user",
+  protectedActions: "https://learn.microsoft.com/en-us/entra/identity/role-based-access-control/protected-actions-add",
+};
+
+// Excluded accounts for every policy: the tenant's break-glass accounts.
+function excludedUsers(ctx: FixGuideContext): string[] {
+  return ctx.breakGlass.length > 0 ? ctx.breakGlass.map((b) => b.objectId) : ["<break-glass account object ID>"];
+}
+
+const breakGlassMissing = (ctx: FixGuideContext) =>
+  ctx.breakGlass.length === 0
+    ? ["No break-glass account was found for this tenant. Create one (excluded from every policy) before switching any blocking policy on, and put its object ID in the command."]
+    : [];
+
+const breakGlassStep = (ctx: FixGuideContext) =>
+  `Exclude > Users and groups: ${ctx.breakGlass.length > 0 ? ctx.breakGlass.map((b) => b.label).join(", ") : "your break-glass accounts"}.`;
+
+// The command for a proposed policy (and the named location it needs, if any).
+export function caCreateScript(proposed: ProposedCaPolicy, beta = false): string {
+  const cmdlet = beta ? "New-MgBetaIdentityConditionalAccessPolicy" : "New-MgIdentityConditionalAccessPolicy";
+  const parts: string[] = [];
+  if (proposed.namedLocation) {
+    parts.push(`$location = New-MgIdentityConditionalAccessNamedLocation -BodyParameter ${toPowerShell(proposed.namedLocation.body)}`);
+  }
+  const policy = toPowerShell(proposed.body).replace(`'${NEW_LOCATION_ID}'`, "$location.Id");
+  parts.push(`$policy = ${policy}\n${cmdlet} -BodyParameter $policy`);
+  return parts.join("\n\n");
+}
+
+const switchOnStep = (name: string): FixGuideStep => ({
+  title: "After a week in report-only, switch it on",
+  portal: { url: "https://entra.microsoft.com", steps: [`Conditional Access > Policies > "${name}": check its report-only results, then Enable policy: On > Save.`] },
+});
+
+const caVerify = (name: string): FixGuideDefinition["verify"] => ({
+  inClarity: "Re-sync this tenant. While the policy is report-only the check shows it as report-only; once it is On the check turns green.",
+  command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All"], script: `Get-MgIdentityConditionalAccessPolicy -Filter "displayName eq '${name.replace(/'/g, "''")}'" | Select-Object DisplayName, State` },
+});
+
+const caUndo = (name: string): FixGuideDefinition["undo"] => ({ text: `Turn "${name}" off (Enable policy: Off) or delete it in Conditional Access > Policies.` });
+
+// -------------------------------------------------------- A. Conditional Access
+
+const FOREIGN_POLICY = "Block sign-ins from outside allowed countries";
+function proposeBlockForeign(ctx: FixGuideContext): ProposedCaPolicy {
+  const allowed = ctx.homeCountry ? [ctx.homeCountry] : ["<two-letter country code>"];
+  return {
+    namedLocation: {
+      body: { "@odata.type": "#microsoft.graph.countryNamedLocation", displayName: "Allowed countries", countriesAndRegions: allowed, includeUnknownCountriesAndRegions: false },
+      preview: { id: NEW_LOCATION_ID, displayName: "Allowed countries", kind: "country", countries: allowed, includeUnknownCountries: false },
+    },
+    body: {
+      displayName: FOREIGN_POLICY,
+      state: REPORT_ONLY,
+      conditions: {
+        users: { includeUsers: ["All"], excludeUsers: excludedUsers(ctx) },
+        applications: { includeApplications: ["All"] },
+        clientAppTypes: ["all"],
+        locations: { includeLocations: ["All"], excludeLocations: [NEW_LOCATION_ID] },
+      },
+      grantControls: { operator: "OR", builtInControls: ["block"] },
+    },
+    previewable: !!ctx.homeCountry,
+    previewNote: ctx.homeCountry ? undefined : "The tenant's home country couldn't be worked out from its sign-ins, so the preview isn't available. Put the allowed countries in the command first.",
+  };
+}
+
+const blockForeignCountries: FixGuideDefinition = {
+  id: "block-foreign-countries",
+  kind: "conditionalAccess",
+  title: "Block sign-ins from outside your allowed countries",
+  summary:
+    "Creates an \"Allowed countries\" named location (starting with this tenant's home country) and a policy that blocks sign-ins from everywhere else. Addresses that don't map to any country are blocked too.",
+  stops: "A stolen password being used from a country your organisation doesn't work in.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator", other: ["At least one break-glass account to exclude", "The list of countries your users genuinely sign in from"] },
+  impact:
+    "Users travelling to, or working from, a country not on the list are blocked, and so are VPNs that exit abroad. Check the preview and the countries listed in step 1, and add every legitimate one before switching the policy on.",
+  rollout: "Created in report-only. Review a week of report-only results, add any missing countries to the named location, then switch it on.",
+  proposedPolicy: proposeBlockForeign,
+  steps: (ctx) => [
+    {
+      title: "Decide which countries to allow",
+      note: `Starting list: ${ctx.homeCountry || "(not detected)"}.${ctx.observedCountries.length > 0 ? ` Successful sign-ins in the synced period also came from: ${ctx.observedCountries.map((c) => `${c.code} (${c.count})`).join(", ")}. Add any that are legitimate.` : ""}`,
+    },
+    {
+      title: "Create the named location and policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          "Entra ID > Conditional Access > Named locations > Countries location: name it \"Allowed countries\", tick the allowed countries (leave \"Include unknown countries/regions\" off) > Create.",
+          `Conditional Access > Policies > New policy: name it "${FOREIGN_POLICY}".`,
+          "Users > Include: All users.",
+          breakGlassStep(ctx),
+          "Target resources > Resources > Include: All resources.",
+          "Network (Locations) > Configure: Yes > Include: Any network or location > Exclude: Selected networks and locations > Allowed countries.",
+          "Grant > Block access > Select.",
+          "Enable policy: Report-only > Create.",
+        ],
+      },
+    },
+    { title: "Or create both with Microsoft Graph PowerShell", command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"], script: caCreateScript(proposeBlockForeign(ctx)) } },
+    switchOnStep(FOREIGN_POLICY),
+  ],
+  verify: caVerify(FOREIGN_POLICY),
+  undo: caUndo(FOREIGN_POLICY),
+  learn: [link("Block access by location", CA_LEARN.blockByLocation), link("New-MgIdentityConditionalAccessNamedLocation", CA_LEARN.newNamedLocation), link("New-MgIdentityConditionalAccessPolicy", CA_LEARN.newPolicy)],
+  missing: (ctx) => [...breakGlassMissing(ctx), ...(ctx.homeCountry ? [] : ["The home country couldn't be worked out; replace <two-letter country code> with your allowed countries."])],
+};
+
+const includeUnknownCountries: FixGuideDefinition = {
+  id: "include-unknown-countries",
+  kind: "conditionalAccess",
+  title: "Cover addresses that don't map to a country",
+  summary: "Makes sure sign-ins from IP addresses that Microsoft can't place in any country (common with anonymisers) are blocked along with the countries you block.",
+  stops: "An attacker dodging a country block by using an address with no known country.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator" },
+  impact: "Sign-ins from addresses with no known country are blocked by the same policy. These are rare for normal users.",
+  steps: (ctx) => [
+    {
+      title: "If you use an allow list (recommended)",
+      note: 'With "Block sign-ins from outside your allowed countries" (its own guide), unknown addresses are already blocked, because they aren\'t in the allowed list. Nothing else is needed.',
+    },
+    {
+      title: "If you block a list of countries instead",
+      portal: { url: "https://entra.microsoft.com", steps: ["Entra ID > Conditional Access > Named locations > open the blocked-countries location.", "Tick Include unknown countries/regions > Save."] },
+    },
+    ...(ctx.items.length > 0
+      ? [
+          {
+            title: "Or with Microsoft Graph PowerShell",
+            command: {
+              shell: "MicrosoftGraph" as GuideShell,
+              graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"],
+              script: ctx.items
+                .map((i) => `# ${i.label}\nUpdate-MgIdentityConditionalAccessNamedLocation -NamedLocationId "${i.principalId}" -BodyParameter ${toPowerShell({ "@odata.type": "#microsoft.graph.countryNamedLocation", includeUnknownCountriesAndRegions: true })}`)
+                .join("\n\n"),
+            },
+          },
+        ]
+      : []),
+  ],
+  verify: { inClarity: 'Re-sync this tenant; "Addresses that don\'t map to any country are covered" turns green.' },
+  undo: { text: "Untick Include unknown countries/regions on the named location." },
+  learn: [link("Block access by location", CA_LEARN.blockByLocation), link("New-MgIdentityConditionalAccessNamedLocation", CA_LEARN.newNamedLocation)],
+};
+
+const DEVICE_REG_POLICY = "Require MFA to register or join devices";
+function proposeDeviceRegistration(ctx: FixGuideContext): ProposedCaPolicy {
+  return {
+    body: {
+      displayName: DEVICE_REG_POLICY,
+      state: REPORT_ONLY,
+      conditions: {
+        users: { includeUsers: ["All"], excludeUsers: excludedUsers(ctx) },
+        applications: { includeUserActions: ["urn:user:registerdevice"] },
+        clientAppTypes: ["all"],
+      },
+      grantControls: { operator: "OR", authenticationStrength: { id: MFA_STRENGTH_ID } },
+    },
+    previewable: false,
+    previewNote: "Device registrations aren't in the synced sign-in data, so this can't be previewed.",
+  };
+}
+
+const requireMfaDeviceRegistration: FixGuideDefinition = {
+  id: "require-mfa-device-registration",
+  kind: "conditionalAccess",
+  title: "Require MFA to register or join a device",
+  summary: "A Conditional Access policy on the \"Register or join devices\" user action, requiring the built-in Multifactor authentication strength, plus the device setting Microsoft says must be turned off for it to work.",
+  stops: "An attacker with a stolen password registering their own device, which can then look \"managed\" or satisfy device-based policies.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator (policy); Cloud Device Administrator or Global Administrator (device setting)" },
+  impact: "Users must complete MFA when they register or join a device. Nothing changes for normal sign-ins.",
+  proposedPolicy: proposeDeviceRegistration,
+  steps: (ctx) => [
+    {
+      title: "Create the policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          `Entra ID > Conditional Access > Policies > New policy: name it "${DEVICE_REG_POLICY}".`,
+          "Users > Include: All users.",
+          breakGlassStep(ctx),
+          "Target resources > User actions > Register or join devices.",
+          "Grant > Require authentication strength > Multifactor authentication > Select.",
+          "Enable policy: Report-only > Create.",
+        ],
+      },
+    },
+    { title: "Or with Microsoft Graph PowerShell", command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"], script: caCreateScript(proposeDeviceRegistration(ctx)) } },
+    {
+      title: "Then change the device setting (required)",
+      portal: { url: "https://entra.microsoft.com", steps: ["Entra ID > Devices > Overview > Device settings.", "Require Multifactor Authentication to register or join devices with Microsoft Entra: No > Save."] },
+      note: "Microsoft: with this user-action policy in place the device setting must be No, otherwise the policy isn't properly enforced. The policy now does the job the setting used to.",
+    },
+    switchOnStep(DEVICE_REG_POLICY),
+  ],
+  verify: caVerify(DEVICE_REG_POLICY),
+  undo: caUndo(DEVICE_REG_POLICY),
+  learn: [link("Require MFA for device registration", CA_LEARN.deviceRegistration), link("New-MgIdentityConditionalAccessPolicy", CA_LEARN.newPolicy)],
+  missing: breakGlassMissing,
+};
+
+const TOKEN_POLICY = "Require token protection for admins (pilot)";
+function proposeTokenProtection(ctx: FixGuideContext): ProposedCaPolicy {
+  return {
+    body: {
+      displayName: TOKEN_POLICY,
+      state: REPORT_ONLY,
+      conditions: {
+        users: { includeRoles: ADMIN_ROLE_IDS, excludeUsers: excludedUsers(ctx) },
+        applications: { includeApplications: [EXCHANGE_ONLINE_APP_ID, SHAREPOINT_ONLINE_APP_ID, TEAMS_SERVICES_APP_ID] },
+        platforms: { includePlatforms: ["windows"] },
+        clientAppTypes: ["mobileAppsAndDesktopClients"],
+      },
+      sessionControls: { secureSignInSession: { isEnabled: true } },
+    },
+    previewable: false,
+    previewNote: "Whether a sign-in used a device-bound token isn't in the synced data, so this can't be previewed. Use the policy's report-only results.",
+  };
+}
+
+const requireTokenProtection: FixGuideDefinition = {
+  id: "require-token-protection",
+  kind: "conditionalAccess",
+  title: "Require token protection (start with admins)",
+  summary:
+    "A session control that only accepts sign-in tokens bound to the device they were issued to, for the Outlook, Teams, OneDrive and Office desktop apps on Windows talking to Exchange Online, SharePoint Online and Teams. Starts with admin roles as the pilot group.",
+  stops: "A stolen session token (for example from an AiTM phishing kit or malware) being replayed from the attacker's machine.",
+  prerequisites: {
+    licence: "Microsoft Entra ID P1",
+    adminRole: "Conditional Access Administrator",
+    other: ["Windows 10 or later devices that are Entra joined, hybrid joined or registered", "Microsoft Graph PowerShell beta module (the setting is beta-only in Graph)"],
+  },
+  impact:
+    "Unsupported clients are blocked from Exchange, SharePoint and Teams for the users in scope: Office perpetual clients, PowerShell modules accessing SharePoint, some VS Code extensions, Teams Rooms and Surface Hub, and some VM or Cloud PC registrations. Browsers aren't affected (the policy targets desktop apps only).",
+  rollout: "Microsoft's advice: pilot group first, report-only, review interactive and non-interactive sign-in logs long enough to cover normal use, then enforce for known-good users and widen.",
+  proposedPolicy: proposeTokenProtection,
+  steps: (ctx) => [
+    {
+      title: "Create the policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          `Entra ID > Conditional Access > Policies > New policy: name it "${TOKEN_POLICY}".`,
+          "Users > Include: Select users and groups > Directory roles: the admin roles (or a pilot group).",
+          breakGlassStep(ctx),
+          "Target resources > Select resources: Office 365 Exchange Online, Office 365 SharePoint Online, Microsoft Teams Services (not the Office 365 group).",
+          "Conditions > Device platforms: Windows. Client apps: only Mobile apps and desktop clients.",
+          "Session > Require token protection for sign-in sessions > Select.",
+          "Enable policy: Report-only > Create.",
+        ],
+      },
+    },
+    {
+      title: "Or with Microsoft Graph PowerShell (beta)",
+      command: { shell: "MicrosoftGraphBeta", graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"], script: caCreateScript(proposeTokenProtection(ctx), true) },
+    },
+    switchOnStep(TOKEN_POLICY),
+  ],
+  verify: caVerify(TOKEN_POLICY),
+  undo: caUndo(TOKEN_POLICY),
+  learn: [link("Token protection in Conditional Access", CA_LEARN.tokenProtection), link("Token protection deployment guide - Windows", CA_LEARN.tokenProtectionWindows)],
+  missing: breakGlassMissing,
+};
+
+const ADMIN_DEVICE_POLICY = "Require a compliant or hybrid-joined device for admins";
+function proposeAdminDevice(ctx: FixGuideContext): ProposedCaPolicy {
+  return {
+    body: {
+      displayName: ADMIN_DEVICE_POLICY,
+      state: REPORT_ONLY,
+      conditions: {
+        users: { includeRoles: ADMIN_ROLE_IDS, excludeUsers: excludedUsers(ctx) },
+        applications: { includeApplications: ["All"] },
+        clientAppTypes: ["all"],
+      },
+      grantControls: { operator: "OR", builtInControls: ["compliantDevice", "domainJoinedDevice"] },
+    },
+    previewable: true,
+  };
+}
+
+const requireCompliantDeviceAdmins: FixGuideDefinition = {
+  id: "require-compliant-device-admins",
+  kind: "conditionalAccess",
+  title: "Require a compliant or hybrid-joined device for admins",
+  summary: "Admin roles can only sign in from a device that Intune marks compliant or that is hybrid Entra joined.",
+  stops: "An admin's stolen password or session being used from an attacker's (or a personal) device.",
+  prerequisites: { licence: "Microsoft Entra ID P1, plus Microsoft Intune for compliant devices", adminRole: "Conditional Access Administrator", other: ["Admins' devices already enrolled and compliant"] },
+  impact: "Admins on personal or unmanaged devices (including unmanaged Macs and phones) are blocked from everything, not just admin portals. Make sure each admin has a compliant device first.",
+  rollout: "Created in report-only. Check the preview and report-only results for each admin before switching on.",
+  proposedPolicy: proposeAdminDevice,
+  steps: (ctx) => [
+    {
+      title: "Create the policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          `Entra ID > Conditional Access > Policies > New policy: name it "${ADMIN_DEVICE_POLICY}".`,
+          "Users > Include: Select users and groups > Directory roles: Global Administrator and the other admin roles.",
+          breakGlassStep(ctx),
+          "Target resources > Resources > Include: All resources.",
+          "Grant > Grant access > Require device to be marked as compliant + Require Microsoft Entra hybrid joined device > Require one of the selected controls > Select.",
+          "Enable policy: Report-only > Create.",
+        ],
+      },
+    },
+    { title: "Or with Microsoft Graph PowerShell", command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"], script: caCreateScript(proposeAdminDevice(ctx)) } },
+    switchOnStep(ADMIN_DEVICE_POLICY),
+  ],
+  verify: caVerify(ADMIN_DEVICE_POLICY),
+  undo: caUndo(ADMIN_DEVICE_POLICY),
+  learn: [link("New-MgIdentityConditionalAccessPolicy", CA_LEARN.newPolicy), link("conditionalAccessPolicy resource type", CA_LEARN.policyResource)],
+  missing: breakGlassMissing,
+};
+
+const DESKTOP_POLICY = "Require a compliant device for desktop and mobile apps";
+function proposeDesktopCompliant(ctx: FixGuideContext): ProposedCaPolicy {
+  return {
+    body: {
+      displayName: DESKTOP_POLICY,
+      state: REPORT_ONLY,
+      conditions: {
+        users: { includeUsers: ["All"], excludeUsers: [...excludedUsers(ctx), "GuestsOrExternalUsers"] },
+        applications: { includeApplications: ["All"] },
+        clientAppTypes: ["mobileAppsAndDesktopClients"],
+      },
+      grantControls: { operator: "OR", builtInControls: ["compliantDevice", "domainJoinedDevice"] },
+    },
+    previewable: true,
+  };
+}
+
+const requireCompliantDeviceDesktop: FixGuideDefinition = {
+  id: "require-compliant-device-desktop",
+  kind: "conditionalAccess",
+  title: "Require a compliant device for desktop and mobile apps",
+  summary: "Desktop and mobile apps (OneDrive sync, Outlook, Teams, Office) only work on compliant or hybrid-joined devices; browsers are left alone, so pair this with SharePoint's web-only access for unmanaged devices.",
+  stops: "Bulk download or sync of company data to an unmanaged or attacker-controlled device.",
+  prerequisites: { licence: "Microsoft Entra ID P1 and Microsoft Intune", adminRole: "Conditional Access Administrator", other: ["Users' devices enrolled in Intune with compliance policies"] },
+  impact: "Users on personal devices can't use the desktop or mobile apps (including Outlook on personal phones) until the device is enrolled. Guests are excluded because they can't have a compliant device in your tenant.",
+  rollout: "Created in report-only. Check how many users the preview shows before switching on; plan Intune enrolment for them first.",
+  proposedPolicy: proposeDesktopCompliant,
+  steps: (ctx) => [
+    {
+      title: "Create the policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          `Entra ID > Conditional Access > Policies > New policy: name it "${DESKTOP_POLICY}".`,
+          "Users > Include: All users. Exclude: Guest or external users, and the break-glass accounts.",
+          breakGlassStep(ctx),
+          "Target resources > Resources > Include: All resources.",
+          "Conditions > Client apps: Configure Yes, only Mobile apps and desktop clients.",
+          "Grant > Require device to be marked as compliant + Require Microsoft Entra hybrid joined device > Require one of the selected controls > Select.",
+          "Enable policy: Report-only > Create.",
+        ],
+      },
+    },
+    { title: "Or with Microsoft Graph PowerShell", command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"], script: caCreateScript(proposeDesktopCompliant(ctx)) } },
+    switchOnStep(DESKTOP_POLICY),
+  ],
+  verify: caVerify(DESKTOP_POLICY),
+  undo: caUndo(DESKTOP_POLICY),
+  learn: [link("New-MgIdentityConditionalAccessPolicy", CA_LEARN.newPolicy), link("conditionalAccessPolicy resource type", CA_LEARN.policyResource)],
+  missing: breakGlassMissing,
+};
+
+const ADMIN_SESSION_POLICY = "Admin sessions: sign in every 4 hours, no persistent browser";
+function proposeAdminSession(ctx: FixGuideContext): ProposedCaPolicy {
+  return {
+    body: {
+      displayName: ADMIN_SESSION_POLICY,
+      state: REPORT_ONLY,
+      conditions: {
+        users: { includeRoles: ADMIN_ROLE_IDS, excludeUsers: excludedUsers(ctx) },
+        applications: { includeApplications: ["All"] },
+        clientAppTypes: ["all"],
+      },
+      sessionControls: {
+        signInFrequency: { isEnabled: true, value: 4, type: "hours", authenticationType: "primaryAndSecondaryAuthentication", frequencyInterval: "timeBased" },
+        persistentBrowser: { isEnabled: true, mode: "never" },
+      },
+    },
+    previewable: false,
+    previewNote: "This only shortens sessions; it doesn't block or challenge a sign-in, so there's nothing to preview.",
+  };
+}
+
+const adminSessionLimits: FixGuideDefinition = {
+  id: "admin-session-limits",
+  kind: "conditionalAccess",
+  title: "Time-limit admin sessions",
+  summary: "Admin roles sign in again every 4 hours and browser sessions don't stay signed in after the browser closes.",
+  stops: "A stolen admin session staying usable for days.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator" },
+  impact: "Admins are prompted to sign in more often. Persistent browser only works with All resources targeted, which this policy does.",
+  proposedPolicy: proposeAdminSession,
+  steps: (ctx) => [
+    {
+      title: "Create the policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          `Entra ID > Conditional Access > Policies > New policy: name it "${ADMIN_SESSION_POLICY}".`,
+          "Users > Include: Directory roles: Global Administrator and the other admin roles.",
+          breakGlassStep(ctx),
+          "Target resources > Resources > Include: All resources.",
+          "Session > Sign-in frequency: Periodic reauthentication, 4 Hours. Persistent browser session: Never persistent > Select.",
+          "Enable policy: Report-only > Create.",
+        ],
+      },
+    },
+    { title: "Or with Microsoft Graph PowerShell", command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"], script: caCreateScript(proposeAdminSession(ctx)) } },
+    switchOnStep(ADMIN_SESSION_POLICY),
+  ],
+  verify: caVerify(ADMIN_SESSION_POLICY),
+  undo: caUndo(ADMIN_SESSION_POLICY),
+  learn: [link("Require reauthentication with Conditional Access", CA_LEARN.reauthentication), link("conditionalAccessSessionControls resource type", CA_LEARN.sessionControls)],
+  missing: breakGlassMissing,
+};
+
+const PHISHING_POLICY = "Require phishing-resistant MFA for admins";
+function proposePhishingResistant(ctx: FixGuideContext): ProposedCaPolicy {
+  return {
+    body: {
+      displayName: PHISHING_POLICY,
+      state: REPORT_ONLY,
+      conditions: {
+        users: { includeRoles: ADMIN_ROLE_IDS, excludeUsers: excludedUsers(ctx) },
+        applications: { includeApplications: ["All"] },
+        clientAppTypes: ["all"],
+      },
+      grantControls: { operator: "OR", authenticationStrength: { id: PHISHING_RESISTANT_STRENGTH_ID } },
+    },
+    previewable: true,
+  };
+}
+
+const requirePhishingResistantAdmins: FixGuideDefinition = {
+  id: "require-phishing-resistant-admins",
+  kind: "conditionalAccess",
+  title: "Require phishing-resistant MFA for admins",
+  summary: "Admin roles must sign in with a passkey (FIDO2), Windows Hello for Business or certificate-based authentication. Push notifications and codes no longer satisfy the policy for them.",
+  stops: "Adversary-in-the-middle phishing that relays an admin's push or code approval.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator", other: ["Every admin has registered a passkey, Windows Hello for Business or a certificate first"] },
+  impact: "An admin without a phishing-resistant method can't sign in once the policy is on. Register methods for every admin (a Temporary Access Pass helps) before switching it on.",
+  rollout: "Created in report-only. The preview shows which admins would have been asked for more; get each of them registered, then switch it on.",
+  proposedPolicy: proposePhishingResistant,
+  steps: (ctx) => [
+    {
+      title: "Create the policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          `Entra ID > Conditional Access > Policies > New policy: name it "${PHISHING_POLICY}".`,
+          "Users > Include: Directory roles: Global Administrator and the other admin roles.",
+          breakGlassStep(ctx),
+          "Target resources > Resources > Include: All resources.",
+          "Grant > Require authentication strength > Phishing-resistant MFA > Select.",
+          "Enable policy: Report-only > Create.",
+        ],
+      },
+    },
+    { title: "Or with Microsoft Graph PowerShell", command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"], script: caCreateScript(proposePhishingResistant(ctx)) } },
+    switchOnStep(PHISHING_POLICY),
+  ],
+  verify: caVerify(PHISHING_POLICY),
+  undo: caUndo(PHISHING_POLICY),
+  learn: [link("Authentication strengths", CA_LEARN.authStrengths), link("New-MgIdentityConditionalAccessPolicy", CA_LEARN.newPolicy)],
+  missing: breakGlassMissing,
+};
+
+const keepCaeOn: FixGuideDefinition = {
+  id: "keep-cae-on",
+  kind: "conditionalAccess",
+  title: "Stop disabling continuous access evaluation",
+  summary: "Continuous access evaluation (CAE) is on by default and lets Exchange, SharePoint and Teams cut a session within minutes when a user is disabled, their password changes or risk is detected. A policy here turns it off.",
+  stops: "A session staying alive for up to an hour (or longer) after the account was disabled or the password reset.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator" },
+  impact: "None for most users. CAE can cause extra prompts on networks whose outbound IP addresses change often; that's usually why it was disabled, so check with whoever set it.",
+  steps: (ctx) => [
+    { title: "Find the policy", note: `Policies that disable CAE: ${itemList(ctx, "none listed")}.` },
+    {
+      title: "Remove the setting in the Entra admin center",
+      portal: { url: "https://entra.microsoft.com", steps: ["Entra ID > Conditional Access > Policies > open the policy.", "Session > Customize continuous access evaluation: untick it (or delete the policy if that's all it does) > Save."] },
+      note: "This session control is only in Microsoft Graph beta, so Clarity365 gives the portal steps.",
+    },
+  ],
+  verify: { inClarity: 'Re-sync this tenant; "Continuous access evaluation revokes sessions quickly" turns green.' },
+  undo: { text: "Set Customize continuous access evaluation back to Disable on the policy." },
+  learn: [link("Continuous access evaluation", CA_LEARN.cae)],
+};
+
+const GUEST_MFA_POLICY = "Require MFA for guests";
+function proposeGuestMfa(ctx: FixGuideContext): ProposedCaPolicy {
+  return {
+    body: {
+      displayName: GUEST_MFA_POLICY,
+      state: REPORT_ONLY,
+      conditions: {
+        users: { includeUsers: ["GuestsOrExternalUsers"], excludeUsers: excludedUsers(ctx) },
+        applications: { includeApplications: ["All"] },
+        clientAppTypes: ["all"],
+      },
+      grantControls: { operator: "OR", builtInControls: ["mfa"] },
+    },
+    previewable: true,
+  };
+}
+
+const requireMfaGuests: FixGuideDefinition = {
+  id: "require-mfa-guests",
+  kind: "conditionalAccess",
+  title: "Require MFA for guests",
+  summary: "Guests and external users must complete MFA to reach anything in this tenant.",
+  stops: "A guest account with a stolen or weak password getting into your Teams, SharePoint and files.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator" },
+  impact: "Guests are asked for MFA (in your tenant, or their own if you trust their MFA in cross-tenant access settings).",
+  proposedPolicy: proposeGuestMfa,
+  steps: (ctx) => [
+    {
+      title: "Create the policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          `Entra ID > Conditional Access > Policies > New policy: name it "${GUEST_MFA_POLICY}".`,
+          "Users > Include: Guest or external users (all types, all organisations).",
+          "Target resources > Resources > Include: All resources.",
+          "Grant > Require multifactor authentication > Select.",
+          "Enable policy: Report-only > Create.",
+        ],
+      },
+    },
+    { title: "Or with Microsoft Graph PowerShell", command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"], script: caCreateScript(proposeGuestMfa(ctx)) } },
+    switchOnStep(GUEST_MFA_POLICY),
+  ],
+  verify: caVerify(GUEST_MFA_POLICY),
+  undo: caUndo(GUEST_MFA_POLICY),
+  learn: [link("New-MgIdentityConditionalAccessPolicy", CA_LEARN.newPolicy), link("conditionalAccessPolicy resource type", CA_LEARN.policyResource)],
+};
+
+const ALL_MFA_POLICY = "Require MFA for all users";
+function proposeAllUsersMfa(ctx: FixGuideContext): ProposedCaPolicy {
+  return {
+    body: {
+      displayName: ALL_MFA_POLICY,
+      state: REPORT_ONLY,
+      conditions: {
+        users: { includeUsers: ["All"], excludeUsers: excludedUsers(ctx) },
+        applications: { includeApplications: ["All"] },
+        clientAppTypes: ["all"],
+      },
+      grantControls: { operator: "OR", builtInControls: ["mfa"] },
+    },
+    previewable: true,
+  };
+}
+
+const requireMfaAllUsers: FixGuideDefinition = {
+  id: "require-mfa-all-users",
+  kind: "conditionalAccess",
+  title: "Require MFA for all users",
+  summary: "Every user must complete MFA for every app. The single most effective control against password attacks.",
+  stops: "Password spray and stolen passwords being enough to sign in.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator", other: ["Users registered for MFA (see the MFA registration check)"] },
+  impact: "Users without an MFA method are asked to register at their next sign-in. Service accounts that sign in interactively break; exclude them (or move them to managed identities) first.",
+  rollout: "Created in report-only. The preview shows who would have been asked for MFA that wasn't before.",
+  proposedPolicy: proposeAllUsersMfa,
+  steps: (ctx) => [
+    {
+      title: "Create the policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [`Entra ID > Conditional Access > Policies > New policy: name it "${ALL_MFA_POLICY}".`, "Users > Include: All users.", breakGlassStep(ctx), "Target resources > Resources > Include: All resources.", "Grant > Require multifactor authentication > Select.", "Enable policy: Report-only > Create."],
+      },
+    },
+    { title: "Or with Microsoft Graph PowerShell", command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"], script: caCreateScript(proposeAllUsersMfa(ctx)) } },
+    switchOnStep(ALL_MFA_POLICY),
+  ],
+  verify: caVerify(ALL_MFA_POLICY),
+  undo: caUndo(ALL_MFA_POLICY),
+  learn: [link("New-MgIdentityConditionalAccessPolicy", CA_LEARN.newPolicy), link("conditionalAccessPolicy resource type", CA_LEARN.policyResource)],
+  missing: breakGlassMissing,
+};
+
+const LEGACY_POLICY = "Block legacy authentication";
+function proposeBlockLegacy(ctx: FixGuideContext): ProposedCaPolicy {
+  return {
+    body: {
+      displayName: LEGACY_POLICY,
+      state: REPORT_ONLY,
+      conditions: {
+        users: { includeUsers: ["All"], excludeUsers: excludedUsers(ctx) },
+        applications: { includeApplications: ["All"] },
+        clientAppTypes: ["exchangeActiveSync", "other"],
+      },
+      grantControls: { operator: "OR", builtInControls: ["block"] },
+    },
+    previewable: true,
+  };
+}
+
+const blockLegacyAuth: FixGuideDefinition = {
+  id: "block-legacy-auth",
+  kind: "conditionalAccess",
+  title: "Block legacy authentication",
+  summary: "Blocks the client types that can't do MFA (Exchange ActiveSync with basic auth and \"other clients\" such as IMAP, POP and SMTP with a password).",
+  stops: "Password spray against protocols that ignore MFA.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator" },
+  impact: "Old mail clients, scanners and scripts using basic authentication stop working. The preview lists who used them recently.",
+  proposedPolicy: proposeBlockLegacy,
+  steps: (ctx) => [
+    {
+      title: "Create the policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          `Entra ID > Conditional Access > Policies > New policy: name it "${LEGACY_POLICY}".`,
+          "Users > Include: All users.",
+          breakGlassStep(ctx),
+          "Target resources > Resources > Include: All resources.",
+          "Conditions > Client apps: Configure Yes, select only Exchange ActiveSync clients and Other clients.",
+          "Grant > Block access > Select.",
+          "Enable policy: Report-only > Create.",
+        ],
+      },
+    },
+    { title: "Or with Microsoft Graph PowerShell", command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"], script: caCreateScript(proposeBlockLegacy(ctx)) } },
+    switchOnStep(LEGACY_POLICY),
+  ],
+  verify: caVerify(LEGACY_POLICY),
+  undo: caUndo(LEGACY_POLICY),
+  learn: [link("New-MgIdentityConditionalAccessPolicy", CA_LEARN.newPolicy), link("conditionalAccessPolicy resource type", CA_LEARN.policyResource)],
+  missing: breakGlassMissing,
+};
+
+const AUTH_TRANSFER_POLICY = "Block authentication transfer";
+function proposeBlockAuthTransfer(ctx: FixGuideContext): ProposedCaPolicy {
+  return {
+    body: {
+      displayName: AUTH_TRANSFER_POLICY,
+      state: REPORT_ONLY,
+      conditions: {
+        users: { includeUsers: ["All"], excludeUsers: excludedUsers(ctx) },
+        applications: { includeApplications: ["All"] },
+        clientAppTypes: ["all"],
+        authenticationFlows: { transferMethods: "authenticationTransfer" },
+      },
+      grantControls: { operator: "OR", builtInControls: ["block"] },
+    },
+    previewable: false,
+    previewNote: "Authentication transfers aren't in the synced sign-in data, so this can't be previewed.",
+  };
+}
+
+const blockAuthenticationTransfer: FixGuideDefinition = {
+  id: "block-authentication-transfer",
+  kind: "conditionalAccess",
+  title: "Block authentication transfer",
+  summary: "Blocks moving a signed-in session from a PC to a phone by QR code (authentication transfer).",
+  stops: "A session on a compromised PC being carried over to another device.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator" },
+  impact: "Users can't use \"Sign in on your phone\" style transfers (for example from Outlook desktop to Outlook mobile); they sign in on the phone normally instead.",
+  proposedPolicy: proposeBlockAuthTransfer,
+  steps: (ctx) => [
+    {
+      title: "Create the policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          `Entra ID > Conditional Access > Policies > New policy: name it "${AUTH_TRANSFER_POLICY}".`,
+          "Users > Include: All users.",
+          breakGlassStep(ctx),
+          "Target resources > Resources > Include: All resources.",
+          "Conditions > Authentication flows > Configure: Yes > tick Authentication transfer > Done.",
+          "Grant > Block access > Select.",
+          "Enable policy: Report-only > Create.",
+        ],
+      },
+    },
+    { title: "Or with Microsoft Graph PowerShell", command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"], script: caCreateScript(proposeBlockAuthTransfer(ctx)) } },
+    switchOnStep(AUTH_TRANSFER_POLICY),
+  ],
+  verify: caVerify(AUTH_TRANSFER_POLICY),
+  undo: caUndo(AUTH_TRANSFER_POLICY),
+  learn: [link("Block authentication flows with Conditional Access", "https://learn.microsoft.com/en-us/entra/identity/conditional-access/policy-block-authentication-flows"), link("conditionalAccessAuthenticationFlows resource type", "https://learn.microsoft.com/en-us/graph/api/resources/conditionalaccessauthenticationflows?view=graph-rest-1.0")],
+  missing: breakGlassMissing,
+};
+
+const SECURITY_INFO_POLICY = "Secure security info registration";
+function proposeSecurityInfo(ctx: FixGuideContext): ProposedCaPolicy {
+  return {
+    body: {
+      displayName: SECURITY_INFO_POLICY,
+      state: REPORT_ONLY,
+      conditions: {
+        users: { includeUsers: ["All"], excludeUsers: [...excludedUsers(ctx), "GuestsOrExternalUsers"] },
+        applications: { includeUserActions: ["urn:user:registersecurityinfo"] },
+        clientAppTypes: ["all"],
+        locations: { includeLocations: ["All"], excludeLocations: ["AllTrusted"] },
+      },
+      grantControls: { operator: "OR", authenticationStrength: { id: MFA_STRENGTH_ID } },
+    },
+    previewable: false,
+    previewNote: "Security-info registrations aren't in the synced sign-in data, so this can't be previewed.",
+  };
+}
+
+const protectSecurityInfoRegistration: FixGuideDefinition = {
+  id: "protect-security-info-registration",
+  kind: "conditionalAccess",
+  title: "Protect MFA and security-info registration",
+  summary: "Registering or changing MFA methods requires MFA (or a Temporary Access Pass) unless the user is on a trusted network.",
+  stops: "An attacker with only a password registering their own MFA method on the account.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator", other: ["Temporary Access Pass enabled, so new users can register their first method"] },
+  impact: "New users need a Temporary Access Pass from an admin to register outside a trusted network. Guests are excluded (Temporary Access Pass doesn't work for them). From 6 July 2026 Microsoft also applies these policies to Windows Hello for Business and macOS Platform SSO registration.",
+  proposedPolicy: proposeSecurityInfo,
+  steps: (ctx) => [
+    {
+      title: "Create the policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          `Entra ID > Conditional Access > Policies > New policy: name it "${SECURITY_INFO_POLICY}".`,
+          "Users > Include: All users. Exclude: All guest and external users, and the break-glass accounts.",
+          breakGlassStep(ctx),
+          "Target resources > User actions > Register security information.",
+          "Conditions > Locations: Configure Yes, Include Any location, Exclude All trusted locations.",
+          "Grant > Require authentication strength > Multifactor authentication > Select.",
+          "Enable policy: Report-only > Create.",
+        ],
+      },
+    },
+    { title: "Or with Microsoft Graph PowerShell", command: { shell: "MicrosoftGraph", graphScopes: ["Policy.Read.All", "Policy.ReadWrite.ConditionalAccess"], script: caCreateScript(proposeSecurityInfo(ctx)) } },
+    switchOnStep(SECURITY_INFO_POLICY),
+  ],
+  verify: caVerify(SECURITY_INFO_POLICY),
+  undo: caUndo(SECURITY_INFO_POLICY),
+  learn: [link("Control security information registration with Conditional Access", CA_LEARN.securityInfo)],
+  missing: breakGlassMissing,
+};
+
+const requireRiskRemediation: FixGuideDefinition = {
+  id: "require-risk-remediation",
+  kind: "conditionalAccess",
+  title: "Require risk remediation for high-risk users",
+  summary: "When Microsoft Entra ID Protection rates a user as high risk (for example leaked credentials), the user must remediate (secure sign-in and reset or prove the account) before getting in. Covers password and passwordless users.",
+  stops: "An account with known-leaked credentials continuing to be used.",
+  prerequisites: { licence: "Microsoft Entra ID P2", adminRole: "Conditional Access Administrator" },
+  impact: "High-risk users are interrupted until they remediate. Users who can't complete MFA can't self-remediate and need an admin.",
+  steps: (ctx) => [
+    {
+      title: "Create the policy in the Entra admin center",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          'Entra ID > Conditional Access > New policy: name it "Require risk remediation for high-risk users".',
+          "Users > Include: All users.",
+          breakGlassStep(ctx),
+          "Target resources > Include: All resources.",
+          "Conditions > User risk: Configure Yes > High > Done.",
+          "Grant > Grant access > Require risk remediation (Require authentication strength is selected automatically; choose the strength) > Select.",
+          "Session: Sign-in frequency Every time is applied automatically.",
+          "Enable policy: Report-only > Create.",
+        ],
+      },
+      note: "Microsoft documents this policy in the portal only, so Clarity365 doesn't give a command for it.",
+    },
+  ],
+  verify: { inClarity: 'Re-sync this tenant; "High user risk forces remediation" turns green once the policy is on.' },
+  undo: { text: "Turn the policy off or delete it in Conditional Access > Policies." },
+  learn: [link("Require remediation for risky users", CA_LEARN.riskUser)],
+  missing: breakGlassMissing,
+};
+
+const protectSensitiveAdminActions: FixGuideDefinition = {
+  id: "protect-sensitive-admin-actions",
+  kind: "conditionalAccess",
+  title: "Require step-up authentication for sensitive admin actions",
+  summary: "Uses protected actions: deleting or changing Conditional Access policies (and other permissions you choose) asks for phishing-resistant MFA at that moment, even for an admin already signed in.",
+  stops: "An attacker with a hijacked admin session quietly deleting the policies that protect the tenant.",
+  prerequisites: { licence: "Microsoft Entra ID P1", adminRole: "Conditional Access Administrator or Security Administrator", other: ["Admins able to complete phishing-resistant MFA"] },
+  impact: "Admins are re-prompted when they perform the protected actions. Microsoft: do the steps in this order, and the policy must be On (not report-only) before you add protected actions, or admins get repeated prompts. If that happens, https://aka.ms/MSALProtectedActions opens Conditional Access.",
+  steps: (ctx) => [
+    {
+      title: "1. Create an authentication context",
+      portal: { url: "https://entra.microsoft.com", steps: ["Entra ID > Conditional Access > Authentication context > New authentication context.", 'Name it (for example "Sensitive admin actions"), tick Publish to apps > Save.'] },
+    },
+    {
+      title: "2. Create a policy for that context",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: [
+          'Conditional Access > Policies > New policy: name it "Step-up for sensitive admin actions".',
+          "Users > Include: Directory roles: the admin roles.",
+          breakGlassStep(ctx),
+          "Target resources > Authentication context > select the context from step 1.",
+          "Grant > Require authentication strength > Phishing-resistant MFA > Select.",
+          "Enable policy: On > Create. (Protected actions need it On.)",
+        ],
+      },
+    },
+    {
+      title: "3. Add the protected actions",
+      portal: {
+        url: "https://entra.microsoft.com",
+        steps: ["Entra ID > Roles & admins > Protected actions > Add protected actions.", "Select the authentication context from step 1.", "Select permissions: at least the Conditional Access policy delete and update permissions > Add > Save."],
+      },
+    },
+    { title: "Test it", note: "Open a Conditional Access policy as an admin: editing shows \"Editing is protected by an additional access requirement\" until the admin reauthenticates." },
+  ],
+  verify: { inClarity: 'Re-sync this tenant; "Sensitive admin actions need step-up authentication" turns green.' },
+  undo: { text: "Roles & admins > Protected actions > select the permission > Remove." },
+  learn: [link("Add, test, or remove protected actions", CA_LEARN.protectedActions)],
+  missing: breakGlassMissing,
+};
+
 export const FIX_GUIDES: FixGuideDefinition[] = [
   blockDeviceCodeFlow,
   disableSmtpAuthOrg,
@@ -966,6 +1844,22 @@ export const FIX_GUIDES: FixGuideDefinition[] = [
   enableAdminConsentWorkflow,
   alertAuditConfig,
   alertUserDeletion,
+  blockForeignCountries,
+  includeUnknownCountries,
+  requireMfaDeviceRegistration,
+  requireTokenProtection,
+  requireCompliantDeviceAdmins,
+  requireCompliantDeviceDesktop,
+  adminSessionLimits,
+  requirePhishingResistantAdmins,
+  keepCaeOn,
+  requireMfaGuests,
+  requireMfaAllUsers,
+  blockLegacyAuth,
+  blockAuthenticationTransfer,
+  protectSecurityInfoRegistration,
+  requireRiskRemediation,
+  protectSensitiveAdminActions,
 ];
 
 export function getFixGuideDefinition(id: string): FixGuideDefinition | undefined {

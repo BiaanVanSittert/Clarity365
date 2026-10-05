@@ -62,8 +62,11 @@ describe("guide catalogue", () => {
     const ca = FIX_GUIDES.filter((g) => g.kind === "conditionalAccess");
     expect(ca.length).toBeGreaterThan(0);
     for (const g of ca) {
-      const scripts = g.steps({ tenantName: "x", breakGlass: [], items: [] }).map((s) => s.command?.script || "").filter((s) => s.includes("New-MgIdentityConditionalAccessPolicy"));
-      for (const script of scripts) expect(script, g.id).toContain('state       = "enabledForReportingButNotEnforced"');
+      const scripts = g.steps({ tenantName: "x", breakGlass: [], items: [], observedCountries: [] }).map((s) => s.command?.script || "").filter((s) => /New-Mg(Beta)?IdentityConditionalAccessPolicy/.test(s));
+      for (const script of scripts) expect(script, g.id).toMatch(/state\s+= ["']enabledForReportingButNotEnforced["']/);
+      if (g.proposedPolicy) expect(g.proposedPolicy({ tenantName: "x", breakGlass: [], items: [], observedCountries: [] }).body.state, g.id).toBe("enabledForReportingButNotEnforced");
+      // Every guide that offers a create command creates something.
+      if (g.proposedPolicy) expect(scripts.length, g.id).toBe(1);
     }
   });
 });

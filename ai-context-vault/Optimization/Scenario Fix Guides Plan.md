@@ -4,7 +4,7 @@ tags: [optimization, plan, security-simulations]
 
 # Scenario Fix Guides Plan
 
-Status: **Stages 0 and 1 done 2026-10-05** (24 guides). Stage 2 (Conditional Access guides) next.
+Status: **Stages 0, 1 and 2 done 2026-10-05** (40 guides). Stage 3 (review and clean-up guides) next.
 
 ## Decisions (user, 2026-10-05)
 - **Guides only.** Clarity365 shows the portal steps and the commands; the operator runs them. Stage 5 ("apply from Clarity365") is dropped.
@@ -108,6 +108,45 @@ Two checks are information only (Intune licensed, sign-in logs available) and ge
 **Found while checking:** Microsoft has **deprecated** `Set-SPOTenant -RequireAcceptingAccountMatchInvitedAccount` (SharePoint invitations now use Entra B2B). The "Invitations can only be redeemed by the invited account" check was removed from Guest re-share sprawl rather than given a guide for a dead setting.
 
 **Live data (read-only, local database):** 13 to 23 guides offered per tenant; the SharePoint admin URL was worked out on all 10; per-item lists filled in (for example 37 SMTP AUTH and POP/IMAP mailboxes on one tenant, 13 to 250 Anyone sites on six). The 250s are the sync caps. No guide has been run by the operator yet.
+
+## Stage 2 record (2026-10-05)
+
+**16 Conditional Access guides added** (40 in total). Every setting checked on Microsoft Learn on 2026-10-05; built-in authentication strength ids read from a live tenant (MFA `...0002`, passwordless `...0003`, phishing-resistant `...0004`).
+
+**One object, two uses.** Each policy guide has `proposedPolicy(ctx)`: the Microsoft Graph body, built once. The command is written from it (`toPowerShell`, `src/lib/utils/powershell-literal.ts`; `caCreateScript` in the catalogue) and the impact preview replays the tenant's sign-ins against the same body, so the command and the preview can't describe different policies. All are `enabledForReportingButNotEnforced` with break-glass object ids excluded (placeholder + warning when none is found).
+
+**Change from the plan:** baseline policies (CA01, CA02, CA04, CA07, CA08, CA09) do **not** link to the in-app deploy. The user chose "guide only", so they get the same generated report-only command as the rest.
+
+| Guide | Checks | Preview |
+|---|---|---|
+| `block-foreign-countries` | foreign-country users / admins / guests | yes; creates an "Allowed countries" named location (home country from sign-ins) first, policy excludes it via `$location.Id`; step 1 lists the other countries sign-ins came from |
+| `include-unknown-countries` | unknown-country | portal + per-location `Update-MgIdentityConditionalAccessNamedLocation` (items: country locations without unknown) |
+| `require-mfa-device-registration` | device-registration | no (user action); also the device setting "Require MFA to register or join devices" = No |
+| `require-token-protection` | token-protection | no; beta `New-MgBetaIdentityConditionalAccessPolicy` (new shell `MicrosoftGraphBeta`), admins pilot, EXO/SPO/Teams Services, Windows, desktop clients only |
+| `require-compliant-device-admins` | admin-device (x2), desktop, macos | yes |
+| `require-compliant-device-desktop` | desktop-blocked | yes; guests excluded |
+| `admin-session-limits` | admin-frequency | no (doesn't block); 4 hours + never persistent |
+| `require-phishing-resistant-admins` | admin-phishing-resistant (x2) | yes |
+| `keep-cae-on` | cae | portal only (beta-only setting); items: policies disabling CAE |
+| `require-mfa-guests` | guest-mfa | yes |
+| `require-mfa-all-users` | mfa-enforced | yes |
+| `block-legacy-auth` | legacy-blocked, ca-legacy | yes |
+| `block-authentication-transfer` | auth-transfer | no |
+| `protect-security-info-registration` | registration-protected | no; excludes guests, excludes all trusted locations |
+| `require-risk-remediation` | user-risk | portal only (Microsoft documents it in the portal only), P2 |
+| `protect-sensitive-admin-actions` | protected-actions | portal only: authentication context, then policy **On**, then protected actions (order matters) |
+
+**Impact preview** (`src/lib/services/ca-policy-impact.ts`, see [[CA Simulation Engine]]): replays successful synced sign-ins through `evaluateSignIn` with only the proposed policy, switched on. It reports blocked, asked for more, already met (MFA / phishing-resistant MFA the sign-in already did, from the beta authentication details) and undecided. It also flags challenged sign-ins synced before authentication details were read. The approximations are stated in the modal: every sign-in is treated as Office 365, and only the synced period is covered. Guides whose condition isn't in the data say why instead of showing "no impact".
+
+**Proof test:** `ca-policy-impact.test.ts` takes every demo tenant, removes its policies, adds only the guide's policy (switched on), and asserts that every check the guide is offered on stops being "not prevented". All 12 policy guides pass. Two gaps it found were fixed before commit: the strength name and the beta session controls are now mapped the way the sync maps them (`mapProposedPolicy`).
+
+**Live data (read-only, local database, 11 snapshots):**
+- Country allow-list (home country only) would have blocked: dmafrica 763 of 1,889 sign-ins, Axiomatic 360 of 4,604, Coetzee 16, Worldwide Advisory 14. None on Crimson Line, Zubat Nine or Gustav Barkhuysen. The guide lists the other countries to add.
+- Compliant device for admins would block admins on every tenant (for example Coetzee 227 sign-ins); phishing-resistant MFA would challenge admins on most (Wauko: 513, with 53 already met).
+- MFA for all users: Worldwide Advisory 784 challenged and 2,704 already met; Gustav Barkhuysen 240 challenged.
+- Token protection, device registration, authentication transfer and security-info registration correctly show "can't be previewed".
+- dmafrica and Worldwide Advisory still have no break-glass account detected, so every CA guide warns there.
+- Not yet run by the operator.
 
 ## Inventory (all checks)
 Kind letters as in the table above. "Stage" is when its guide gets built. Commands are the planned ones; each is checked on Microsoft Learn when its guide is written.

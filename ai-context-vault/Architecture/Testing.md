@@ -30,6 +30,8 @@ UI tests are almost absent (no React Testing Library, no Playwright/Cypress). Th
 
 **2026-10-05:** 878 tests in 79 files. New: `scenario-fix-guide-builder.test.ts` (guide catalogue rules and per-guide resolution) and `FixGuideModal.test.ts` (every guide renders for every demo tenant).
 
+**2026-10-05 (Stage 2 fix guides):** 1,068 tests in 83 files. New: `ca-policy-impact.test.ts`. It covers sign-in mapping, preview counts and wording. It also proves that every Conditional Access guide's policy, switched on alone, turns the checks it is offered on away from "not prevented" on every demo tenant. Also new: `powershell-literal.test.ts`.
+
 **2026-10-05 (later):** 978 tests in 81 files. `scenario-fix-guide-builder.test.ts` now also covers per-mailbox and per-site commands, the SharePoint admin URL and long-list capping; `single-flight.test.ts` and `sync-errors.test.ts` were added with the sync fixes.
 
 Part of [[Clarity365 MOC]].

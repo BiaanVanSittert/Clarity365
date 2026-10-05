@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { AlertTriangle, Check, Copy, ExternalLink, Undo2, ShieldCheck } from "lucide-react";
 import { Modal } from "../common/Modal";
 import type { ResolvedCommand, ResolvedFixGuide } from "@/lib/services/scenario-fix-guide-builder";
+import { describePolicyImpact, type PolicyImpactPreview } from "@/lib/services/ca-policy-impact";
 
 // "How to fix" guide for one Security Scenarios check on one tenant: portal
 // steps and copyable commands. Guides only - nothing here changes the tenant.
@@ -44,6 +45,29 @@ const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title
   </section>
 );
 
+const PreviewBlock: React.FC<{ preview: PolicyImpactPreview }> = ({ preview }) => {
+  const { headline, lines } = describePolicyImpact(preview);
+  const tone =
+    preview.blocked > 0
+      ? "border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40"
+      : preview.challenged > 0
+        ? "border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40"
+        : "border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40";
+  return (
+    <div className={`p-2.5 rounded-sm border space-y-1 ${tone}`}>
+      <p className="font-semibold text-slate-800 dark:text-slate-100">{headline}</p>
+      <ul className="list-disc pl-5 space-y-0.5">
+        {lines.map((l, i) => (
+          <li key={i}>{l}</li>
+        ))}
+      </ul>
+      <p className="text-[10px] text-slate-500 dark:text-slate-400">
+        An estimate from the synced sign-ins only: every sign-in is treated as a sign-in to Office 365, and sign-ins older than the sync aren&apos;t included. The policy&apos;s own report-only results are the real test.
+      </p>
+    </div>
+  );
+};
+
 export const FixGuideModal: React.FC<{ guide: ResolvedFixGuide; onClose: () => void }> = ({ guide: g, onClose }) => (
   <Modal isOpen onClose={onClose} title={g.title} subtitle={`How to fix · ${g.tenantName}`} maxWidth="3xl">
     <div className="space-y-4 text-xs text-slate-700 dark:text-slate-300 max-h-[75vh] overflow-y-auto pr-1">
@@ -77,6 +101,16 @@ export const FixGuideModal: React.FC<{ guide: ResolvedFixGuide; onClose: () => v
         <p>{g.impact}</p>
         {g.rollout && <p className="p-2 rounded-sm bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700">{g.rollout}</p>}
       </Section>
+
+      {g.preview && (
+        <Section title="What this policy would have done">
+          {g.preview.available ? (
+            <PreviewBlock preview={g.preview.result} />
+          ) : (
+            <p className="text-slate-500 dark:text-slate-400">{g.preview.reason}</p>
+          )}
+        </Section>
+      )}
 
       <Section title="Steps">
         <ol className="space-y-3">

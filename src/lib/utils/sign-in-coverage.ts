@@ -42,7 +42,7 @@ export function getSignInCoverage(snapshot: Pick<TenantSecuritySnapshot, "signIn
 
 // Fixed month names and UTC, so the sentence reads the same on every machine.
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const formatDay = (iso: string) => {
+export const formatDay = (iso: string) => {
   const d = new Date(iso);
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 };

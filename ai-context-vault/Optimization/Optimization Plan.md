@@ -47,6 +47,10 @@ Recommendation: write tests for these four before adding new fleet-wide features
 
 - **Exchange app-only access** (built 2026-09-30, client-secret option): see [[Exchange App-Only Access Plan]]. Consolidated ~20 separate `exoRefreshToken` checks into `exchange-access.ts`. Remaining: first live write under Exchange Administrator, optional certificate upgrade.
 
+- **CA08 baseline locks out every untrusted location** (found 2026-10-05, not fixed, needs a decision). `baseline-definitions.ts`'s CA08 "Block Access from Untrusted Countries" includes all locations and excludes only `AllTrusted`, so it blocks everything not marked trusted. Only 1 of 10 live tenants has trusted locations. Enforced as written, it would block every sign-in from home, mobile data or any non-office network. The country fix guide (`block-foreign-countries`, [[Scenario Fix Guides Plan]] Stage 2) uses an allow list of countries instead. Options: change CA08 to a country allow list, or warn before deploying when the tenant has no trusted locations.
+
+- **Scenario fix guides** (Stages 0 to 2 done 2026-10-05, 40 guides): see [[Scenario Fix Guides Plan]]. `mapConditionalAccessPolicy` moved to `ca-policy-mapper.ts` (graph-client re-exports it) so the guides' impact preview can map a proposed policy the same way as the sync.
+
 - **Recommendations after Security Simulations** (2026-10-01, for review): see [[Recommendations Plan]]. Headline: every live tenant is permanently "degraded" because two sync steps need permissions that no list asks for.
 
 ## P3 :  Process (the thing that started this session)

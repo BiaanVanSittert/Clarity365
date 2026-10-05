@@ -210,11 +210,11 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     title: "Sign-in from outside allowed countries",
     description: "An attacker with a stolen password signs in from a country the organisation doesn't operate in.",
     checks: [
-      { id: "users", evaluate: (c) => fromSituation(c, "user-foreign", "Standard users are blocked from foreign countries") },
-      { id: "admins", evaluate: (c) => fromSituation(c, "ga-foreign", "Admins are blocked from foreign countries") },
-      { id: "guests", evaluate: (c) => fromSituation(c, "guest-foreign", "Guests are blocked from foreign countries") },
+      { id: "users", guideId: "block-foreign-countries", evaluate: (c) => fromSituation(c, "user-foreign", "Standard users are blocked from foreign countries") },
+      { id: "admins", guideId: "block-foreign-countries", evaluate: (c) => fromSituation(c, "ga-foreign", "Admins are blocked from foreign countries") },
+      { id: "guests", guideId: "block-foreign-countries", evaluate: (c) => fromSituation(c, "guest-foreign", "Guests are blocked from foreign countries") },
       {
-        id: "unknown-country",
+        id: "unknown-country", guideId: "include-unknown-countries",
         evaluate: (c) => {
           const r = c.probe("user", { location: { country: null, ipNamedLocationIds: [] } });
           const status: ScenarioCheckStatus = r.enforced.outcome === "blocked" ? "prevented" : r.enforced.outcome === "indeterminate" ? "notAssessed" : "notPrevented";
@@ -234,7 +234,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "device-registration",
+        id: "device-registration", guideId: "require-mfa-device-registration",
         evaluate: (c) => {
           const r = c.probe("user", { target: { kind: "userAction", action: "urn:user:registerdevice" }, location: { country: c.foreignCountry, ipNamedLocationIds: [] } });
           const status: ScenarioCheckStatus = r.enforced.outcome === "blocked" || r.enforced.outcome === "challenged" ? "prevented" : r.enforced.outcome === "indeterminate" ? "notAssessed" : "notPrevented";
@@ -260,7 +260,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
       "An attacker steals a signed-in session token (for example through an adversary-in-the-middle phishing page or malware) and replays it from their own device. MFA was already satisfied inside the token.",
     checks: [
       {
-        id: "token-protection",
+        id: "token-protection", guideId: "require-token-protection",
         evaluate: (c) => {
           const policies = c.env.policies.filter((p) => p.state === "enabled");
           const anyRead = c.env.policies.some((p) => p.sessionControls?.tokenProtection !== undefined);
@@ -284,11 +284,11 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
               };
         },
       },
-      { id: "admin-device", evaluate: (c) => fromCell(c, "admins", "managedDevice", "Admins must use a compliant or hybrid-joined device", "Require a compliant or hybrid-joined device for admin roles.", CA_DOCS.deviceCompliance) },
-      { id: "admin-frequency", evaluate: (c) => fromCell(c, "admins", "sessionLimits", "Admin sessions are time-limited", "Set a sign-in frequency (for example 4 hours) and disable persistent browser sessions for admin roles.", CA_DOCS.sessionLifetime) },
-      { id: "admin-phishing-resistant", evaluate: (c) => fromCell(c, "admins", "phishingResistant", "Admins use phishing-resistant MFA", "Require the phishing-resistant MFA authentication strength for admin roles.", CA_DOCS.adminPhishingResistant) },
+      { id: "admin-device", guideId: "require-compliant-device-admins", evaluate: (c) => fromCell(c, "admins", "managedDevice", "Admins must use a compliant or hybrid-joined device", "Require a compliant or hybrid-joined device for admin roles.", CA_DOCS.deviceCompliance) },
+      { id: "admin-frequency", guideId: "admin-session-limits", evaluate: (c) => fromCell(c, "admins", "sessionLimits", "Admin sessions are time-limited", "Set a sign-in frequency (for example 4 hours) and disable persistent browser sessions for admin roles.", CA_DOCS.sessionLifetime) },
+      { id: "admin-phishing-resistant", guideId: "require-phishing-resistant-admins", evaluate: (c) => fromCell(c, "admins", "phishingResistant", "Admins use phishing-resistant MFA", "Require the phishing-resistant MFA authentication strength for admin roles.", CA_DOCS.adminPhishingResistant) },
       {
-        id: "cae",
+        id: "cae", guideId: "keep-cae-on",
         evaluate: (c) => {
           const disabled = c.env.policies.filter((p) => p.state === "enabled" && p.sessionControls?.continuousAccessEvaluation === "disabled");
           const strict = c.env.policies.filter((p) => p.state === "enabled" && (p.sessionControls?.continuousAccessEvaluation === "strictEnforcement" || p.sessionControls?.continuousAccessEvaluation === "strictLocation"));
@@ -344,7 +344,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
           return { label, status: "notPrevented", detail: "Anyone, including guests, can invite guests.", fix: "Limit invitations to admins and users in the Guest Inviter role." };
         },
       },
-      { id: "guest-mfa", evaluate: (c) => fromCell(c, "guests", "mfa", "Guests must complete MFA", "Require MFA for guests and external users (CA04).", CA_DOCS.guestsMfa) },
+      { id: "guest-mfa", guideId: "require-mfa-guests", evaluate: (c) => fromCell(c, "guests", "mfa", "Guests must complete MFA", "Require MFA for guests and external users (CA04).", CA_DOCS.guestsMfa) },
     ],
   },
   {
@@ -368,8 +368,8 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
               };
         },
       },
-      { id: "mfa-enforced", evaluate: (c) => fromCell(c, "users", "mfa", "MFA is enforced for all users", "Require MFA for all users on all resources (CA02).", CA_DOCS.mfaAllUsers) },
-      { id: "legacy-blocked", evaluate: (c) => fromCell(c, "users", "legacyBlocked", "Legacy authentication is blocked", "Block the Exchange ActiveSync and Other clients client app types (CA01).", CA_DOCS.legacyAuth) },
+      { id: "mfa-enforced", guideId: "require-mfa-all-users", evaluate: (c) => fromCell(c, "users", "mfa", "MFA is enforced for all users", "Require MFA for all users on all resources (CA02).", CA_DOCS.mfaAllUsers) },
+      { id: "legacy-blocked", guideId: "block-legacy-auth", evaluate: (c) => fromCell(c, "users", "legacyBlocked", "Legacy authentication is blocked", "Block the Exchange ActiveSync and Other clients client app types (CA01).", CA_DOCS.legacyAuth) },
       {
         id: "no-individual-exclusions",
         evaluate: (c) => {
@@ -395,7 +395,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     title: "Legacy authentication mailbox access",
     description: "An attacker uses an old mail protocol (SMTP AUTH, POP, IMAP, ActiveSync) that can't do MFA, to read or send mail with just a password.",
     checks: [
-      { id: "ca-legacy", evaluate: (c) => fromCell(c, "users", "legacyBlocked", "Conditional Access blocks legacy authentication", "Block the Exchange ActiveSync and Other clients client app types (CA01).", CA_DOCS.legacyAuth) },
+      { id: "ca-legacy", guideId: "block-legacy-auth", evaluate: (c) => fromCell(c, "users", "legacyBlocked", "Conditional Access blocks legacy authentication", "Block the Exchange ActiveSync and Other clients client app types (CA01).", CA_DOCS.legacyAuth) },
       {
         id: "smtp-auth-org",
         guideId: "disable-smtp-auth-org",
@@ -464,9 +464,9 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     title: "Global admin on a non-compliant device",
     description: "An admin signs in from a personal or infected computer, exposing admin sessions to whatever is running on it.",
     checks: [
-      { id: "admin-device", evaluate: (c) => fromCell(c, "admins", "managedDevice", "Admins must use a compliant or hybrid-joined device", "Require a compliant or hybrid-joined device for admin roles (CA09 scoped to admins).", CA_DOCS.deviceCompliance) },
-      { id: "desktop", evaluate: (c) => fromSituation(c, "ga-desktop-unmanaged", "Desktop apps on an unmanaged PC are blocked for admins") },
-      { id: "macos", evaluate: (c) => fromSituation(c, "ga-macos-unmanaged", "Unmanaged Macs are blocked for admins") },
+      { id: "admin-device", guideId: "require-compliant-device-admins", evaluate: (c) => fromCell(c, "admins", "managedDevice", "Admins must use a compliant or hybrid-joined device", "Require a compliant or hybrid-joined device for admin roles (CA09 scoped to admins).", CA_DOCS.deviceCompliance) },
+      { id: "desktop", guideId: "require-compliant-device-admins", evaluate: (c) => fromSituation(c, "ga-desktop-unmanaged", "Desktop apps on an unmanaged PC are blocked for admins") },
+      { id: "macos", guideId: "require-compliant-device-admins", evaluate: (c) => fromSituation(c, "ga-macos-unmanaged", "Unmanaged Macs are blocked for admins") },
       {
         id: "no-excluded-ga",
         evaluate: (c) => {
@@ -558,7 +558,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
       { id: "admins", guideId: "block-device-code-flow", evaluate: (c) => fromSituation(c, "ga-devicecode", "Device code flow is blocked for admins") },
       { id: "guests", guideId: "block-device-code-flow", evaluate: (c) => fromSituation(c, "guest-devicecode", "Device code flow is blocked for guests") },
       {
-        id: "auth-transfer",
+        id: "auth-transfer", guideId: "block-authentication-transfer",
         evaluate: (c) => {
           const r = c.probe("user", { authenticationFlow: "authenticationTransfer" });
           const status: ScenarioCheckStatus = r.enforced.outcome === "blocked" ? "prevented" : r.enforced.outcome === "indeterminate" ? "notAssessed" : "notPrevented";
@@ -642,7 +642,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
             : { label: "No app can assign roles or permissions", status: "notPrevented", detail: "A stolen secret for these apps is enough to make anyone an admin.", items: cap(risky.map((a) => `${a.displayName}: ${a.highPrivilegePermissions.join(", ")}`)), fix: "Remove these permissions unless essential; rotate secrets to certificates and restrict who owns the apps." };
         },
       },
-      { id: "admin-phishing-resistant", evaluate: (c) => fromCell(c, "admins", "phishingResistant", "Admins use phishing-resistant MFA", "Require the phishing-resistant MFA authentication strength for admin roles.", CA_DOCS.adminPhishingResistant) },
+      { id: "admin-phishing-resistant", guideId: "require-phishing-resistant-admins", evaluate: (c) => fromCell(c, "admins", "phishingResistant", "Admins use phishing-resistant MFA", "Require the phishing-resistant MFA authentication strength for admin roles.", CA_DOCS.adminPhishingResistant) },
     ],
   },
 
@@ -654,7 +654,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
     description: "After stealing a password, an attacker registers their own authenticator app so they keep access even after being noticed.",
     checks: [
       {
-        id: "registration-protected",
+        id: "registration-protected", guideId: "protect-security-info-registration",
         evaluate: (c) => {
           const r = c.probe("user", { target: { kind: "userAction", action: "urn:user:registersecurityinfo" }, device: "unmanaged", location: { country: c.foreignCountry, ipNamedLocationIds: [] } });
           const label = "Registering security info is protected";
@@ -663,7 +663,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
           return { label, status: "notPrevented", detail: "No policy targets the \"Register security information\" action, so a password alone can add an MFA method.", fix: "Require MFA or a trusted location to register security info, and use Temporary Access Passes for new users.", docsUrl: CA_DOCS.securityInfoRegistration };
         },
       },
-      { id: "user-risk", evaluate: (c) => fromCell(c, "users", "userRisk", "High user risk forces remediation", "Require risk remediation when user risk is high (CA07).", CA_DOCS.userRisk) },
+      { id: "user-risk", guideId: "require-risk-remediation", evaluate: (c) => fromCell(c, "users", "userRisk", "High user risk forces remediation", "Require risk remediation when user risk is high (CA07).", CA_DOCS.userRisk) },
       {
         id: "ual", guideId: "enable-unified-audit-log",
         evaluate: (c) =>
@@ -762,7 +762,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
         },
       },
       {
-        id: "protected-actions",
+        id: "protected-actions", guideId: "protect-sensitive-admin-actions",
         evaluate: (c) => {
           const withContext = c.env.policies.filter((p) => p.state === "enabled" && (p.conditions.applications.authenticationContexts || []).length > 0);
           return withContext.length > 0
@@ -906,7 +906,7 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
             SCENARIO_DOCS.unmanagedDevices
           ),
       },
-      { id: "desktop-blocked", evaluate: (c) => fromSituation(c, "user-desktop-unmanaged", "Desktop apps on unmanaged devices are blocked") },
+      { id: "desktop-blocked", guideId: "require-compliant-device-desktop", evaluate: (c) => fromSituation(c, "user-desktop-unmanaged", "Desktop apps on unmanaged devices are blocked") },
       {
         id: "browser-limited", guideId: "sharepoint-limit-unmanaged-devices",
         evaluate: (c) => {

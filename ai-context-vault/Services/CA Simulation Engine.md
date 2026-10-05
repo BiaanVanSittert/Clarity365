@@ -54,4 +54,12 @@ Run read-only against all nine synced tenants. Findings that shaped the code: a 
 - **Partial resource coverage:** a policy that covers only part of the target (e.g. SharePoint only, for an Office 365 sign-in) is reported in `CaOutcomeSummary.partialCoverage` (and `CaPolicyTrace.partialResource`) instead of `blockedBy` / `requirements`. It no longer makes the whole sign-in "blocked".
 - **`CaSimUser.groupMembershipComplete`:** set on synthetic persona users; a group missing from the capped synced list is then "no" rather than "unknown". Real accounts leave it unset.
 
-Consumers: [[Security Scenarios]], [[Sign-in Situations]], [[CA Gap Analysis]]. Part of [[Clarity365 MOC]].
+## Policy impact preview (2026-10-05, Scenario Fix Guides Stage 2)
+`src/lib/services/ca-policy-impact.ts` (pure, tested):
+- `signInToContext(snapshot, event, namedLocations)` turns a synced sign-in into a `SignInContext`, with its client app, platform, device state, country and matching IP locations. The target is always Office 365.
+- `previewPolicyImpact(snapshot, policy, extraNamedLocations)` replays successful sign-ins against one policy, switched on. It returns `blocked`, `challenged`, `alreadyMet` (MFA or phishing-resistant MFA the sign-in already did, from `SignInEvent.authentication`), `challengedWithoutMethodDetail`, `undetermined` and `unaffected`, with up to 15 user names.
+- `describePolicyImpact` turns that into sentences.
+
+Used by the fix guides ([[Scenario Fix Guides Plan]]): `scenario-fix-guide-builder.ts`'s `mapProposedPolicy` maps a guide's Graph body exactly as the sync would. It runs through `mapConditionalAccessPolicy` (now in `ca-policy-mapper.ts`), adds the built-in strength names and applies `mapCaBetaSessionExtras`.
+
+Consumers: [[Security Scenarios]], [[Sign-in Situations]], [[CA Gap Analysis]], the fix guides. Part of [[Clarity365 MOC]].

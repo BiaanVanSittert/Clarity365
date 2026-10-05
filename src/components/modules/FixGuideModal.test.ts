@@ -20,6 +20,9 @@ describe("FixGuideModal (render smoke test)", () => {
         expect(html).toContain("Before you start");
         expect(html).toContain("Confirm it worked");
         expect(html).toContain("checked 2026-10-05");
+        // Conditional Access guides always say what the policy would have done, or why they can't.
+        if (def.proposedPolicy) expect(html).toContain("What this policy would have done");
+        if (guide.preview?.available) expect(html).toContain("against this policy, as if it were on.");
       });
     }
   }
