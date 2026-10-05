@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { graphFetch } from "./graph-fetch";
+import { graphFetch, withGraphLanguage } from "./graph-fetch";
 
 function mockResponse(status: number, headers: Record<string, string> = {}, body: string = "") {
   const res = {
@@ -160,5 +160,34 @@ describe("graphFetch", () => {
     expect(res.status).toBe(401);
     // 1 initial attempt + 2 bounded retries for this specific error class.
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("withGraphLanguage", () => {
+  // Node's fetch defaults to "Accept-Language: *", which Graph's PIM endpoints
+  // reject with CultureNotFoundException (confirmed live 2026-10-05).
+  it("adds Accept-Language to plain, Headers and array headers, keeping the rest", () => {
+    expect(withGraphLanguage({ Authorization: "Bearer x" })).toEqual({ Authorization: "Bearer x", "Accept-Language": "en-US" });
+    expect(withGraphLanguage(undefined)).toEqual({ "Accept-Language": "en-US" });
+    const h = withGraphLanguage(new Headers({ Authorization: "Bearer x" })) as Headers;
+    expect(h.get("accept-language")).toBe("en-US");
+    expect(h.get("authorization")).toBe("Bearer x");
+    expect(withGraphLanguage([["Authorization", "Bearer x"]])).toEqual([["Authorization", "Bearer x"], ["Accept-Language", "en-US"]]);
+  });
+
+  it("never overrides a language the caller chose", () => {
+    expect(withGraphLanguage({ "accept-language": "de-DE" })).toEqual({ "accept-language": "de-DE" });
+    expect((withGraphLanguage(new Headers({ "Accept-Language": "fr-FR" })) as Headers).get("accept-language")).toBe("fr-FR");
+  });
+
+  it("is sent on every graphFetch request", async () => {
+    const seen: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      seen.push(init?.headers);
+      return new Response("{}", { status: 200 });
+    }));
+    await graphFetch("https://graph.microsoft.com/v1.0/roleManagement/directory/roleEligibilityScheduleInstances", { headers: { Authorization: "Bearer x" } });
+    expect(seen[0]).toEqual({ Authorization: "Bearer x", "Accept-Language": "en-US" });
+    vi.unstubAllGlobals();
   });
 });

@@ -273,6 +273,17 @@ export const SCENARIO_DEFINITIONS: ScenarioDef[] = [
               fix: "Re-sync; if this persists, check token protection in the Entra admin center.",
             };
           }
+          // Report-only counts as partial, like every other Conditional Access check
+          // (found live 2026-10-05: a report-only pilot still showed red).
+          const reportOnlyTp = c.env.policies.filter((p) => p.state === "enabledForReportingButNotEnforced" && p.sessionControls?.tokenProtection === true);
+          if (withTp.length === 0 && reportOnlyTp.length > 0) {
+            return {
+              label: "Token protection binds sessions to the device",
+              status: "partial",
+              detail: `Report-only in ${reportOnlyTp.map((p) => `"${p.name}"`).join(", ")}; not enforced yet.`,
+              fix: "Review the policy's report-only results, then switch it on.",
+            };
+          }
           return withTp.length > 0
             ? { label: "Token protection binds sessions to the device", status: "prevented", detail: `Enforced by ${withTp.map((p) => `"${p.name}"`).join(", ")}.` }
             : {

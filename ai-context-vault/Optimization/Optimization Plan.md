@@ -56,6 +56,8 @@ Recommendation: write tests for these four before adding new fleet-wide features
   - Existing CA08 policies still match (same `CA08:` prefix, block plus locations).
   - Not changed: the local-only simulations in `drift-analyzer.ts` and `fleet-operations.ts` still write the old shape into snapshots. They never reach Graph and are overwritten at the next sync.
 
+- **PIM never read on live tenants: fixed 2026-10-05.** Node's default `Accept-Language: *` made Graph's PIM endpoints return 400, so every P2 tenant showed PIM checks as "not assessed". Found in the first live guide test (see [[Scenario Fix Guides Plan]] Stage 6 record and [[Core Graph Layer]]). Same family as the other "silently degraded read" bugs: the failure was recorded as `pimUnavailableReason` but never surfaced as a sync problem.
+
 - **Scenario fix guides** (Stages 0 to 4 done 2026-10-05, 49 guides plus Hardening / Prevention plans): see [[Scenario Fix Guides Plan]]. `mapConditionalAccessPolicy` moved to `ca-policy-mapper.ts` (graph-client re-exports it) so the guides' impact preview can map a proposed policy the same way as the sync.
 
 - **Recommendations after Security Simulations** (2026-10-01, for review): see [[Recommendations Plan]]. Headline: every live tenant is permanently "degraded" because two sync steps need permissions that no list asks for.

@@ -58,6 +58,8 @@ Stage 2 follow-ups: the directory-roles step now also records each member's role
 - **Secret expiry.** The App Registrations step finds Clarity365's own app and stores `credentials.secretExpiry`.
 - Sync schema version 4.
 
+**Accept-Language on every Graph call (2026-10-05):** Node's `fetch` sends `Accept-Language: *` when none is set, and the PIM endpoints (`roleEligibilityScheduleInstances`, `roleAssignmentScheduleInstances`) reject that with HTTP 400 `CultureNotFoundException`. PIM was therefore never readable on any live tenant (it fell back to `roleAssignments` with `pimUnavailableReason`). `graphFetch` now adds `Accept-Language: en-US` unless the caller set one (`withGraphLanguage`, tested). Confirmed live on Crimson Line Live Demo: `*` gives 400, `en-US` gives 200.
+
 **CA mapper moved (2026-10-05):** `mapConditionalAccessPolicy` now lives in `ca-policy-mapper.ts`, which is pure and can run in the browser. `graph-client.ts` imports it and re-exports it, so existing callers are unchanged. The fix guides' impact preview ([[CA Simulation Engine]]) maps proposed policies through it.
 
 **CA08 deploy writes a named location (2026-10-05):** `deployConditionalAccessPolicy` takes an optional `{ allowedCountries }`, which CA08 requires.

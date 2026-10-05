@@ -190,3 +190,23 @@ describe("system mailboxes", () => {
     expect((popCheck.items || []).join(" ")).not.toContain("DiscoverySearchMailbox");
   });
 });
+
+describe("token protection check", () => {
+  it("shows a report-only token protection policy as partly prevented, not red", () => {
+    const base = Object.values(MOCK_TENANT_DATA)[0] as TenantSecuritySnapshot;
+    const pilot = {
+      id: "tp",
+      name: "Require token protection for admins (pilot)",
+      state: "enabledForReportingButNotEnforced",
+      conditions: { users: { include: ["All"], exclude: [] }, applications: { include: ["All"], exclude: [] }, clientAppTypes: ["mobileAppsAndDesktopClients"] },
+      grantControls: [],
+      sessionControls: { tokenProtection: true },
+    };
+    const policies = (base.conditionalAccess?.policies || []).map((p) => ({ ...p, sessionControls: { ...(p.sessionControls || {}), tokenProtection: false } }));
+    const snap = { ...base, conditionalAccess: { ...base.conditionalAccess!, policies: [...policies, pilot] } } as unknown as TenantSecuritySnapshot;
+    const check = evaluateScenarios(snap).flatMap((r) => r.checks).find((c) => c.id === "token-protection")!;
+    expect(check.status).toBe("partial");
+    expect(check.detail).toContain("Report-only");
+    expect(check.guideId).toBe("require-token-protection");
+  });
+});

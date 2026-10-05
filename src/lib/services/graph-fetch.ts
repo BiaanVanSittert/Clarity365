@@ -66,6 +66,25 @@ function parseRetryAfterMs(header: string | null): number | null {
   return null;
 }
 
+// Node's fetch sends "Accept-Language: *" when none is set, and Microsoft
+// Graph's PIM endpoints (roleEligibilityScheduleInstances,
+// roleAssignmentScheduleInstances) reject that with HTTP 400
+// CultureNotFoundException. That made PIM unreadable on every live tenant
+// until 2026-10-05 (confirmed live: "*" -> 400, "en-US" -> 200). Every Graph
+// call now names a language unless the caller already did.
+export function withGraphLanguage(headers: HeadersInit | undefined): HeadersInit {
+  if (headers instanceof Headers) {
+    const copy = new Headers(headers);
+    if (!copy.has("Accept-Language")) copy.set("Accept-Language", "en-US");
+    return copy;
+  }
+  if (Array.isArray(headers)) {
+    return headers.some(([k]) => k.toLowerCase() === "accept-language") ? headers : [...headers, ["Accept-Language", "en-US"]];
+  }
+  const plain = { ...(headers || {}) } as Record<string, string>;
+  return Object.keys(plain).some((k) => k.toLowerCase() === "accept-language") ? plain : { ...plain, "Accept-Language": "en-US" };
+}
+
 export async function graphFetch(url: string, init: RequestInit = {}, opts: GraphFetchOptions = {}): Promise<Response> {
   const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
   const retryOnNetworkError = opts.retryOnNetworkError ?? true;
@@ -75,7 +94,7 @@ export async function graphFetch(url: string, init: RequestInit = {}, opts: Grap
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(url, { ...init, signal: controller.signal, cache: "no-store" });
+      const res = await fetch(url, { ...init, headers: withGraphLanguage(init.headers), signal: controller.signal, cache: "no-store" });
       const isThrottled = res.status === 429 || res.status === 503;
       if (isThrottled && attempt < maxRetries) {
         const retryAfterMs = parseRetryAfterMs(res.headers.get("Retry-After"));

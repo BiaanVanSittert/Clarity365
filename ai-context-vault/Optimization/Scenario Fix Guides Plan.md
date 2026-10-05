@@ -194,6 +194,27 @@ No Stage 3 guide has been run by the operator yet.
 
 **Live plan sizes:** 32 to 38 fixes per tenant, covering 44 to 53 checks. Tenants without Exchange connected show 15 to 19 checks as "not assessed".
 
+## Stage 6 record: first live test on Crimson Line Live Demo (2026-10-05)
+
+The operator applied a selection of guides and re-synced. Compared check by check with the state saved before (read-only).
+
+**Reflected (turned green):**
+| Check | Before | After | Path proven |
+|---|---|---|---|
+| POP and IMAP off | partial | prevented | per-mailbox Exchange commands |
+| Default remote domain blocks auto-forwarding | not prevented | prevented | Exchange org setting |
+| Guest invites (both checks) | not prevented | prevented | Entra authorization policy |
+| Admin consent workflow | not prevented | prevented | Graph PUT with a reviewer edited in |
+| User consent restricted | partial | prevented | Entra authorization policy |
+| Guests can't re-share | not prevented | prevented | SharePoint tenant setting |
+
+**Not reflected, and why:**
+- **Token protection:** the report-only pilot was read correctly (`tokenProtection: true` from the beta read), but the check only counted enforced policies, so it stayed red. **Fixed:** report-only now shows as partial, like the other Conditional Access checks. The operator's policy targets All users and all client app types. The guide targets admin roles and desktop clients only; Microsoft documents browsers as out of scope.
+- **PIM (standing-access, pim) "not assessed" on every tenant:** a real bug. Node's `fetch` sends `Accept-Language: *` and Graph's PIM endpoints reject it with HTTP 400 `CultureNotFoundException`. Confirmed live: `*` gives 400, `en-US` gives 200. **Fixed in `graph-fetch.ts`** (`withGraphLanguage`, every Graph call). The next sync after a server restart reads PIM.
+- **Authentication transfer:** no such policy was in the synced data, so it hadn't been created yet.
+- **CA08 in-app deploy:** not run. The audit log has no deploy for this tenant today. The existing "CA08: Block Access from Untrusted Countries" policy excludes a named location "Alex Home Location" (US), so it was made another way. Gustav Barkhuysen (2026-09-28) and Zubat Nine (2026-09-22) still have the old `AllTrusted` CA08 in report-only, deployed before the fix.
+- **Outbound spam auto-forwarding:** not attempted; still "Automatic".
+
 ## Inventory (all checks)
 Kind letters as in the table above. "Stage" is when its guide gets built. Commands are the planned ones; each is checked on Microsoft Learn when its guide is written.
 
