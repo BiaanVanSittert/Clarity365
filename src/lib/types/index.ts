@@ -1269,6 +1269,9 @@ export interface SyncHealth {
   // Required Graph permissions the app registration didn't have at this sync
   // (read from the access token). Undefined on snapshots synced before 2026-10-01.
   missingPermissions?: string[];
+  // Deliberate limits that were hit (e.g. "capped at the first 250 groups").
+  // Not errors: they don't make a tenant degraded. Undefined before 2026-10-05.
+  notices?: string[];
   lastAttemptAt: string;
 }
 

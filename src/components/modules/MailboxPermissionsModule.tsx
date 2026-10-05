@@ -6,8 +6,9 @@ import { Mail, Users, AlertTriangle, Search, Filter, HardDrive, DollarSign, Down
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { EmptyStateRow } from "../common/EmptyStateRow";
 import { SyncErrorBanner } from "../common/SyncErrorBanner";
-import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
+import { getSyncErrorsForPrefixes, getSyncNoticesForPrefixes } from "@/lib/utils/sync-errors";
 import { canWriteToExchange, getExchangeAccess } from "@/lib/utils/exchange-access";
+import { SyncNoticeBanner } from "../common/SyncNoticeBanner";
 
 interface MailboxPermissionsModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -175,6 +176,7 @@ export const MailboxPermissionsModule: React.FC<MailboxPermissionsModuleProps> =
       </div>
 
       <SyncErrorBanner errors={mailboxSyncErrors} title="Exchange Online sync error - data below may be stale" />
+      <SyncNoticeBanner notices={getSyncNoticesForPrefixes(snapshot, ["Mailflow:"])} />
 
       {/* Summary Filter Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">

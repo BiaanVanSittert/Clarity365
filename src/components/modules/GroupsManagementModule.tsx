@@ -6,11 +6,12 @@ import { Drawer } from "../common/Drawer";
 import { LocalOnlyNotice } from "../common/LocalOnlyNotice";
 import { EmptyStateRow } from "../common/EmptyStateRow";
 import { SyncErrorBanner } from "../common/SyncErrorBanner";
-import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
+import { getSyncErrorsForPrefixes, getSyncNoticesForPrefixes } from "@/lib/utils/sync-errors";
 import { Users, Plus, Search, Filter, Shield, Mail, CheckCircle2, ChevronRight, Download, AlertTriangle } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { evaluateGroupsBaseline } from "@/lib/services/groups-baseline-matcher";
 import { GROUPS_BASELINE_STANDARDS } from "@/lib/data/groups-baseline-definitions";
+import { SyncNoticeBanner } from "../common/SyncNoticeBanner";
 
 interface GroupsManagementModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -152,6 +153,7 @@ export const GroupsManagementModule: React.FC<GroupsManagementModuleProps> = ({ 
       </div>
 
       <SyncErrorBanner errors={groupsSyncErrors} title="Groups sync error - data below may be stale" />
+      <SyncNoticeBanner notices={getSyncNoticesForPrefixes(snapshot, ["Groups:", "Group Settings:"])} />
 
       {/* Baseline & Posture */}
       <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 rounded-sm overflow-hidden shadow-xs">

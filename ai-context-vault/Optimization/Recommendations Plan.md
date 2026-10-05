@@ -23,6 +23,9 @@ All of this needs **one sync per tenant** (after restarting the server) to take 
 
 - **Security Incidents page size (found and fixed 2026-10-02).** Once `SecurityIncident.Read.All` was granted, the step failed with "The limit of '50' for Top query has been exceeded": the query used `$top=100`. Now `$top=50`; checked live on the two tenants that have the permission. It was hidden until then by the missing-permission error.
 
+- **Caps are notices, not errors (2026-10-05).** "Capped at the first 250 groups / sites / mailboxes" no longer counts as a sync error: it goes to `syncHealth.notices`, doesn't make the tenant degraded, and the Groups, SharePoint, Email Forwarding, Mailbox Permissions and Mailflow Rules modules show it as "Partial data" (`SyncNoticeBanner`). Older snapshots are read the same way. Item 1.8's "first 250 of N" counts and raising the caps remain open.
+- **One sync per tenant (2026-10-05).** See [[Tenant Store]].
+
 **New findings from this work**
 - **Busy tenants: 5,000 sign-ins is only a few days.** Live: 3 days on the largest tenant, 10 and 13 days on two others. The report says so, but can't cover a month there. Raising the limit means a slimmer stored record (a sign-in is roughly 1 KB and the whole snapshot is sent to the browser) or a separate on-demand fetch for the report.
 - **The sign-in log endpoint is slow** (29 to 41 seconds for one small page). Sync time for sign-ins on a busy tenant is now bounded by 20 pages x up to 90s.

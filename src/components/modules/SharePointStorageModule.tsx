@@ -4,11 +4,12 @@ import { StatusPill } from "../common/StatusPill";
 import { LocalOnlyNotice } from "../common/LocalOnlyNotice";
 import { EmptyStateRow } from "../common/EmptyStateRow";
 import { SyncErrorBanner } from "../common/SyncErrorBanner";
-import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
+import { getSyncErrorsForPrefixes, getSyncNoticesForPrefixes } from "@/lib/utils/sync-errors";
 import { FileSpreadsheet, HardDrive, Share2, AlertTriangle, Search, Filter, ShieldCheck, Check, Download } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { evaluateSharePointBaseline } from "@/lib/services/sharepoint-baseline-matcher";
 import { SHAREPOINT_BASELINE_STANDARDS } from "@/lib/data/sharepoint-baseline-definitions";
+import { SyncNoticeBanner } from "../common/SyncNoticeBanner";
 
 interface SharePointStorageModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -125,6 +126,7 @@ export const SharePointStorageModule: React.FC<SharePointStorageModuleProps> = (
       </div>
 
       <SyncErrorBanner errors={sharePointSyncErrors} title="SharePoint sync error - data below may be stale" />
+      <SyncNoticeBanner notices={getSyncNoticesForPrefixes(snapshot, ["SharePoint:", "SharePoint Sites:", "SharePoint Settings:"])} />
 
       {/* Tenant-Wide Sharing Policy Configuration Card */}
       <div className="border border-[#CBD5E1] dark:border-slate-700 bg-white dark:bg-slate-800 p-4 rounded-sm shadow-xs space-y-3">

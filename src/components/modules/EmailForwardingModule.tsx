@@ -5,8 +5,9 @@ import { Modal } from "../common/Modal";
 import { Share2, AlertTriangle, ShieldAlert, Search, Filter, Terminal, Shield, ArrowRight, Download, Wrench, ExternalLink } from "lucide-react";
 import { exportToCsv, csvFilename } from "@/lib/utils/csv";
 import { SyncErrorBanner } from "../common/SyncErrorBanner";
-import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
+import { getSyncErrorsForPrefixes, getSyncNoticesForPrefixes } from "@/lib/utils/sync-errors";
 import { canWriteToExchange, getExchangeAccess } from "@/lib/utils/exchange-access";
+import { SyncNoticeBanner } from "../common/SyncNoticeBanner";
 
 interface EmailForwardingModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -142,6 +143,7 @@ export const EmailForwardingModule: React.FC<EmailForwardingModuleProps> = ({
       </div>
 
       <SyncErrorBanner errors={emailForwardingSyncErrors} title="Exchange Online sync error - data below may be stale" />
+      <SyncNoticeBanner notices={getSyncNoticesForPrefixes(snapshot, ["Mailflow:"])} />
 
       {/* Critical Alert Banner if External Rules Found */}
       {criticalCount > 0 && (

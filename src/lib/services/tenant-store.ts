@@ -89,6 +89,7 @@ import {
 import { mapEntryTypeToListType } from "./mdo-mapper";
 import { MDO_BASELINE_STANDARDS } from "../data/mdo-baseline-definitions";
 import { MAILFLOW_BASELINE_STANDARDS } from "../data/mailflow-baseline-definitions";
+import { singleFlight, singleFlightAfterCurrent } from "../utils/single-flight";
 
 interface AuthConfigRow {
   passwordHash: string;
@@ -178,6 +179,15 @@ if (!syncProgressCacheGlobal.clarity365SyncProgress) {
   syncProgressCacheGlobal.clarity365SyncProgress = new Map<string, SyncProgressState>();
 }
 const syncProgressCache = syncProgressCacheGlobal.clarity365SyncProgress;
+
+// Syncs currently running, per tenant (see TenantStore.syncTenant). Same
+// globalThis pattern so a dev-mode hot reload doesn't lose track of them.
+interface InFlightSyncGlobal {
+  clarity365InFlightSyncs?: Map<string, Promise<SyncResult | undefined>>;
+}
+const inFlightSyncGlobal = globalThis as unknown as InFlightSyncGlobal;
+if (!inFlightSyncGlobal.clarity365InFlightSyncs) inFlightSyncGlobal.clarity365InFlightSyncs = new Map();
+const inFlightSyncs = inFlightSyncGlobal.clarity365InFlightSyncs;
 
 // Exported so the sync-progress API route can read it without needing a
 // TenantStore instance method for what is, deliberately, not persisted
@@ -678,10 +688,22 @@ class TenantStore {
     return snapshot ? this.sanitizeSnapshot(snapshot) : undefined;
   }
 
-  public async syncTenant(
-    tenantId: string,
-    source: "manual" | "scheduled" = "manual"
-  ): Promise<SyncResult | undefined> {
+  // One sync per tenant at a time. A second request while one is running
+  // (a manual click during "Sync all", or the auto-sync reaching a tenant
+  // someone just synced) joins the running sync and gets its result,
+  // instead of starting a second one that would race it to save.
+  public syncTenant(tenantId: string, source: "manual" | "scheduled" = "manual"): Promise<SyncResult | undefined> {
+    return singleFlight(inFlightSyncs, tenantId, () => this.startSync(tenantId, source));
+  }
+
+  // For re-syncs right after Clarity365 changed something in the tenant
+  // (a deploy, a TABL entry): a sync already running started before the
+  // change and can't show it, so wait for it to finish and then sync again.
+  private syncTenantAfterChange(tenantId: string): Promise<SyncResult | undefined> {
+    return singleFlightAfterCurrent(inFlightSyncs, tenantId, () => this.startSync(tenantId, "manual"));
+  }
+
+  private async startSync(tenantId: string, source: "manual" | "scheduled"): Promise<SyncResult | undefined> {
     const tenant = this.getTenantWithDecryptedSecret(tenantId);
     if (!tenant) return undefined;
     const existing = this.getSnapshotRow(tenantId);
@@ -1436,7 +1458,7 @@ class TenantStore {
       });
       if (!result.success) return { success: false, error: result.error };
 
-      const syncResult = await this.syncTenant(tenantId);
+      const syncResult = await this.syncTenantAfterChange(tenantId);
       const created = syncResult?.snapshot?.mdoThreat.tabl.find((e) => e.value === entry.value);
       return { success: true, entry: created };
     }
@@ -1482,7 +1504,7 @@ class TenantStore {
       });
       if (!result.success) return { success: false, error: result.error };
 
-      await this.syncTenant(tenantId);
+      await this.syncTenantAfterChange(tenantId);
       return { success: true };
     }
 
@@ -1556,7 +1578,7 @@ class TenantStore {
 
     if (!result.success) return { success: false, error: result.error };
 
-    await this.syncTenant(tenantId);
+    await this.syncTenantAfterChange(tenantId);
     return { success: true };
   }
 
@@ -1591,7 +1613,7 @@ class TenantStore {
     });
 
     if (!result.success) return { success: false, error: result.error };
-    await this.syncTenant(tenantId);
+    await this.syncTenantAfterChange(tenantId);
     return { success: true };
   }
 
@@ -1643,7 +1665,7 @@ class TenantStore {
     });
 
     if (!result.success) return { success: false, error: result.error };
-    await this.syncTenant(tenantId);
+    await this.syncTenantAfterChange(tenantId);
     return { success: true };
   }
 
@@ -1670,7 +1692,7 @@ class TenantStore {
     });
 
     if (!result.success) return { success: false, error: result.error };
-    await this.syncTenant(tenantId);
+    await this.syncTenantAfterChange(tenantId);
     return { success: true };
   }
 
@@ -1735,7 +1757,7 @@ class TenantStore {
     });
 
     if (!result.success) return { success: false, error: result.error };
-    await this.syncTenant(tenantId);
+    await this.syncTenantAfterChange(tenantId);
     return { success: true };
   }
 

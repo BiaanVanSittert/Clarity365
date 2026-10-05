@@ -43,6 +43,9 @@ Two new tables for [[Audit Log Investigator]] - `ual_imports` (one row per uploa
 ## Exchange access and write gates
 All Exchange write actions (TABL, MDO/mailflow fixes, delegation removal, forwarding, mailbox auditing) are gated by `canWriteToExchange()` (`exchange-access.ts`): the write switch **and** access that can write. `testExoConnectivity()` saves the app-only status on the tenant row (`credentials.exoAppAccess`), and `updateTenant()` drops the cached app-only check when credentials change. See [[Exchange App-Only Access Plan]].
 
+## One sync per tenant (2026-10-05)
+`syncTenant()` runs through `singleFlight` (`src/lib/utils/single-flight.ts`): a second request for a tenant that is already syncing (a manual click during Sync all, or the auto-sync) joins the running sync and gets its result. The seven internal re-syncs after a change (deploys, TABL, fixes) use `syncTenantAfterChange()`, which waits for any running sync and then starts a fresh one, because a sync that began before the change can't show it.
+
 ## Scenario confirmations
 `setScenarioConfirmation(id, key, value | null)` writes `Tenant.scenarioConfirmations` to the tenant row and the snapshot's embedded tenant in one transaction, without touching `lastSyncTimestamp`. `runSync` copies the row's latest confirmations onto the fresh snapshot so one saved mid-sync isn't lost. See [[Security Scenarios]].
 

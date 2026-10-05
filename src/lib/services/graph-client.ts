@@ -38,6 +38,7 @@ import {
 import { applyLicenseAwareStatus, PERMISSION_LICENSE_REQUIREMENT } from "./permission-license-check";
 import { GRAPH_PERMISSIONS, isPermissionGrantedByRoles } from "../data/graph-permissions";
 import { resolveSyncErrors } from "../utils/sync-permission-errors";
+import { splitSyncLimitNotices } from "../utils/sync-errors";
 import { SIGN_IN_WINDOW_DAYS, computeSignInCoverage } from "../utils/sign-in-coverage";
 import { mapSignInAuthentication } from "../utils/sign-in-authentication";
 import { resolveOwnAppSecretExpiry } from "../utils/credential-expiry";
@@ -3307,9 +3308,12 @@ export async function fetchLiveTenantSnapshot(
   // carries: a required permission becomes one plain "grant X" line, a
   // declined optional one isn't an error at all (see sync-permission-errors.ts).
   const resolvedErrors = resolveSyncErrors(syncErrors, decodeAppRolesFromToken(token));
+  // Deliberate caps (first 250 groups/sites/mailboxes) are notices, not errors.
+  const { errors: realErrors, notices: limitNotices } = splitSyncLimitNotices(resolvedErrors.errors);
   const syncHealth: SyncHealth = {
-    isPartial: resolvedErrors.errors.length > 0,
-    errors: resolvedErrors.errors,
+    isPartial: realErrors.length > 0,
+    errors: realErrors,
+    notices: limitNotices,
     missingPermissions: resolvedErrors.missingPermissions,
     lastAttemptAt: new Date().toISOString(),
   };

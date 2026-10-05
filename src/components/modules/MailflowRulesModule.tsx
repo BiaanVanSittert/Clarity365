@@ -3,11 +3,12 @@ import { TenantSecuritySnapshot } from "@/lib/types";
 import { StatusPill } from "../common/StatusPill";
 import { Modal } from "../common/Modal";
 import { SyncErrorBanner } from "../common/SyncErrorBanner";
-import { getSyncErrorsForPrefixes } from "@/lib/utils/sync-errors";
+import { getSyncErrorsForPrefixes, getSyncNoticesForPrefixes } from "@/lib/utils/sync-errors";
 import { evaluateMailflowBaseline } from "@/lib/services/mailflow-baseline-matcher";
 import { MAILFLOW_BASELINE_STANDARDS } from "@/lib/data/mailflow-baseline-definitions";
 import { GitBranch, AlertTriangle, Wrench, ExternalLink, Mail } from "lucide-react";
 import { canWriteToExchange, getExchangeAccess } from "@/lib/utils/exchange-access";
+import { SyncNoticeBanner } from "../common/SyncNoticeBanner";
 
 interface MailflowRulesModuleProps {
   snapshot: TenantSecuritySnapshot;
@@ -206,6 +207,7 @@ export const MailflowRulesModule: React.FC<MailflowRulesModuleProps> = ({
         ) : (
           <>
             <SyncErrorBanner errors={mailflowSyncErrors} title="Exchange Online sync error" className="m-3" />
+            <SyncNoticeBanner notices={getSyncNoticesForPrefixes(snapshot, ["Mailflow:"])} className="m-3" />
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse table-dense">
                 <thead>
